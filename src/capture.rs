@@ -578,3 +578,6 @@ fn save_report(output: &Path, report: &Report) -> Result<()> {
     file.sync_all()?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

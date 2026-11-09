@@ -199,6 +199,11 @@ fn field(dt: Node<'_, '_>, owner: Node<'_, '_>, name: String, bit_offset: u16) -
     };
     let scale = owner.attribute("gradient").unwrap_or("1").parse()?;
     let offset = owner.attribute("offset").unwrap_or("0").parse()?;
+    let decimals = owner
+        .attribute("displayFormat")
+        .and_then(|format| format.strip_prefix("Dec."))
+        .map(str::parse)
+        .transpose()?;
     // Common unit codes from IO-Link Standard Unit Definitions V1.1.9.
     let unit = owner
         .attribute("unitCode")
@@ -241,6 +246,7 @@ fn field(dt: Node<'_, '_>, owner: Node<'_, '_>, name: String, bit_offset: u16) -
         scale,
         offset,
         unit,
+        decimals,
         ..Field::default()
     })
 }

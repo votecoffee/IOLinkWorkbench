@@ -29,12 +29,13 @@ pub fn run() -> eframe::Result {
         "IO-Link Workbench",
         options,
         Box::new(|cc| {
-            let mut style = (*cc.egui_ctx.style()).clone();
+            cc.egui_ctx.set_theme(egui::Theme::Dark);
+            let mut style = (*cc.egui_ctx.style_of(egui::Theme::Dark)).clone();
             style.spacing.item_spacing = egui::vec2(10.0, 8.0);
             style.visuals = egui::Visuals::dark();
             style.visuals.panel_fill = Color32::from_rgb(22, 28, 35);
             style.visuals.selection.bg_fill = Color32::from_rgb(43, 89, 88);
-            cc.egui_ctx.set_style(style);
+            cc.egui_ctx.set_style_of(egui::Theme::Dark, style);
             Ok(Box::new(App::new()))
         }),
     )
@@ -168,6 +169,13 @@ impl App {
     fn update_workers(&mut self, ctx: &Context) {
         if let Some(live) = self.queue.pop() {
             self.live = live;
+            if self.live.connected {
+                match self.message.as_str() {
+                    "Connecting…" => self.message = "Monitoring".into(),
+                    "Starting capture…" => self.message = "Capturing".into(),
+                    _ => {}
+                }
+            }
         }
         if let Some(result) = completed(&mut self.worker) {
             if let Some(live) = self.queue.pop() {

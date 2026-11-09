@@ -22,6 +22,7 @@ bit_offset = 1
 bits = 15
 kind = "signed"
 scale = 0.1
+decimals = 1
 unit = "mm"
 
 [[fields]]

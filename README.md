@@ -16,7 +16,7 @@ Read and log one IO-Link sensor on one configured port from a portable Windows x
 
 Extract the Windows x64 ZIP into a writable folder. Open **iolink-workbench.exe** for the desktop app or run **iolink-cli.exe** in PowerShell. The package uses the static MSVC C runtime and Windows system libraries. The GUI uses the machine's OpenGL graphics driver. The preview targets Windows 10/11 x64.
 
-To build from source, install stable x64 MSVC Rust, the Visual Studio C++ Build Tools, and a Windows SDK. Run:
+To build from source, install stable x64 MSVC Rust, the Visual Studio C++ Build Tools, and a Windows SDK. Build from the repository root.
 
 ~~~powershell
 cargo build --locked --release --target x86_64-pc-windows-msvc
@@ -28,7 +28,7 @@ In the GUI, use **Setup** to load, edit, and save a named TOML profile. The prof
 
 Use **Monitor & CSV** to inspect the configured port or start a capture in a new directory. **Stop and flush** drains the writer. Use **Offline decode** to paste a hexadecimal input and view the same raw and typed fields without a connection.
 
-From the extracted package folder:
+Run these examples from the extracted package folder.
 
 ~~~powershell
 New-Item -ItemType Directory -Force .local
@@ -41,11 +41,11 @@ New-Item -ItemType Directory -Force .local
 
 **IODD scope.** The importer accepts UTF-8 or BOM-tagged UTF-16 IODD 1.1 XML and ZIP bundles. ZIP imports select a unique main IODD by filename or accept an exact member with **--entry**. Use **--variant** when the IODD lists several product IDs and **--layout** for multiple or conditional input layouts. For conditional physical captures, set **confirm_iodd_condition = true** after verifying the active condition on the sensor. The importer supports scalar signed and unsigned integers, Boolean and Float32, including those fields in an input record. It resolves local datatype references, primary-language names, process-input display scaling, and common standard unit codes. Unsupported fields, unknown unit codes, and conditions appear for review. External language files, profile snippets, arrays, and full schema validation are roadmap items.
 
-**Manual mapping.** Set **input_bytes** to the exact input width. Each **[[fields]]** table describes a value with a name, bit offset, width, kind, byte order, scale, offset, and unit. Bit zero is the least significant bit of the last payload byte for big endian, or the first payload byte for little endian. The decoded value is **raw × scale + offset**. A field with the same name as an imported field replaces its mapping. Set **logging.fields** to an ordered list of effective names or leave it empty to log all mapped fields. The raw payload is always included in CSV.
+**Manual mapping.** Set **input_bytes** to the exact input width. Each **[[fields]]** table describes a value with a name, bit offset, width, kind, byte order, scale, offset, and unit. Bit zero is the least significant bit of the last payload byte for big endian, or the first payload byte for little endian. The decoded value is **raw × scale + offset**. Optional **decimals** controls the decimal places in the typed display and CSV. A field with the same name as an imported field replaces its mapping. Set **logging.fields** to an ordered list of effective names or leave it empty to log all mapped fields. The raw payload is always included in CSV.
 
 ## AL1350 bench setup
 
-The adapter follows ifm's AL1350 IoT Core contract for the 3.1.x firmware documentation. It uses the Windows HTTP/TLS stack through Rust libraries and requires no ifm SDK, driver, moneo runtime, or application license key for the implemented requests. The AL1350 model and actual firmware are read at connection. This adapter has passed a loopback contract fixture. Hardware and individual firmware revisions await bench qualification. [ifm product data](https://www.ifm.com/gb/en/product/AL1350?tab=documents) · [ifm AL1350 operating instructions, 80284128/03](https://www.quicktimeonline.com/assets/images/pdf/IFM%20Electronic/operating-instruction-AL1350.pdf)
+The adapter follows ifm's AL1350 IoT Core contract for the 3.1.x firmware documentation. It uses a Rust HTTP client and the Windows Schannel TLS backend and requires no ifm SDK, driver, moneo runtime, or application license key for the implemented requests. The AL1350 model and actual firmware are read at connection. This adapter has passed a loopback contract fixture. Hardware and individual firmware revisions await bench qualification. [ifm product data](https://www.ifm.com/gb/en/product/AL1350?tab=documents) · [ifm AL1350 operating instructions, 80284128/03](https://www.quicktimeonline.com/assets/images/pdf/IFM%20Electronic/operating-instruction-AL1350.pdf)
 
 1. Copy [the AL1350 template](samples/ifm-al1350.toml) to **.local/**. Enter the Ethernet IoT endpoint, an already configured IO-Link port, the sensor's input width, and its mapping or imported IODD. Set an exact **ifm_firmware** pin once you know the version.
 2. Confirm the port mode in the existing gateway setup. If the endpoint reports a numeric mode, set **ifm_mode** to the confirmed IO-Link mode code. The application checks the mode and reads the connected device's numeric IDs before sampling. Pin the expected IDs, and optionally product name or serial, to reject mismatches.
@@ -76,6 +76,8 @@ See the [roadmap](ROADMAP.md) for physical acceptance.
 [votecoffee](https://github.com/votecoffee)
 
 ## Contributing
+
+Build a portable ZIP from a clean checkout with **python tools/package_windows.py .local/dist**. Packaging checks the two PE subsystems and static C runtime imports, includes the dependency notices, and writes the archive SHA-256.
 
 Run **cargo test --locked**, **cargo clippy --locked --all-targets -- -D warnings**, and **python tools/verify_headless.py target/x86_64-pc-windows-msvc/release/iolink-cli.exe** after building. The headless suite covers synthetic source updates and an AL1350 JSON fixture on loopback. It keeps generated profiles, ZIP fixtures, reports and CSV under ignored **.local/**. Keep vendor IODDs, installed configuration, and raw bench captures there too.
 

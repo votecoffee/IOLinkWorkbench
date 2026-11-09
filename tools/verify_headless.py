@@ -4,6 +4,7 @@ import argparse
 import csv
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 from pathlib import Path
 import subprocess
 import threading
@@ -83,6 +84,7 @@ def run(cli, *args, expected=0):
     result = subprocess.run(
         [str(cli), *map(str, args)], cwd=ROOT, capture_output=True, text=True,
         encoding="utf-8", timeout=30, check=False,
+        env={k: v for k, v in os.environ.items() if k.upper() != "IOLINK_IFM_PASSWORD"},
     )
     assert result.returncode == expected, (args, result.returncode, result.stdout, result.stderr)
     return result.stdout

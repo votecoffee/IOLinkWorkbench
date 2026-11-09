@@ -32,6 +32,7 @@ pub struct Field {
     pub scale: f64,
     pub offset: f64,
     pub unit: String,
+    pub decimals: Option<u8>,
 }
 
 impl Default for Field {
@@ -45,6 +46,7 @@ impl Default for Field {
             scale: 1.0,
             offset: 0.0,
             unit: String::new(),
+            decimals: None,
         }
     }
 }
@@ -93,6 +95,12 @@ impl Field {
             "{}: bool does not support scaling",
             self.name
         );
+        ensure!(
+            self.decimals
+                .is_none_or(|places| places <= 12 && self.kind != Kind::Bool),
+            "{}: decimals must be 0–12 on a numeric field",
+            self.name
+        );
         Ok(())
     }
 
@@ -125,10 +133,18 @@ impl Field {
                 (number.to_string(), f64::from(number))
             }
         };
-        let value = if self.scale == 1.0 && self.offset == 0.0 {
-            raw.clone()
-        } else {
-            (number * self.scale + self.offset).to_string()
+        let unscaled = self.scale == 1.0 && self.offset == 0.0;
+        let value = match self.decimals.map(usize::from) {
+            None if unscaled => raw.clone(),
+            None => (number * self.scale + self.offset).to_string(),
+            Some(places) if unscaled && matches!(self.kind, Kind::Signed | Kind::Unsigned) => {
+                if places == 0 {
+                    raw.clone()
+                } else {
+                    format!("{raw}.{}", "0".repeat(places))
+                }
+            }
+            Some(places) => format!("{:.places$}", number * self.scale + self.offset),
         };
         Ok(Value {
             bits_hex: format!("{bits:X}"),
