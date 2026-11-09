@@ -1,0 +1,112 @@
+use super::{Freshness, Input, InputTransport, Payload, Status, Validity};
+use crate::profile::{Identity, Profile};
+use anyhow::{Result, bail};
+use std::time::Instant;
+
+const SOURCE_PERIOD_US: u64 = 1000;
+
+pub struct Simulator {
+    port: u8,
+    width: usize,
+    faults: bool,
+    snapshots: bool,
+    epoch: Instant,
+    polls: u64,
+    frozen_at: u64,
+}
+
+impl Simulator {
+    pub fn new(profile: &Profile, faults: bool) -> Self {
+        Self {
+            port: profile.connection.port,
+            width: profile.input_bytes,
+            faults,
+            snapshots: profile.connection.simulate_snapshots,
+            epoch: Instant::now(),
+            polls: 0,
+            frozen_at: 0,
+        }
+    }
+}
+
+impl InputTransport for Simulator {
+    fn connect(&mut self) -> Result<Status> {
+        self.epoch = Instant::now();
+        Ok(Status {
+            route: "synthetic simulator",
+            model: "Simulated IO-Link master".into(),
+            firmware: "synthetic-1".into(),
+            master_serial: None,
+            port: self.port,
+            port_mode: "IO-Link".into(),
+            device_status: Some("Operate".into()),
+            port_event: None,
+            device_event: None,
+            port_cycle_raw: Some("1000 us (simulated)".into()),
+            port_cycle_us: Some(SOURCE_PERIOD_US),
+            identity: Identity {
+                vendor_id: Some(65535),
+                device_id: Some(1),
+                product_id: Some("SIM-SENSOR".into()),
+                product_name: Some("Simulated level sensor".into()),
+                serial: Some("SIM-0001".into()),
+            },
+            freshness: if self.snapshots {
+                Freshness::Snapshots
+            } else {
+                Freshness::Counter32
+            },
+        })
+    }
+
+    fn poll(&mut self) -> Result<Input> {
+        self.polls += 1;
+        if self.faults && self.polls == 91 {
+            bail!("simulated connection loss");
+        }
+        let received = Instant::now();
+        let now = received.duration_since(self.epoch).as_micros() as u64;
+        let mut source_time = now / SOURCE_PERIOD_US * SOURCE_PERIOD_US;
+        if self.faults {
+            match self.polls {
+                20 => self.frozen_at = source_time,
+                21..=39 => source_time = self.frozen_at,
+                _ => {}
+            }
+        }
+        let count = source_time / SOURCE_PERIOD_US;
+        let level = (count / 5 % 200) as i16 - 100;
+        let value = ((level << 1) | ((count / 25 % 2) as i16)).to_be_bytes();
+        let mut raw = [0; crate::decode::MAX_INPUT];
+        if self.width == 1 {
+            raw[0] = value[1];
+        } else {
+            raw[self.width - 2..self.width].copy_from_slice(&value);
+        }
+        let invalid = self.faults && (55..=60).contains(&self.polls);
+        Ok(Input {
+            received,
+            payload: Payload::new(&raw[..self.width])?,
+            validity: if invalid {
+                Validity::Invalid
+            } else {
+                Validity::Valid
+            },
+            counter: (!self.snapshots).then_some(count as u32),
+            source_time_us: (!self.snapshots).then_some(source_time),
+            source_age_us: (!self.snapshots).then_some(now - source_time),
+            diagnostic_code: invalid.then_some(530),
+        })
+    }
+}
+
+pub fn read_isdu(index: u16, subindex: u8) -> Result<Vec<u8>> {
+    match (index, subindex) {
+        (18, 0) => Ok(b"Simulated level sensor".to_vec()),
+        (19, 0) => Ok(b"SIM-SENSOR".to_vec()),
+        (21, 0) => Ok(b"SIM-0001".to_vec()),
+        _ => {
+            bail!("simulator only defines product name (18:0), product ID (19:0) and serial (21:0)")
+        }
+    }
+}

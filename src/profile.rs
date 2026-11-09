@@ -59,6 +59,9 @@ pub enum Gateway {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Connection {
+    pub ifm_mode: Option<u8>,
+    pub ifm_firmware: String,
+    pub ifm_cycle_unit: Option<CycleUnit>,
     pub gateway: Gateway,
     pub port: u8,
     pub endpoint: String,
@@ -73,6 +76,9 @@ impl Default for Connection {
     fn default() -> Self {
         Self {
             gateway: Gateway::Simulator,
+            ifm_mode: None,
+            ifm_firmware: String::new(),
+            ifm_cycle_unit: None,
             port: 1,
             endpoint: String::new(),
             poll_us: 1000,
@@ -120,6 +126,7 @@ pub struct Imported {
     pub source: String,
     pub variant: String,
     pub layout: String,
+    pub condition: Option<String>,
     pub input_bytes: usize,
     #[serde(default)]
     pub needs_input: Vec<String>,
@@ -136,7 +143,9 @@ pub struct Profile {
     pub expected_identity: Identity,
     pub logging: Logging,
     pub iodd: Option<Imported>,
+    pub confirm_iodd_condition: bool,
     /// With an IODD, matching names replace imported fields and new names add fields.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub fields: Vec<Field>,
 }
 
@@ -150,6 +159,7 @@ impl Default for Profile {
             expected_identity: Identity::default(),
             logging: Logging::default(),
             iodd: None,
+            confirm_iodd_condition: false,
             fields: Vec::new(),
         }
     }
@@ -278,4 +288,11 @@ impl Profile {
             .map(|(field, origin)| Ok((field, origin, field.decode(payload)?)))
             .collect()
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CycleUnit {
+    Microseconds,
+    Milliseconds,
 }

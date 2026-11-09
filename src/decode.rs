@@ -147,7 +147,7 @@ pub fn parse_hex(text: &str) -> Result<Vec<u8>> {
     if clean.is_empty()
         || clean.len() > MAX_INPUT * 2
         || !clean.len().is_multiple_of(2)
-        || !clean.is_ascii()
+        || !clean.bytes().all(|byte| byte.is_ascii_hexdigit())
     {
         bail!("enter 1–{MAX_INPUT} bytes as pairs of hexadecimal digits");
     }

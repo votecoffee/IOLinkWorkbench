@@ -1,0 +1,26 @@
+version = 1
+name = "AL1350 bench template"
+# Set the actual input width before capturing. Add an IODD layout or manual fields.
+input_bytes = 2
+
+[connection]
+gateway = "ifm_al1350"
+port = 1
+endpoint = ""
+poll_us = 20000
+timeout_ms = 1000
+reconnect_ms = 500
+# ifm_mode = <confirmed numeric IO-Link mode code>
+# ifm_firmware = "<installed firmware revision>"
+# ifm_cycle_unit = "microseconds"
+
+[expected_identity]
+# vendor_id = <connected sensor vendor ID>
+# device_id = <connected sensor device ID>
+# product_id = "<selected IODD Product ID>"
+
+[logging]
+mode = "every_update"
+queue_capacity = 8192
+rotate_rows = 0
+rotate_seconds = 0

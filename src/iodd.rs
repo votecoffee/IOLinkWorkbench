@@ -78,6 +78,7 @@ impl Catalog {
                 source: self.source.clone(),
                 variant: variant.product_id.clone(),
                 layout: layout.id.clone(),
+                condition: layout.condition.clone(),
                 input_bytes: layout.input_bytes,
                 needs_input,
                 fields: layout.fields.clone(),
@@ -127,12 +128,14 @@ pub fn load(path: &Path, entry: Option<&str>) -> Result<Catalog> {
             ensure!(body.len().is_multiple_of(2), "truncated UTF-16 XML");
             let little = bytes[0] == 0xFF;
             let units: Vec<_> = body
-                .chunks_exact(2)
-                .map(|p| {
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|&p| {
                     if little {
-                        u16::from_le_bytes([p[0], p[1]])
+                        u16::from_le_bytes(p)
                     } else {
-                        u16::from_be_bytes([p[0], p[1]])
+                        u16::from_be_bytes(p)
                     }
                 })
                 .collect();
@@ -196,10 +199,39 @@ fn field(dt: Node<'_, '_>, owner: Node<'_, '_>, name: String, bit_offset: u16) -
     };
     let scale = owner.attribute("gradient").unwrap_or("1").parse()?;
     let offset = owner.attribute("offset").unwrap_or("0").parse()?;
-    // A unit code is retained as a code until a human resolves it using the standard unit table.
+    // Common unit codes from IO-Link Standard Unit Definitions V1.1.9.
     let unit = owner
         .attribute("unitCode")
-        .map(|code| format!("IODD unit {code}"))
+        .map(|code| {
+            match code {
+                "1000" => "K",
+                "1001" => "°C",
+                "1002" => "°F",
+                "1005" => "°",
+                "1010" => "m",
+                "1012" => "cm",
+                "1013" => "mm",
+                "1014" => "µm",
+                "1019" => "in",
+                "1038" => "L",
+                "1054" => "s",
+                "1056" => "ms",
+                "1057" => "µs",
+                "1061" => "m/s",
+                "1077" => "Hz",
+                "1085" => "rpm",
+                "1130" => "Pa",
+                "1133" => "kPa",
+                "1137" => "bar",
+                "1209" => "A",
+                "1211" => "mA",
+                "1240" => "V",
+                "1342" => "%",
+                "1352" => "L/min",
+                _ => return format!("IODD unit {code}"),
+            }
+            .to_owned()
+        })
         .unwrap_or_default();
     Ok(Field {
         name,
@@ -259,6 +291,13 @@ pub fn parse(xml: &str, source: String) -> Result<Catalog> {
         .filter(|node| node.has_tag_name((IODD_NAMESPACE, "Datatype")))
         .filter_map(|node| Some((node.attribute("id")?, node)))
         .collect();
+    let display_refs = child(function, "UserInterface")
+        .and_then(|ui| child(ui, "ProcessDataRefCollection"))
+        .into_iter()
+        .flat_map(|refs| refs.children())
+        .filter(|node| node.has_tag_name((IODD_NAMESPACE, "ProcessDataRef")))
+        .filter_map(|node| Some((node.attribute("processDataId")?, node)))
+        .collect::<HashMap<_, _>>();
     let mut layouts = Vec::new();
     for process in child(function, "ProcessDataCollection")
         .into_iter()
@@ -295,6 +334,7 @@ pub fn parse(xml: &str, source: String) -> Result<Catalog> {
             needs_input: Vec::new(),
         };
         let dt = datatype(input, &types);
+        let display = display_refs.get(id).copied();
         let mut add = |name: String, result: Result<Field>| {
             let result = result.and_then(|field| {
                 field.validate(layout.input_bytes)?;
@@ -306,7 +346,7 @@ pub fn parse(xml: &str, source: String) -> Result<Catalog> {
             });
             match result {
                 Ok(field) => {
-                    if !field.unit.is_empty() {
+                    if field.unit.starts_with("IODD unit ") {
                         layout
                             .needs_input
                             .push(format!("{name}: resolve {} to a unit symbol", field.unit));
@@ -338,15 +378,30 @@ pub fn parse(xml: &str, source: String) -> Result<Catalog> {
                             .attribute("bitOffset")
                             .context("missing bitOffset")?
                             .parse()?;
-                        field(datatype(item, &types)?, item, name, bit_offset)
+                        let info = display
+                            .and_then(|reference| {
+                                reference.children().find(|node| {
+                                    node.has_tag_name((IODD_NAMESPACE, "ProcessDataRecordItemInfo"))
+                                        && node.attribute("subindex") == Some(subindex)
+                                })
+                            })
+                            .unwrap_or(item);
+                        field(datatype(item, &types)?, info, name, bit_offset)
                     })(),
                 );
             }
         } else {
             let name = label(input, &texts, id);
-            add(name.clone(), dt.and_then(|dt| field(dt, input, name, 0)));
+            let info = display
+                .and_then(|reference| child(reference, "ProcessDataInfo"))
+                .unwrap_or(input);
+            add(name.clone(), dt.and_then(|dt| field(dt, info, name, 0)));
         }
-        if layout.fields.iter().any(|field| field.unit.is_empty()) {
+        if layout
+            .fields
+            .iter()
+            .any(|field| field.kind != Kind::Bool && field.unit.is_empty())
+        {
             layout.needs_input.push(
                 "Review engineering units and scaling where the IODD has no display metadata"
                     .into(),

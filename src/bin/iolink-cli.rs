@@ -1,7 +1,12 @@
-use anyhow::Result;
+use anyhow::{Result, ensure};
 use clap::{Parser, Subcommand};
-use iolink_workbench::{decode, iodd, profile::Profile};
-use std::path::PathBuf;
+use iolink_workbench::{
+    capture::{self, Options, Stop},
+    decode, iodd,
+    profile::Profile,
+    transport,
+};
+use std::{path::PathBuf, time::Duration};
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -33,6 +38,32 @@ enum Command {
     Validate { profile: PathBuf },
     /// Decode a hexadecimal process input without a gateway.
     Decode { profile: PathBuf, payload: String },
+    /// Read master, firmware, port, and connected identity.
+    Status {
+        profile: PathBuf,
+        #[arg(long)]
+        verify_product_id: bool,
+    },
+    /// Read one explicit acyclic ISDU parameter using a separate client.
+    Isdu {
+        profile: PathBuf,
+        index: u16,
+        #[arg(default_value_t = 0)]
+        subindex: u8,
+    },
+    /// Capture a single port to a new directory and write a timing report.
+    Capture {
+        profile: PathBuf,
+        output: PathBuf,
+        #[arg(long, default_value_t = 10.0)]
+        seconds: f64,
+        #[arg(long)]
+        simulate_faults: bool,
+        #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u64).range(0..=100))]
+        simulate_writer_delay_ms: u64,
+        #[arg(long)]
+        queue_capacity: Option<usize>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -81,6 +112,69 @@ fn main() -> Result<()> {
                     field.offset,
                     field.unit
                 );
+            }
+        }
+        Command::Status {
+            profile,
+            verify_product_id,
+        } => {
+            let profile = Profile::load(&profile)?;
+            let (mut status, mut check) = capture::probe(&profile)?;
+            if verify_product_id {
+                status.identity.product_id = Some(transport::verify_product_id(&profile)?);
+                check = profile.expected_identity.verify(&status.identity)?;
+            }
+            println!("identity_check = {check:?}");
+            print!("{}", toml::to_string_pretty(&status)?);
+        }
+        Command::Isdu {
+            profile,
+            index,
+            subindex,
+        } => {
+            let bytes = transport::read_isdu(&Profile::load(&profile)?, index, subindex)?;
+            println!("hex = {:?}", decode::hex(&bytes));
+            if let Ok(text) = std::str::from_utf8(&bytes) {
+                println!("utf8 = {text:?}");
+            }
+        }
+        Command::Capture {
+            profile,
+            output,
+            seconds,
+            simulate_faults,
+            simulate_writer_delay_ms,
+            queue_capacity,
+        } => {
+            ensure!(
+                seconds.is_finite() && (0.01..=86400.0).contains(&seconds),
+                "--seconds must be 0.01–86400"
+            );
+            let mut profile = Profile::load(&profile)?;
+            if let Some(capacity) = queue_capacity {
+                profile.logging.queue_capacity = capacity;
+            }
+            let stop = Stop::default();
+            let interrupt = stop.clone();
+            ctrlc::set_handler(move || interrupt.request())?;
+            let report = capture::run(
+                &profile,
+                &Options {
+                    output: Some(output),
+                    duration: Some(Duration::from_secs_f64(seconds)),
+                    simulate_faults,
+                    simulated_writer_delay: Duration::from_millis(simulate_writer_delay_ms),
+                },
+                &stop,
+                None,
+            )?;
+            print!("{}", toml::to_string_pretty(&report)?);
+            ensure!(
+                report.success(),
+                "capture ended with a transport or writer error; see the report"
+            );
+            if report.stopped_by_request {
+                std::process::exit(130);
             }
         }
         Command::Decode { profile, payload } => {
