@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<IODevice xmlns="http://www.io-link.com/IODD/2010/10" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <!-- Synthetic parser fixture, with no associated physical sensor. -->
+  <ProfileBody>
+    <DeviceIdentity vendorId="65535" deviceId="1">
+      <DeviceVariantCollection>
+        <DeviceVariant productId="SIM-SENSOR"><Name textId="sensor"/></DeviceVariant>
+        <DeviceVariant productId="SIM-ALT"><Name textId="alt"/></DeviceVariant>
+      </DeviceVariantCollection>
+    </DeviceIdentity>
+    <DeviceFunction>
+      <DatatypeCollection>
+        <Datatype id="PD" xsi:type="RecordT" bitLength="16">
+          <RecordItem subindex="1" bitOffset="1">
+            <SimpleDatatype xsi:type="IntegerT" bitLength="15"/>
+            <Name textId="level"/>
+          </RecordItem>
+          <RecordItem subindex="2" bitOffset="0">
+            <SimpleDatatype xsi:type="BooleanT"/>
+            <Name textId="switch"/>
+          </RecordItem>
+        </Datatype>
+      </DatatypeCollection>
+      <ProcessDataCollection>
+        <ProcessData id="PD">
+          <ProcessDataIn id="IN" bitLength="16"><DatatypeRef datatypeId="PD"/></ProcessDataIn>
+        </ProcessData>
+      </ProcessDataCollection>
+    </DeviceFunction>
+  </ProfileBody>
+  <ExternalTextCollection>
+    <PrimaryLanguage xml:lang="en">
+      <Text id="sensor" value="Simulated level sensor"/>
+      <Text id="alt" value="Alternate simulated variant"/>
+      <Text id="level" value="level"/>
+      <Text id="switch" value="switch"/>
+    </PrimaryLanguage>
+  </ExternalTextCollection>
+</IODevice>

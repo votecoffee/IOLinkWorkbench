@@ -1,0 +1,38 @@
+[package]
+name = "iolink-workbench"
+version = "0.1.0"
+edition = "2024"
+description = "Read-only IO-Link input inspection and capture workbench"
+license = "MIT"
+repository = "https://github.com/votecoffee/IOLinkWorkbench"
+default-run = "iolink-workbench"
+
+[features]
+default = ["desktop"]
+desktop = ["dep:eframe"]
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+clap = { version = "4.5", features = ["derive"] }
+crossbeam-queue = "0.3"
+csv = "1"
+ctrlc = "3"
+eframe = { version = "0.31.1", optional = true, default-features = false, features = ["glow", "default_fonts"] }
+roxmltree = "0.20"
+serde = { version = "1", features = ["derive"] }
+tempfile = "3"
+toml = "0.8"
+zip = { version = "4", default-features = false, features = ["deflate"] }
+
+[[bin]]
+name = "iolink-workbench"
+path = "src/main.rs"
+required-features = ["desktop"]
+
+[[bin]]
+name = "iolink-cli"
+path = "src/bin/iolink-cli.rs"
+
+[profile.release]
+strip = "symbols"

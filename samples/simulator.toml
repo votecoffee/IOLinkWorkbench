@@ -1,0 +1,31 @@
+version = 1
+name = "Synthetic level sensor"
+input_bytes = 2
+
+[connection]
+gateway = "simulator"
+port = 1
+poll_us = 1000
+
+[expected_identity]
+vendor_id = 65535
+device_id = 1
+product_id = "SIM-SENSOR"
+
+[logging]
+mode = "every_update"
+fields = ["level", "switch"]
+
+[[fields]]
+name = "level"
+bit_offset = 1
+bits = 15
+kind = "signed"
+scale = 0.1
+unit = "mm"
+
+[[fields]]
+name = "switch"
+bit_offset = 0
+bits = 1
+kind = "bool"
