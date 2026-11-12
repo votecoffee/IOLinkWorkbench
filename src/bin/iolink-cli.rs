@@ -1,6 +1,7 @@
 use anyhow::{Result, ensure};
 use clap::{Parser, Subcommand};
 use iolink_workbench::{
+    archive,
     capture::{self, Options, Stop},
     decode, iodd,
     profile::Profile,
@@ -38,6 +39,12 @@ enum Command {
     Validate { profile: PathBuf },
     /// Decode a hexadecimal process input without a gateway.
     Decode { profile: PathBuf, payload: String },
+    /// Verify a finalized capture offline and optionally join its rotated CSV parts.
+    VerifyCapture {
+        directory: PathBuf,
+        #[arg(long)]
+        joined_csv: Option<PathBuf>,
+    },
     /// Read master, firmware, port, and connected identity.
     Status {
         profile: PathBuf,
@@ -68,6 +75,13 @@ enum Command {
 
 fn main() -> Result<()> {
     match Cli::parse().command {
+        Command::VerifyCapture {
+            directory,
+            joined_csv,
+        } => {
+            let summary = archive::verify(&directory, joined_csv.as_deref())?;
+            print!("{}", toml::to_string_pretty(&summary)?);
+        }
         Command::Iodd { path, entry } => print!(
             "{}",
             toml::to_string_pretty(&iodd::load(&path, entry.as_deref())?)?

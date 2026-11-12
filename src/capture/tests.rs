@@ -182,3 +182,67 @@ fn rotation_failure_stops_capture_and_reports_unconfirmed_rows() -> Result<()> {
     assert!(output.join("capture.toml").is_file());
     Ok(())
 }
+
+struct ReplacedDevice {
+    simulator: Box<dyn InputTransport>,
+    connections: u32,
+    polls: u32,
+}
+
+impl InputTransport for ReplacedDevice {
+    fn connect(&mut self) -> Result<Status> {
+        self.connections += 1;
+        let mut status = self.simulator.connect()?;
+        if self.connections > 1 {
+            status.identity.device_id = Some(2);
+            status.freshness = Freshness::Snapshots;
+        }
+        Ok(status)
+    }
+
+    fn poll(&mut self) -> Result<Input> {
+        self.polls += 1;
+        ensure!(self.polls < 3, "synthetic disconnect before replacement");
+        let mut sample = input(Some(self.polls), None);
+        sample.payload = Payload::new(&[0, self.polls as u8])?;
+        Ok(sample)
+    }
+}
+
+#[test]
+fn rejected_reconnect_does_not_replace_the_captured_device_status() -> Result<()> {
+    fs::create_dir_all(".local")?;
+    let scratch = tempfile::tempdir_in(".local")?;
+    let profile = Profile::parse(include_str!("../../samples/simulator.toml"))?;
+    let output = scratch.path().join("capture");
+    let report = run_with_transport(
+        &profile,
+        &Options {
+            output: Some(output.clone()),
+            duration: Some(Duration::from_secs(2)),
+            ..Options::default()
+        },
+        &Stop::default(),
+        None,
+        Box::new(ReplacedDevice {
+            simulator: transport::open(&profile, false)?,
+            connections: 0,
+            polls: 0,
+        }),
+    )?;
+    assert!(!report.success());
+    assert_eq!(report.csv_rows_flushed, 2);
+    assert_eq!(
+        report.last_status.as_ref().unwrap().identity.device_id,
+        Some(1)
+    );
+    assert_eq!(
+        report.rejected_status.as_ref().unwrap().identity.device_id,
+        Some(2)
+    );
+    assert_eq!(report.row_kind, Some("source_update"));
+    let summary = crate::archive::verify(&output, None)?;
+    assert_eq!(summary.rows_checked, 2);
+    assert!(summary.capture_had_error);
+    Ok(())
+}

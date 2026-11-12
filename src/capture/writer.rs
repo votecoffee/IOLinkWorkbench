@@ -1,4 +1,4 @@
-use super::{Row, fs};
+use super::{Row, csv_header, fs};
 use crate::{decode, profile::Profile, transport::Validity};
 use anyhow::{Context, Result};
 use crossbeam_queue::ArrayQueue;
@@ -80,21 +80,6 @@ impl Writer {
     }
 }
 
-const HEADER: &[&str] = &[
-    "capture_utc_start",
-    "host_elapsed_us",
-    "sample_index",
-    "generation",
-    "row_kind",
-    "validity",
-    "stale",
-    "source_counter",
-    "source_time_us",
-    "source_age_us",
-    "diagnostic_code",
-    "raw_hex",
-];
-
 struct CsvOutput {
     path: PathBuf,
     profile: Profile,
@@ -116,18 +101,7 @@ impl CsvOutput {
         let mut csv = csv::WriterBuilder::new()
             .buffer_capacity(64 * 1024)
             .from_writer(file);
-        let mut header = HEADER
-            .iter()
-            .map(|name| name.to_string())
-            .collect::<Vec<_>>();
-        header.extend(profile.log_fields().into_iter().map(|field| {
-            if field.unit.is_empty() {
-                format!("value.{}", field.name)
-            } else {
-                format!("value.{} [{}]", field.name, field.unit)
-            }
-        }));
-        csv.write_record(header)?;
+        csv.write_record(csv_header(profile))?;
         Ok(csv)
     }
 

@@ -21,6 +21,36 @@ use std::{
 mod deadline;
 mod writer;
 
+pub(crate) const CSV_METADATA: &[&str] = &[
+    "capture_utc_start",
+    "host_elapsed_us",
+    "sample_index",
+    "generation",
+    "row_kind",
+    "validity",
+    "stale",
+    "source_counter",
+    "source_time_us",
+    "source_age_us",
+    "diagnostic_code",
+    "raw_hex",
+];
+
+pub(crate) fn csv_header(profile: &Profile) -> Vec<String> {
+    let mut header = CSV_METADATA
+        .iter()
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    header.extend(profile.log_fields().into_iter().map(|field| {
+        if field.unit.is_empty() {
+            format!("value.{}", field.name)
+        } else {
+            format!("value.{} [{}]", field.name, field.unit)
+        }
+    }));
+    header
+}
+
 #[derive(Clone, Default)]
 pub struct Stop(Arc<AtomicBool>);
 
@@ -127,12 +157,14 @@ pub type LiveQueue = Arc<ArrayQueue<Live>>;
 
 #[derive(Debug, Serialize)]
 pub struct Report {
+    pub format_version: u32,
     pub profile: String,
     pub utc_start: String,
     pub elapsed_us: u64,
     pub stopped_by_request: bool,
     pub ended_connected: bool,
     pub last_status: Option<Status>,
+    pub rejected_status: Option<Status>,
     pub identity_check: Option<&'static str>,
     pub row_kind: Option<&'static str>,
     pub requested_poll_us: u64,
@@ -320,6 +352,7 @@ fn run_with_transport(
     let mut previous_key = None;
     let mut freshness_state = FreshnessState::default();
     let mut route_pin = None::<Status>;
+    let mut rejected_status = None;
     let mut last_error = None;
     let mut terminal_error = None;
     let mut last_ui = start;
@@ -355,14 +388,16 @@ fn run_with_transport(
                             Ok(check)
                         },
                     );
-                    state.status = Some(status.clone());
                     match check {
                         Ok(check) => state.identity_check = Some(check),
                         Err(error) => {
+                            rejected_status = Some(status);
+                            state.message = error.to_string();
                             terminal_error = Some(error.to_string());
                             break;
                         }
                     }
+                    state.status = Some(status.clone());
                     if state.generation != 0 {
                         state.counts.reconnects += 1;
                     }
@@ -538,12 +573,14 @@ fn run_with_transport(
     let summary = writer.map(writer::Writer::finish).unwrap_or_default();
     let freshness = state.status.as_ref().map(|status| status.freshness);
     let report = Report {
+        format_version: 1,
         profile: profile.name.clone(),
         utc_start,
         elapsed_us: us(end.duration_since(start)),
         stopped_by_request: stop.requested(),
         ended_connected: state.connected,
         last_status: state.status,
+        rejected_status,
         identity_check: state.identity_check,
         row_kind: freshness.map(Freshness::row_kind),
         requested_poll_us: profile.connection.poll_us,

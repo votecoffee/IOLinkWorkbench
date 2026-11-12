@@ -103,6 +103,11 @@ def capture(cli, profile, path, *args):
     assert len(rows) == report["csv_rows_flushed"]
     assert report["csv_rows_unconfirmed"] == 0
     assert report["counts"]["selected"] == len(rows) + report["counts"]["logger_overruns"]
+    checked = tomllib.loads(run(cli, "verify-capture", path))
+    assert checked["rows_checked"] == len(rows)
+    assert checked["missing_sample_indexes"] == report["counts"]["logger_overruns"]
+    assert checked.get("recorded_source_gaps") == report.get("source_gaps_observed")
+    assert checked["recorded_source_update_loss"] == report["source_update_loss"]
     assert len({row["capture_utc_start"] for row in rows}) == 1
     for earlier, later in zip(rows, rows[1:]):
         assert int(earlier["sample_index"]) < int(later["sample_index"])
@@ -145,6 +150,11 @@ def main():
     change, rows = capture(cli, changed, scratch / "sim-change", "--seconds", 1)
     assert change["counts"]["unchanged"] > 0 and change["csv_parts"] > 1
     assert all(a["raw_hex"] != b["raw_hex"] for a, b in zip(rows, rows[1:]))
+    joined = scratch / "changed-joined.csv"
+    checked = tomllib.loads(run(cli, "verify-capture", scratch / "sim-change", "--joined-csv", joined))
+    with joined.open(encoding="utf-8", newline="") as csv_file:
+        assert list(csv.DictReader(csv_file)) == rows
+    assert checked["csv_parts"] == change["csv_parts"]
 
     faults, rows = capture(cli, source, scratch / "sim-faults", "--seconds", 2, "--simulate-faults")
     counts = faults["counts"]
@@ -193,12 +203,15 @@ def main():
             run(cli, "capture", fixture, rejected, "--seconds", 0.5, expected=1)
             denied = tomllib.loads((rejected / "capture.toml").read_text(encoding="utf-8"))
             assert "identity mismatch" in denied["terminal_error"] and denied["counts"]["poll_attempts"] == 0
+            checked = tomllib.loads(run(cli, "verify-capture", rejected))
+            assert checked["capture_had_error"] and checked["rows_checked"] == 0
         finally:
             server.shutdown()
             thread.join()
 
     print("PASS: ZIP and variant selection, offline decoding, equal updates, on-change, rotation, "
-          "stale and invalid data, reconnect, bounded-queue loss, and read-only AL1350 loopback")
+          "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, CSV joining, "
+          "and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 
 

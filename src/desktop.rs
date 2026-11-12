@@ -13,6 +13,7 @@ use std::{
     time::Duration,
 };
 
+mod saved_capture;
 mod setup;
 
 const ACCENT: Color32 = Color32::from_rgb(111, 219, 202);
@@ -92,6 +93,7 @@ struct App {
     closing: bool,
     message: String,
     offline_hex: String,
+    saved_capture: saved_capture::Verifier,
 }
 
 impl App {
@@ -118,6 +120,7 @@ impl App {
             closing: false,
             message: String::new(),
             offline_hex: "FFF9".into(),
+            saved_capture: saved_capture::Verifier::default(),
         }
     }
 
@@ -167,6 +170,7 @@ impl App {
     }
 
     fn update_workers(&mut self, ctx: &Context) {
+        self.saved_capture.update(ctx);
         if let Some(live) = self.queue.pop() {
             self.live = live;
             if self.live.connected {
@@ -509,6 +513,8 @@ impl App {
                 ui.colored_label(WARNING, error.to_string());
             }
         }
+        ui.separator();
+        self.saved_capture.show(ui);
     }
 }
 
