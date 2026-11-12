@@ -1,6 +1,6 @@
 [package]
 name = "iolink-workbench"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 description = "Read-only IO-Link input inspection and capture workbench"
 license = "MIT"
