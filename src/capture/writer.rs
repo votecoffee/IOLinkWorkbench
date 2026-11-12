@@ -23,7 +23,6 @@ pub struct Summary {
 struct Shared {
     queue: ArrayQueue<Row>,
     stop: AtomicBool,
-    failed: AtomicBool,
 }
 
 pub struct Writer {
@@ -36,7 +35,6 @@ impl Writer {
         let shared = Arc::new(Shared {
             queue: ArrayQueue::new(profile.logging.queue_capacity),
             stop: AtomicBool::new(false),
-            failed: AtomicBool::new(false),
         });
         fs::create_dir(path)
             .with_context(|| format!("create new capture directory {}", path.display()))?;
@@ -50,9 +48,6 @@ impl Writer {
             .spawn(move || {
                 let mut output = output;
                 let result = output.consume(&worker, delay);
-                if result.is_err() {
-                    worker.failed.store(true, Ordering::Release);
-                }
                 Summary {
                     rows: output.flushed,
                     parts: output.part,
@@ -72,7 +67,7 @@ impl Writer {
     }
 
     pub fn failed(&self) -> bool {
-        self.shared.failed.load(Ordering::Acquire)
+        self.thread.is_finished()
     }
 
     pub fn finish(self) -> Summary {

@@ -445,6 +445,15 @@ impl App {
                 "{} rows flushed across {} CSV parts",
                 report.csv_rows_flushed, report.csv_parts
             ));
+            if report.csv_rows_unconfirmed != 0 {
+                ui.colored_label(
+                    WARNING,
+                    format!(
+                        "{} queued rows have an unconfirmed CSV write",
+                        report.csv_rows_unconfirmed
+                    ),
+                );
+            }
         }
         ui.separator();
         ui.collapsing("Acyclic ISDU read", |ui| {

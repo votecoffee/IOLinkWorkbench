@@ -146,6 +146,7 @@ pub struct Report {
     pub terminal_error: Option<String>,
     pub writer_error: Option<String>,
     pub csv_rows_flushed: u64,
+    pub csv_rows_unconfirmed: u64,
     pub csv_parts: u64,
     pub counts: Counts,
     pub host_timer: &'static str,
@@ -180,6 +181,18 @@ struct FreshnessState {
 }
 
 impl FreshnessState {
+    fn stale(&self, input: &Input, threshold_us: u64) -> Option<bool> {
+        let observed_age = self
+            .last_new
+            .map(|last| us(input.received.saturating_duration_since(last)));
+        input
+            .source_age_us
+            .into_iter()
+            .chain(observed_age)
+            .max()
+            .map(|age| age > threshold_us)
+    }
+
     fn classify(&self, freshness: Freshness, input: &Input) -> Result<Update> {
         Ok(match freshness {
             Freshness::Snapshots => Update::Snapshot,
@@ -464,13 +477,7 @@ fn run_with_transport(
                 true
             }
         };
-        let time_since_update = freshness_state
-            .last_new
-            .map(|last| us(stamp.saturating_duration_since(last)));
-        let stale = input
-            .source_age_us
-            .or(time_since_update)
-            .map(|age| age > profile.connection.stale_us);
+        let stale = freshness_state.stale(&input, profile.connection.stale_us);
         match stale {
             Some(true) => state.counts.stale += 1,
             None => state.counts.freshness_unknown += 1,
@@ -487,7 +494,6 @@ fn run_with_transport(
             if profile.logging.mode == LogMode::OnChange && previous_key == Some(key) {
                 state.counts.unchanged += 1;
             } else {
-                previous_key = Some(key);
                 state.counts.selected += 1;
                 let row = Row {
                     input,
@@ -499,6 +505,8 @@ fn run_with_transport(
                 };
                 if !writer.enqueue(row) {
                     state.counts.logger_overruns += 1;
+                } else {
+                    previous_key = Some(key);
                 }
             }
         }
@@ -554,6 +562,11 @@ fn run_with_transport(
         terminal_error,
         writer_error: summary.error,
         csv_rows_flushed: summary.rows,
+        csv_rows_unconfirmed: state
+            .counts
+            .selected
+            .saturating_sub(state.counts.logger_overruns)
+            .saturating_sub(summary.rows),
         csv_parts: summary.parts,
         counts: state.counts,
         host_timer: timer.label(),

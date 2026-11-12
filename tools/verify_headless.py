@@ -101,6 +101,7 @@ def capture(cli, profile, path, *args):
         with part.open(encoding="utf-8", newline="") as csv_file:
             rows.extend(csv.DictReader(csv_file))
     assert len(rows) == report["csv_rows_flushed"]
+    assert report["csv_rows_unconfirmed"] == 0
     assert report["counts"]["selected"] == len(rows) + report["counts"]["logger_overruns"]
     assert len({row["capture_utc_start"] for row in rows}) == 1
     for earlier, later in zip(rows, rows[1:]):
