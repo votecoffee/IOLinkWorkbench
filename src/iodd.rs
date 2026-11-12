@@ -5,7 +5,12 @@ use crate::{
 use anyhow::{Context, Result, bail, ensure};
 use roxmltree::{Document, Node};
 use serde::Serialize;
-use std::{collections::HashMap, fs::File, io::Read, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    fs::File,
+    io::Read,
+    path::Path,
+};
 
 const XML_LIMIT: u64 = 8 * 1024 * 1024;
 const IODD_NAMESPACE: &str = "http://www.io-link.com/IODD/2010/10";
@@ -176,7 +181,12 @@ fn datatype<'a, 'i>(
         .with_context(|| format!("unresolved datatype {id}"))
 }
 
-fn field(dt: Node<'_, '_>, owner: Node<'_, '_>, name: String, bit_offset: u16) -> Result<Field> {
+fn field(
+    dt: Node<'_, '_>,
+    owner: Node<'_, '_>,
+    name: String,
+    bit_offset: u16,
+) -> Result<(Field, bool)> {
     let datatype = dt
         .attribute((XSI, "type"))
         .context("missing datatype xsi:type")?;
@@ -233,22 +243,26 @@ fn field(dt: Node<'_, '_>, owner: Node<'_, '_>, name: String, bit_offset: u16) -
                 "1240" => "V",
                 "1342" => "%",
                 "1352" => "L/min",
+                "1997" => "",
                 _ => return format!("IODD unit {code}"),
             }
             .to_owned()
         })
         .unwrap_or_default();
-    Ok(Field {
-        name,
-        bit_offset,
-        kind,
-        bits,
-        scale,
-        offset,
-        unit,
-        decimals,
-        ..Field::default()
-    })
+    Ok((
+        Field {
+            name,
+            bit_offset,
+            kind,
+            bits,
+            scale,
+            offset,
+            unit,
+            decimals,
+            ..Field::default()
+        },
+        owner.attribute("unitCode").is_some(),
+    ))
 }
 
 pub fn parse(xml: &str, source: String) -> Result<Catalog> {
@@ -276,6 +290,7 @@ pub fn parse(xml: &str, source: String) -> Result<Catalog> {
         .filter(|node| node.has_tag_name((IODD_NAMESPACE, "Text")))
         .filter_map(|node| Some((node.attribute("id")?, node.attribute("value")?)))
         .collect();
+    let mut product_ids = HashSet::new();
     let variants = child(identity, "DeviceVariantCollection")
         .into_iter()
         .flat_map(|node| node.children())
@@ -284,6 +299,7 @@ pub fn parse(xml: &str, source: String) -> Result<Catalog> {
             let id = node
                 .attribute("productId")
                 .context("variant has no productId")?;
+            ensure!(product_ids.insert(id), "duplicate variant Product ID {id}");
             Ok(Variant {
                 product_id: id.into(),
                 name: label(node, &texts, id),
@@ -291,12 +307,18 @@ pub fn parse(xml: &str, source: String) -> Result<Catalog> {
         })
         .collect::<Result<Vec<_>>>()?;
     let function = child(body, "DeviceFunction").context("missing DeviceFunction")?;
-    let types = child(function, "DatatypeCollection")
+    let mut types = HashMap::new();
+    for node in child(function, "DatatypeCollection")
         .into_iter()
         .flat_map(|node| node.children())
         .filter(|node| node.has_tag_name((IODD_NAMESPACE, "Datatype")))
-        .filter_map(|node| Some((node.attribute("id")?, node)))
-        .collect();
+    {
+        let id = node.attribute("id").context("datatype has no id")?;
+        ensure!(
+            types.insert(id, node).is_none(),
+            "duplicate datatype ID {id}"
+        );
+    }
     let display_refs = child(function, "UserInterface")
         .and_then(|ui| child(ui, "ProcessDataRefCollection"))
         .into_iter()
@@ -341,17 +363,28 @@ pub fn parse(xml: &str, source: String) -> Result<Catalog> {
         };
         let dt = datatype(input, &types);
         let display = display_refs.get(id).copied();
-        let mut add = |name: String, result: Result<Field>| {
-            let result = result.and_then(|field| {
+        let mut missing_unit = false;
+        let mut add = |name: String, result: Result<(Field, bool)>| -> Result<()> {
+            let result = result.and_then(|(field, unit_defined)| {
                 field.validate(layout.input_bytes)?;
                 ensure!(
                     usize::from(field.bit_offset) + usize::from(field.bits) <= bits,
                     "extends beyond declared input width"
                 );
-                Ok(field)
+                Ok((field, unit_defined))
             });
             match result {
-                Ok(field) => {
+                Ok((field, unit_defined)) => {
+                    for existing in &layout.fields {
+                        ensure!(
+                            field.bit_offset >= existing.bit_offset + u16::from(existing.bits)
+                                || existing.bit_offset >= field.bit_offset + u16::from(field.bits),
+                            "{id}: fields {} and {} overlap",
+                            existing.name,
+                            field.name
+                        );
+                    }
+                    missing_unit |= field.kind != Kind::Bool && !unit_defined;
                     if field.unit.starts_with("IODD unit ") {
                         layout
                             .needs_input
@@ -363,6 +396,7 @@ pub fn parse(xml: &str, source: String) -> Result<Catalog> {
                     .needs_input
                     .push(format!("{name}: {error}; provide a manual field if needed")),
             }
+            Ok(())
         };
         if let Ok(record) = dt.as_ref()
             && record
@@ -394,20 +428,16 @@ pub fn parse(xml: &str, source: String) -> Result<Catalog> {
                             .unwrap_or(item);
                         field(datatype(item, &types)?, info, name, bit_offset)
                     })(),
-                );
+                )?;
             }
         } else {
             let name = label(input, &texts, id);
             let info = display
                 .and_then(|reference| child(reference, "ProcessDataInfo"))
                 .unwrap_or(input);
-            add(name.clone(), dt.and_then(|dt| field(dt, info, name, 0)));
+            add(name.clone(), dt.and_then(|dt| field(dt, info, name, 0)))?;
         }
-        if layout
-            .fields
-            .iter()
-            .any(|field| field.kind != Kind::Bool && field.unit.is_empty())
-        {
+        if missing_unit {
             layout.needs_input.push(
                 "Review engineering units and scaling where the IODD has no display metadata"
                     .into(),
@@ -423,3 +453,6 @@ pub fn parse(xml: &str, source: String) -> Result<Catalog> {
         layouts,
     })
 }
+
+#[cfg(test)]
+mod tests;

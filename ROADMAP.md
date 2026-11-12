@@ -5,6 +5,7 @@
 - Shared one-port capture engine, portable GUI and CLI, saved profiles, manual mapping, and offline IODD inspection and decoding.
 - Headless checks for equal consecutive updates, change-only recording, snapshot labeling, invalid and stale inputs, reconnects, queue backpressure, and CSV rotation.
 - Capture reliability checks cover frozen counters with zero reported age, retrying dropped changes, and reporting unconfirmed rows after a CSV rotation failure.
+- IODD checks cover display scaling, explicit no-unit metadata, ambiguous variant and datatype IDs, and overlapping supported input fields.
 - Documented ifm AL1350 IoT Core adapter with an isolated JSON loopback fixture. Physical acceptance begins once the master and sensor are selected.
 
 ## First physical bench
