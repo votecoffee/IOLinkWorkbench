@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import subprocess
 import threading
+import time
 import tomllib
 import uuid
 import zipfile
@@ -22,6 +23,10 @@ class Gateway(BaseHTTPRequestHandler):
     isdu_reads = 0
     violations = []
     device_id = 1
+    inject_faults = True
+    block_parameter = False
+    parameter_entered = threading.Event()
+    parameter_release = threading.Event()
     port = "/iolinkmaster/port[1]"
     device = port + "/iolinkdevice"
     data = {
@@ -53,7 +58,7 @@ class Gateway(BaseHTTPRequestHandler):
             for path in request["data"]["datatosend"]:
                 if path == self.device + "/pdin":
                     type(self).polls += 1
-                    code = {4: 530, 7: 503}.get(self.polls, 200)
+                    code = {4: 530, 7: 503}.get(self.polls, 200) if self.inject_faults else 200
                     result = {"code": code}
                     if code == 200:
                         result["data"] = "03C9"
@@ -66,9 +71,17 @@ class Gateway(BaseHTTPRequestHandler):
                     result = {"code": 400}
                 # Documented examples use both styles of path key.
                 response["data"][path if self.polls % 2 else path.lstrip("/")] = result
-        elif address == self.device + "/iolreadacyclic" and request["data"] == {"index": 19, "subindex": 0}:
+        elif address == self.device + "/iolreadacyclic" and request["data"] in (
+                {"index": 19, "subindex": 0}, {"index": 64, "subindex": 0}, {"index": 65, "subindex": 0}):
             type(self).isdu_reads += 1
-            response["data"] = {"value": "53494D2D53454E534F52"}
+            index = request["data"]["index"]
+            if index == 64 and self.block_parameter:
+                self.parameter_entered.set()
+                if not self.parameter_release.wait(timeout=3):
+                    response["code"] = 500
+            response["data"] = {"value": {
+                19: "53494D2D53454E534F52", 64: "01F4", 65: "666978747572652073656E736F72",
+            }[index]}
         else:
             self.violations.append(request)
             response["code"] = 400
@@ -115,6 +128,53 @@ def capture(cli, profile, path, *args):
     return report, rows
 
 
+def parallel_parameter_read(cli, fixture, output):
+    Gateway.device_id = 1
+    Gateway.polls = 0
+    Gateway.inject_faults = False
+    Gateway.block_parameter = True
+    Gateway.parameter_entered.clear()
+    Gateway.parameter_release.clear()
+    processes = []
+    environment = {key: value for key, value in os.environ.items() if key.upper() != "IOLINK_IFM_PASSWORD"}
+    try:
+        sampling = subprocess.Popen([cli, "capture", fixture, output, "--seconds", "3"],
+                                    cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8", env=environment)
+        processes.append(sampling)
+        deadline = time.monotonic() + 2
+        while Gateway.polls < 5 and time.monotonic() < deadline:
+            assert sampling.poll() is None, "capture exited before the parallel read"
+            time.sleep(0.01)
+        assert Gateway.polls >= 5
+        reading = subprocess.Popen([cli, "read-parameter", fixture, "V_SIM_Threshold"],
+                                   cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8", env=environment)
+        processes.append(reading)
+        assert Gateway.parameter_entered.wait(timeout=1)
+        before = Gateway.polls
+        deadline = time.monotonic() + 1
+        while Gateway.polls < before + 5 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert Gateway.polls >= before + 5, "cyclic polling stopped during the held ISDU read"
+        assert reading.poll() is None, "ISDU read completed before fixture release"
+        Gateway.parameter_release.set()
+        stdout, stderr = reading.communicate(timeout=5)
+        assert reading.returncode == 0, (stdout, stderr)
+        assert tomllib.loads(stdout)["raw_value"] == "500"
+        stdout, stderr = sampling.communicate(timeout=5)
+        assert sampling.returncode == 0, (stdout, stderr)
+        report = tomllib.loads(stdout)
+        checked = tomllib.loads(run(cli, "verify-capture", output))
+        assert checked["rows_checked"] == report["csv_rows_flushed"] > 10
+        assert report["counts"]["logger_overruns"] == 0
+    finally:
+        Gateway.parameter_release.set()
+        Gateway.block_parameter = False
+        for process in processes:
+            if process.poll() is None:
+                process.kill()
+            process.communicate(timeout=5)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("cli", type=lambda p: Path(p).resolve())
@@ -136,6 +196,11 @@ def main():
     run(cli, "import", scratch / "iodd.zip", imported, "--variant", "SIM-SENSOR")
     assert "level [1] [IODD]" in run(cli, "decode", imported, "FFF9")
     run(cli, "validate", imported)
+    parameters = tomllib.loads(run(cli, "parameters", imported))
+    assert len(parameters["parameters"]) == 3
+    reading = tomllib.loads(run(cli, "read-parameter", imported, "V_SIM_Threshold"))
+    assert reading["raw_value"] == "500" and reading["choice_name"] == "Nominal setting"
+    run(cli, "read-parameter", imported, "V_SIM_Command", expected=1)
 
     clean, rows = capture(cli, source, scratch / "sim-every", "--seconds", 1)
     assert clean["last_status"]["route"] == "synthetic simulator"
@@ -205,13 +270,23 @@ def main():
             assert "identity mismatch" in denied["terminal_error"] and denied["counts"]["poll_attempts"] == 0
             checked = tomllib.loads(run(cli, "verify-capture", rejected))
             assert checked["capture_had_error"] and checked["rows_checked"] == 0
+            parameter_fixture = scratch / "parameter-fixture.toml"
+            text = imported.read_text(encoding="utf-8").replace('gateway = "simulator"', 'gateway = "ifm_al1350"')
+            text = text.replace('endpoint = ""', f'endpoint = "http://127.0.0.1:{server.server_port}"')
+            text = text.replace('ifm_firmware = ""', 'ifm_firmware = "3.1.42"')
+            text = text.replace('port = 1', 'port = 1\nifm_mode = 3\nifm_cycle_unit = "microseconds"')
+            parameter_fixture.write_text(text.replace('poll_us = 1000', 'poll_us = 10000'), encoding="utf-8")
+            parallel_parameter_read(cli, parameter_fixture, scratch / "ifm-parallel-parameter")
+            before = Gateway.isdu_reads
+            run(cli, "read-parameter", parameter_fixture, "V_SIM_Command", expected=1)
+            assert Gateway.isdu_reads == before and not Gateway.violations
         finally:
             server.shutdown()
             thread.join()
 
     print("PASS: ZIP and variant selection, offline decoding, equal updates, on-change, rotation, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, CSV joining, "
-          "and read-only AL1350 loopback")
+          "named IODD parameter reads, parallel polling, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 
 

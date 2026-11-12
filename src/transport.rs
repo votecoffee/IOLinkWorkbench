@@ -121,7 +121,11 @@ pub fn open(profile: &Profile, simulate_faults: bool) -> Result<Box<dyn InputTra
 pub fn read_isdu(profile: &Profile, index: u16, subindex: u8) -> Result<Vec<u8>> {
     profile.validate()?;
     match profile.connection.gateway {
-        Gateway::Simulator => simulator::read_isdu(index, subindex),
+        Gateway::Simulator => {
+            let status = simulator::Simulator::new(profile, false).connect()?;
+            profile.expected_identity.verify(&status.identity)?;
+            simulator::read_isdu(index, subindex)
+        }
         Gateway::IfmAl1350 => {
             let mut client = ifm::Client::new(&profile.connection)?;
             let status = client.connect()?;
@@ -145,4 +149,55 @@ pub fn verify_product_id(profile: &Profile) -> Result<String> {
         "Product ID mismatch (expected {expected:?}, observed {actual:?})"
     );
     Ok(actual.to_owned())
+}
+
+#[derive(Debug, Serialize)]
+pub struct ParameterReading {
+    pub parameter_id: String,
+    pub name: String,
+    pub index: u16,
+    pub subindex: u8,
+    pub host_read_utc: String,
+    pub read_duration_us: u64,
+    pub raw_hex: String,
+    pub raw_value: Option<String>,
+    pub choice_name: Option<String>,
+    pub decode_error: Option<String>,
+}
+
+/// Read one explicit IODD variable at subindex zero on the independent acyclic path.
+pub fn read_parameter(profile: &Profile, id: &str) -> Result<ParameterReading> {
+    let parameter = profile
+        .iodd
+        .as_ref()
+        .and_then(|iodd| iodd.parameters.iter().find(|parameter| parameter.id == id))
+        .ok_or_else(|| anyhow::anyhow!("parameter {id} is not in the imported IODD catalog"))?;
+    ensure!(
+        parameter.access != crate::iodd::Access::WriteOnly,
+        "parameter {id} is write-only in the IODD"
+    );
+    let start = Instant::now();
+    let bytes = read_isdu(profile, parameter.index, 0)?;
+    let host_read_utc = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let read_duration_us = start.elapsed().as_micros().try_into().unwrap_or(u64::MAX);
+    let (raw_value, decode_error) = match parameter.decode_raw(&bytes) {
+        Ok(value) => (value, None),
+        Err(error) => (None, Some(error.to_string())),
+    };
+    let choice_name = raw_value
+        .as_deref()
+        .and_then(|raw| parameter.choices.iter().find(|choice| choice.value == raw))
+        .map(|choice| choice.name.clone());
+    Ok(ParameterReading {
+        parameter_id: parameter.id.clone(),
+        name: parameter.name.clone(),
+        index: parameter.index,
+        subindex: 0,
+        host_read_utc,
+        read_duration_us,
+        raw_hex: crate::decode::hex(&bytes),
+        raw_value,
+        choice_name,
+        decode_error,
+    })
 }

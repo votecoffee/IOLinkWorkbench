@@ -21,6 +21,24 @@
           </RecordItem>
         </Datatype>
       </DatatypeCollection>
+      <VariableCollection>
+        <StdVariableRef id="V_ProductID"/>
+        <Variable id="V_SIM_Threshold" index="64" accessRights="rw" defaultValue="500">
+          <Datatype xsi:type="IntegerT" bitLength="16">
+            <ValueRange lowerValue="-1000" upperValue="1000"/>
+            <SingleValue value="500"><Name textId="nominal"/></SingleValue>
+          </Datatype>
+          <Name textId="threshold"/>
+        </Variable>
+        <Variable id="V_SIM_Label" index="65" accessRights="ro">
+          <Datatype xsi:type="StringT" fixedLength="32" encoding="UTF-8"/>
+          <Name textId="sensorlabel"/>
+        </Variable>
+        <Variable id="V_SIM_Command" index="2" accessRights="wo">
+          <Datatype xsi:type="UIntegerT" bitLength="8"/>
+          <Name textId="command"/>
+        </Variable>
+      </VariableCollection>
       <ProcessDataCollection>
         <ProcessData id="PD">
           <ProcessDataIn id="IN" bitLength="16"><DatatypeRef datatypeId="PD"/></ProcessDataIn>
@@ -34,6 +52,10 @@
       <Text id="alt" value="Alternate simulated variant"/>
       <Text id="level" value="level"/>
       <Text id="switch" value="switch"/>
+      <Text id="threshold" value="Synthetic threshold"/>
+      <Text id="nominal" value="Nominal setting"/>
+      <Text id="sensorlabel" value="Synthetic label"/>
+      <Text id="command" value="Synthetic command (write-only)"/>
     </PrimaryLanguage>
   </ExternalTextCollection>
 </IODevice>

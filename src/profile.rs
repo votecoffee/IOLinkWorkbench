@@ -131,6 +131,10 @@ pub struct Imported {
     #[serde(default)]
     pub needs_input: Vec<String>,
     pub fields: Vec<Field>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parameters: Vec<crate::iodd::Parameter>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub standard_parameter_refs: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -256,6 +260,23 @@ impl Profile {
             "Device ID exceeds 24 bits"
         );
         let mut names = HashSet::new();
+        if let Some(imported) = &self.iodd {
+            let mut indexes = HashSet::new();
+            for parameter in &imported.parameters {
+                parameter.validate()?;
+                ensure!(
+                    names.insert(&parameter.id),
+                    "duplicate parameter ID {}",
+                    parameter.id
+                );
+                ensure!(
+                    indexes.insert(parameter.index),
+                    "duplicate parameter index {}",
+                    parameter.index
+                );
+            }
+            names.clear();
+        }
         for field in &self.fields {
             ensure!(names.insert(&field.name), "duplicate field {}", field.name);
         }

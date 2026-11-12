@@ -13,6 +13,7 @@ use std::{
     time::Duration,
 };
 
+mod parameters;
 mod saved_capture;
 mod setup;
 
@@ -94,6 +95,7 @@ struct App {
     message: String,
     offline_hex: String,
     saved_capture: saved_capture::Verifier,
+    selected_parameter: Option<String>,
 }
 
 impl App {
@@ -121,6 +123,7 @@ impl App {
             message: String::new(),
             offline_hex: "FFF9".into(),
             saved_capture: saved_capture::Verifier::default(),
+            selected_parameter: None,
         }
     }
 
@@ -460,6 +463,41 @@ impl App {
             }
         }
         ui.separator();
+        if let Some(id) = parameters::show(
+            ui,
+            &self.profile,
+            &mut self.selected_parameter,
+            self.isdu_worker.is_none() && !self.setup.pending,
+        ) {
+            let profile = self.profile.clone();
+            match background("acyclic-iodd-parameter", move || {
+                let reading = transport::read_parameter(&profile, &id)?;
+                let mut text = format!(
+                    "{} · index {}:0\nRaw bytes {}",
+                    reading.name, reading.index, reading.raw_hex
+                );
+                if let Some(value) = &reading.raw_value {
+                    text.push_str(&format!("\nRaw value {value}"));
+                }
+                if let Some(name) = &reading.choice_name {
+                    text.push_str(&format!(" · {name}"));
+                }
+                if let Some(error) = &reading.decode_error {
+                    text.push_str(&format!("\nDecode review · {error}"));
+                }
+                text.push_str(&format!(
+                    "\nHost read {} · query {} µs",
+                    reading.host_read_utc, reading.read_duration_us
+                ));
+                Ok(text)
+            }) {
+                Ok(worker) => {
+                    self.isdu_worker = Some(worker);
+                    self.isdu_result = "Reading parameter…".into();
+                }
+                Err(error) => self.isdu_result = error.to_string(),
+            }
+        }
         ui.collapsing("Acyclic ISDU read", |ui| {
             ui.small("One parameter read on a separate client. Use an index and subindex from the device documentation.");
             ui.horizontal_wrapped(|ui| {
@@ -490,9 +528,11 @@ impl App {
                         Err(error) => self.isdu_result = error.to_string(),
                     }
                 }
-                ui.monospace(&self.isdu_result);
             });
         });
+        if !self.isdu_result.is_empty() {
+            ui.monospace(&self.isdu_result);
+        }
     }
 
     fn offline(&mut self, ui: &mut Ui) {
@@ -565,6 +605,7 @@ impl eframe::App for App {
                             {
                                 self.live = Live::default();
                                 self.report = None;
+                                self.selected_parameter = None;
                             }
                         }
                         Tab::Monitor => self.monitor(ui),

@@ -36,6 +36,8 @@ New-Item -ItemType Directory -Force .local
 .\iolink-cli.exe iodd .\samples\sensor.xml
 .\iolink-cli.exe import .\samples\sensor.xml .\.local\imported.toml --variant SIM-SENSOR
 .\iolink-cli.exe validate .\.local\imported.toml
+.\iolink-cli.exe parameters .\.local\imported.toml
+.\iolink-cli.exe read-parameter .\.local\imported.toml V_SIM_Threshold
 .\iolink-cli.exe capture .\samples\simulator.toml .\.local\sim-run --seconds 2 --simulate-faults
 .\iolink-cli.exe verify-capture .\.local\sim-run --joined-csv .\.local\sim-run-joined.csv
 ~~~
@@ -43,6 +45,10 @@ New-Item -ItemType Directory -Force .local
 **IODD scope.** The importer accepts UTF-8 or BOM-tagged UTF-16 IODD 1.1 XML and ZIP bundles. ZIP imports select a unique main IODD by filename or accept an exact member with **--entry**. Use **--variant** when the IODD lists several product IDs and **--layout** for multiple or conditional input layouts. For conditional physical captures, set **confirm_iodd_condition = true** after verifying the active condition on the sensor. The importer supports scalar signed and unsigned integers, Boolean and Float32, including those fields in an input record. It resolves local datatype references, primary-language names, process-input display scaling, and common standard unit codes. Unit code 1997 explicitly specifies no unit. Unsupported fields, unknown unit codes, and conditions appear for review. Duplicate variant or datatype IDs and overlapping supported input fields are rejected. External language files, profile snippets, arrays, and full schema validation are roadmap items.
 
 **Manual mapping.** Set **input_bytes** to the exact input width. Each **[[fields]]** table describes a value with a name, bit offset, width, kind, byte order, scale, offset, and unit. Bit zero is the least significant bit of the last payload byte for big endian, or the first payload byte for little endian. The decoded value is **raw × scale + offset**. Optional **decimals** controls the decimal places in the typed display and CSV. A field with the same name as an imported field replaces its mapping. Set **logging.fields** to an ordered list of effective names or leave it empty to log all mapped fields. The raw payload is always included in CSV.
+
+**IODD parameters.** Importing an IODD also saves its explicit **Variable** definitions in the profile. The catalog shows parameter IDs, names, indexes, declared access rights, defaults, supported single-value labels, and ranges. In **Monitor & CSV**, expand **IODD parameters**, select an entry, and choose **Read named parameter**. The CLI provides **parameters PROFILE** for offline browsing and **read-parameter PROFILE ID** for one explicit ISDU read at subindex zero. Older profiles can be reimported to add this metadata.
+
+Named reads use the independent acyclic client and report the raw bytes, supported raw scalar or text value, host read time, and total query duration. Integer, Boolean, Float32, UTF-8, and US-ASCII decoding are supported. Engineering display scaling and units for parameters require interpretation of the device documentation. Complex parameter values remain available as raw hexadecimal. A decoding error retains the returned bytes for review. Write-only named entries are rejected before transport access. Standard **StdVariableRef** entries are listed by reference ID and require the standard definitions or a documented numeric ISDU read. IODD defaults and ranges describe the device's declared settings.
 
 ## AL1350 bench setup
 

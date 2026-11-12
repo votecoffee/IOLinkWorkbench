@@ -16,6 +16,9 @@ const XML_LIMIT: u64 = 8 * 1024 * 1024;
 const IODD_NAMESPACE: &str = "http://www.io-link.com/IODD/2010/10";
 const XSI: &str = "http://www.w3.org/2001/XMLSchema-instance";
 
+mod parameters;
+pub use parameters::{Access, Choice, Parameter, ValueRange};
+
 #[derive(Debug, Serialize)]
 pub struct Variant {
     pub product_id: String,
@@ -38,6 +41,8 @@ pub struct Catalog {
     pub device_id: u32,
     pub variants: Vec<Variant>,
     pub layouts: Vec<Layout>,
+    pub parameters: Vec<Parameter>,
+    pub standard_parameter_refs: Vec<String>,
 }
 
 impl Catalog {
@@ -87,6 +92,8 @@ impl Catalog {
                 input_bytes: layout.input_bytes,
                 needs_input,
                 fields: layout.fields.clone(),
+                parameters: self.parameters.clone(),
+                standard_parameter_refs: self.standard_parameter_refs.clone(),
             },
         ))
     }
@@ -326,6 +333,7 @@ pub fn parse(xml: &str, source: String) -> Result<Catalog> {
         .filter(|node| node.has_tag_name((IODD_NAMESPACE, "ProcessDataRef")))
         .filter_map(|node| Some((node.attribute("processDataId")?, node)))
         .collect::<HashMap<_, _>>();
+    let (parameters, standard_parameter_refs) = parameters::parse(function, &types, &texts)?;
     let mut layouts = Vec::new();
     for process in child(function, "ProcessDataCollection")
         .into_iter()
@@ -451,6 +459,8 @@ pub fn parse(xml: &str, source: String) -> Result<Catalog> {
         device_id,
         variants,
         layouts,
+        parameters,
+        standard_parameter_refs,
     })
 }
 

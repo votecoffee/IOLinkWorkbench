@@ -7,6 +7,7 @@
 - Capture reliability checks cover frozen counters with zero reported age, retrying dropped changes, and reporting unconfirmed rows after a CSV rotation failure.
 - IODD checks cover display scaling, explicit no-unit metadata, ambiguous variant and datatype IDs, and overlapping supported input fields.
 - Offline capture verification checks rotated CSV parts against the saved profile and report, with optional combined CSV output. Rejected reconnects retain the accepted capture identity and record the rejected candidate separately.
+- Explicit IODD variable catalogs persist names, indexes, access rights, defaults, choices, and ranges. Named scalar and text parameter reads use the acyclic client, with raw payloads retained on decoding errors.
 - Documented ifm AL1350 IoT Core adapter with an isolated JSON loopback fixture. Physical acceptance begins once the master and sensor are selected.
 
 ## First physical bench
@@ -21,4 +22,5 @@
 - Add one documented source-counter or timestamp transport once selected hardware exposes it. Qualify timestamp clock, counter wrap, update semantics and firmware-specific behavior.
 - Add multiple independent port sessions with per-port identity, status, and capture accounting.
 - Expand IODD handling for arrays, external language files, profile snippets, unit definitions and schema validation. Add representative sanitized fixtures for supported device families.
+- Resolve standard parameter references and add engineering display metadata and complex parameter decoding.
 - Consider any configuration or output features only after explicit authorization for the specific operation and bench setup.

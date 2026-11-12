@@ -39,6 +39,10 @@ enum Command {
     Validate { profile: PathBuf },
     /// Decode a hexadecimal process input without a gateway.
     Decode { profile: PathBuf, payload: String },
+    /// List imported IODD parameters without contacting a gateway.
+    Parameters { profile: PathBuf },
+    /// Read one named IODD parameter through the independent acyclic client.
+    ReadParameter { profile: PathBuf, id: String },
     /// Verify a finalized capture offline and optionally join its rotated CSV parts.
     VerifyCapture {
         directory: PathBuf,
@@ -75,6 +79,32 @@ enum Command {
 
 fn main() -> Result<()> {
     match Cli::parse().command {
+        Command::Parameters { profile } => {
+            let profile = Profile::load(&profile)?;
+            let iodd = profile
+                .iodd
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("import an IODD first"))?;
+            #[derive(serde::Serialize)]
+            struct Catalog<'a> {
+                parameters: &'a [iodd::Parameter],
+                standard_parameter_refs: &'a [String],
+            }
+            print!(
+                "{}",
+                toml::to_string_pretty(&Catalog {
+                    parameters: &iodd.parameters,
+                    standard_parameter_refs: &iodd.standard_parameter_refs,
+                })?
+            );
+        }
+        Command::ReadParameter { profile, id } => {
+            let profile = Profile::load(&profile)?;
+            print!(
+                "{}",
+                toml::to_string_pretty(&transport::read_parameter(&profile, &id)?)?
+            );
+        }
         Command::VerifyCapture {
             directory,
             joined_csv,
