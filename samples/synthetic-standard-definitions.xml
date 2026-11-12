@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<IODDStandardDefinitions xmlns="http://www.io-link.com/IODD/2010/10" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <!-- Original synthetic fixture, not an official definitions file. Use official definitions for a real device. -->
+  <DocumentInfo version="synthetic-1"/>
+  <DatatypeCollection>
+    <Datatype id="COMMAND" xsi:type="UIntegerT" bitLength="8">
+      <SingleValue value="128"><Name textId="reset"/></SingleValue>
+    </Datatype>
+  </DatatypeCollection>
+  <VariableCollection>
+    <Variable id="V_ProductID" index="19" accessRights="ro">
+      <Datatype xsi:type="StringT" fixedLength="64" encoding="UTF-8"/>
+      <Name textId="product"/>
+    </Variable>
+    <Variable id="V_SystemCommand" index="2" accessRights="wo">
+      <DatatypeRef datatypeId="COMMAND"/>
+      <Name textId="command"/>
+    </Variable>
+    <Variable id="V_OffsetTime" index="48" accessRights="rw">
+      <Datatype xsi:type="UIntegerT" bitLength="32">
+        <SingleValue value="0"><Name textId="zero"/></SingleValue>
+        <ValueRange lowerValue="1" upperValue="1000"/>
+      </Datatype>
+      <Name textId="offset"/>
+    </Variable>
+  </VariableCollection>
+  <ExternalTextCollection>
+    <PrimaryLanguage xml:lang="en">
+      <Text id="product" value="Synthetic product ID"/>
+      <Text id="command" value="Synthetic system command"/>
+      <Text id="reset" value="Synthetic reset"/>
+      <Text id="zero" value="Synthetic zero"/>
+      <Text id="offset" value="Synthetic offset time"/>
+    </PrimaryLanguage>
+  </ExternalTextCollection>
+</IODDStandardDefinitions>

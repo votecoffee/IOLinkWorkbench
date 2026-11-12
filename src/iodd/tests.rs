@@ -3,7 +3,7 @@ use super::*;
 const SENSOR: &str = include_str!("../../samples/sensor.xml");
 
 fn with_display(unit: &str) -> String {
-    SENSOR.replace("</DeviceFunction>", &format!(r#"
+    SENSOR.replace("<UserInterface>", "<UnusedInterface>").replace("</UserInterface>", "</UnusedInterface>").replace("</DeviceFunction>", &format!(r#"
         <UserInterface><ProcessDataRefCollection><ProcessDataRef processDataId="IN">
           <ProcessDataRecordItemInfo subindex="1" gradient="0.1" offset="2" unitCode="{unit}" displayFormat="Dec.1"/>
           <ProcessDataRecordItemInfo subindex="2"/>
@@ -110,6 +110,8 @@ fn named_parameter_reads_decode_raw_values_without_scaling_process_data() -> Res
     assert_eq!(threshold.raw_value.as_deref(), Some("500"));
     assert_eq!(threshold.choice_name.as_deref(), Some("Nominal setting"));
     assert_eq!(threshold.decode_error, None);
+    assert_eq!(threshold.displays[0].value, "52.0");
+    assert_eq!(threshold.displays[0].unit, "mm");
     let label = crate::transport::read_parameter(&profile, "V_SIM_Label")?;
     assert_eq!(label.raw_value.as_deref(), Some("synthetic sensor"));
     Ok(())
@@ -139,6 +141,9 @@ fn write_only_and_unknown_parameters_are_rejected_before_transport_open() -> Res
 fn malformed_typed_responses_retain_raw_bytes_and_identity_checks_apply() -> Result<()> {
     let mut profile = imported_profile()?;
     profile.iodd.as_mut().unwrap().parameters[0].bits = Some(32);
+    profile.iodd.as_mut().unwrap().parameters[0]
+        .displays
+        .clear();
     let reading = crate::transport::read_parameter(&profile, "V_SIM_Threshold")?;
     assert_eq!(reading.raw_hex, "01F4");
     assert_eq!(reading.raw_value, None);
@@ -157,6 +162,7 @@ fn malformed_typed_responses_retain_raw_bytes_and_identity_checks_apply() -> Res
 fn parameter_raw_decoding_preserves_wide_integers_and_validates_text() -> Result<()> {
     let mut parameter = imported_profile()?.iodd.unwrap().parameters.remove(0);
     parameter.datatype = "UIntegerT".into();
+    parameter.displays.clear();
     parameter.bits = Some(64);
     assert_eq!(
         parameter.decode_raw(&[255; 8])?.as_deref(),
@@ -170,6 +176,130 @@ fn parameter_raw_decoding_preserves_wide_integers_and_validates_text() -> Result
         Some("level")
     );
     assert!(parameter.decode_raw(&[255]).is_err());
+    Ok(())
+}
+
+fn definitions() -> Result<Vec<Parameter>> {
+    parameters::load_standard(Path::new("samples/synthetic-standard-definitions.xml"))
+}
+
+#[test]
+fn standard_definitions_resolve_only_referenced_parameters_and_survive_reload() -> Result<()> {
+    let xml = SENSOR.replace("<StdVariableRef id=\"V_ProductID\"/>", "<StdVariableRef id=\"V_ProductID\" fixedLengthRestriction=\"10\" defaultValue=\"SIM-SENSOR\"/>");
+    let catalog =
+        parse_with_definitions(&xml, "synthetic standard import".into(), &definitions()?)?;
+    assert_eq!(catalog.parameters.len(), 4);
+    assert!(catalog.standard_parameter_refs.is_empty());
+    let product = &catalog.parameters[0];
+    assert_eq!(product.fixed_length, Some(10));
+    assert_eq!(product.name, "Synthetic product ID");
+    assert!(product.origin.as_deref().unwrap().contains("synthetic-1"));
+    let (identity, imported) = catalog.select(Some("SIM-SENSOR"), None)?;
+    let profile = crate::profile::Profile {
+        expected_identity: identity,
+        iodd: Some(imported),
+        ..Default::default()
+    };
+    let restored = crate::profile::Profile::parse(&toml::to_string(&profile)?)?;
+    let reading = crate::transport::read_parameter(&restored, "V_ProductID")?;
+    assert_eq!(reading.raw_value.as_deref(), Some("SIM-SENSOR"));
+    assert!(reading.displays.is_empty());
+    assert!(
+        product
+            .decode_raw(b"too long for the declared length")
+            .is_err()
+    );
+    Ok(())
+}
+
+#[test]
+fn standard_command_choices_and_restrictions_do_not_enable_writes() -> Result<()> {
+    let xml = SENSOR.replace("id=\"V_SIM_Command\" index=\"2\"", "id=\"V_SIM_Command\" index=\"3\"")
+        .replace("</VariableCollection>", r#"<StdVariableRef id="V_SystemCommand"><StdSingleValueRef value="128"/><SingleValue value="200"><Name textId="nominal"/></SingleValue></StdVariableRef></VariableCollection>"#);
+    let catalog = parse_with_definitions(&xml, "standard command fixture".into(), &definitions()?)?;
+    let command = catalog
+        .parameters
+        .iter()
+        .find(|p| p.id == "V_SystemCommand")
+        .unwrap();
+    assert_eq!(command.access, Access::WriteOnly);
+    assert_eq!(command.choices[0].name, "Synthetic reset");
+    assert_eq!(command.choices[1].name, "Nominal setting");
+    let (_, imported) = catalog.select(Some("SIM-SENSOR"), None)?;
+    let mut profile = crate::profile::Profile {
+        iodd: Some(imported),
+        ..Default::default()
+    };
+    profile.connection.gateway = crate::profile::Gateway::IfmAl1350;
+    profile.connection.endpoint = "must not open".into();
+    assert!(
+        crate::transport::read_parameter(&profile, "V_SystemCommand")
+            .unwrap_err()
+            .to_string()
+            .contains("write-only")
+    );
+    assert!(
+        parse_with_definitions(
+            &xml.replace("value=\"128\"", "value=\"129\""),
+            "bad choice".into(),
+            &definitions()?
+        )
+        .is_err()
+    );
+    assert!(
+        parse_with_definitions(
+            &SENSOR.replace(
+                "id=\"V_ProductID\"/>",
+                "id=\"V_ProductID\" fixedLengthRestriction=\"65\"/>"
+            ),
+            "bad length".into(),
+            &definitions()?
+        )
+        .is_err()
+    );
+    assert!(
+        parse_with_definitions(
+            &SENSOR.replace("index=\"65\"", "index=\"19\""),
+            "index collision".into(),
+            &definitions()?
+        )
+        .is_err()
+    );
+    Ok(())
+}
+
+#[test]
+fn distinct_menu_displays_remain_separate_and_invalid_metadata_keeps_raw_reads() -> Result<()> {
+    let xml = SENSOR.replace("</MenuCollection>", r#"<Menu id="M_SIM_Other"><VariableRef variableId="V_SIM_Threshold" gradient="2" offset="-3" unitCode="1997" displayFormat="Dec.2"/></Menu></MenuCollection>"#);
+    let catalog = parse(&xml, "conflicting menus".into())?;
+    let parameter = &catalog.parameters[0];
+    assert_eq!(parameter.displays.len(), 2);
+    let values = parameter.decode_displays(&[1, 244])?;
+    assert_eq!(values[0].id, "M_SIM_Settings/1");
+    assert_eq!(values[0].value, "52.0");
+    assert_eq!(values[1].value, "997.00");
+    assert_eq!(values[1].unit, "");
+    assert!(
+        parameter
+            .needs_input
+            .iter()
+            .any(|item| item.contains("Multiple"))
+    );
+    for bad in ["NaN", "inf", "invalid"] {
+        let catalog = parse(
+            &SENSOR.replace("gradient=\"0.1\"", &format!("gradient=\"{bad}\"")),
+            "invalid scaling".into(),
+        )?;
+        let parameter = &catalog.parameters[0];
+        assert!(parameter.displays.is_empty());
+        assert!(!parameter.needs_input.is_empty());
+        assert_eq!(parameter.decode_raw(&[1, 244])?.as_deref(), Some("500"));
+    }
+    let mut profile = imported_profile()?;
+    profile.iodd.as_mut().unwrap().parameters[0].displays[0]
+        .field
+        .bits = 8;
+    assert!(profile.validate().is_err());
     Ok(())
 }
 

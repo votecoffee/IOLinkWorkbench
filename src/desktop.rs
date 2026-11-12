@@ -485,6 +485,12 @@ impl App {
                 if let Some(error) = &reading.decode_error {
                     text.push_str(&format!("\nDecode review · {error}"));
                 }
+                for display in &reading.displays {
+                    text.push_str(&format!(
+                        "\nDisplay {} · {} {}",
+                        display.id, display.value, display.unit
+                    ));
+                }
                 text.push_str(&format!(
                     "\nHost read {} · query {} µs",
                     reading.host_read_utc, reading.read_duration_us

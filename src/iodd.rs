@@ -17,7 +17,7 @@ const IODD_NAMESPACE: &str = "http://www.io-link.com/IODD/2010/10";
 const XSI: &str = "http://www.w3.org/2001/XMLSchema-instance";
 
 mod parameters;
-pub use parameters::{Access, Choice, Parameter, ValueRange};
+pub use parameters::{Access, Choice, Display, DisplayValue, Parameter, ValueRange};
 
 #[derive(Debug, Serialize)]
 pub struct Variant {
@@ -100,6 +100,19 @@ impl Catalog {
 }
 
 pub fn load(path: &Path, entry: Option<&str>) -> Result<Catalog> {
+    load_with_definitions(path, entry, None)
+}
+
+/// Optional definitions are local XML; only resolved metadata is saved in profiles.
+pub fn load_with_definitions(
+    path: &Path,
+    entry: Option<&str>,
+    definitions: Option<&Path>,
+) -> Result<Catalog> {
+    let definitions = definitions
+        .map(parameters::load_standard)
+        .transpose()?
+        .unwrap_or_default();
     let name = path
         .file_name()
         .context("missing file name")?
@@ -134,6 +147,20 @@ pub fn load(path: &Path, entry: Option<&str>) -> Result<Catalog> {
         file.take(XML_LIMIT + 1).read_to_end(&mut bytes)?;
         name.into_owned()
     };
+    let xml = decode_xml(bytes)?;
+    parse_with_definitions(&xml, source, &definitions)
+}
+
+fn read_xml(path: &Path) -> Result<String> {
+    let mut bytes = Vec::new();
+    File::open(path)
+        .with_context(|| path.display().to_string())?
+        .take(XML_LIMIT + 1)
+        .read_to_end(&mut bytes)?;
+    decode_xml(bytes)
+}
+
+fn decode_xml(bytes: Vec<u8>) -> Result<String> {
     ensure!(bytes.len() as u64 <= XML_LIMIT, "IODD XML exceeds 8 MiB");
     let xml = match bytes.as_slice() {
         [0xFF, 0xFE, body @ ..] | [0xFE, 0xFF, body @ ..] => {
@@ -155,7 +182,7 @@ pub fn load(path: &Path, entry: Option<&str>) -> Result<Catalog> {
         }
         _ => String::from_utf8(bytes)?,
     };
-    parse(xml.trim_start_matches('\u{feff}'), source)
+    Ok(xml.trim_start_matches('\u{feff}').to_owned())
 }
 
 fn child<'a, 'i>(node: Node<'a, 'i>, name: &str) -> Option<Node<'a, 'i>> {
@@ -221,41 +248,7 @@ fn field(
         .and_then(|format| format.strip_prefix("Dec."))
         .map(str::parse)
         .transpose()?;
-    // Common unit codes from IO-Link Standard Unit Definitions V1.1.9.
-    let unit = owner
-        .attribute("unitCode")
-        .map(|code| {
-            match code {
-                "1000" => "K",
-                "1001" => "°C",
-                "1002" => "°F",
-                "1005" => "°",
-                "1010" => "m",
-                "1012" => "cm",
-                "1013" => "mm",
-                "1014" => "µm",
-                "1019" => "in",
-                "1038" => "L",
-                "1054" => "s",
-                "1056" => "ms",
-                "1057" => "µs",
-                "1061" => "m/s",
-                "1077" => "Hz",
-                "1085" => "rpm",
-                "1130" => "Pa",
-                "1133" => "kPa",
-                "1137" => "bar",
-                "1209" => "A",
-                "1211" => "mA",
-                "1240" => "V",
-                "1342" => "%",
-                "1352" => "L/min",
-                "1997" => "",
-                _ => return format!("IODD unit {code}"),
-            }
-            .to_owned()
-        })
-        .unwrap_or_default();
+    let unit = unit(owner.attribute("unitCode"));
     Ok((
         Field {
             name,
@@ -272,7 +265,47 @@ fn field(
     ))
 }
 
+// Common unit codes from IO-Link Standard Unit Definitions V1.1.9.
+fn unit(code: Option<&str>) -> String {
+    code.map(|code| {
+        match code {
+            "1000" => "K",
+            "1001" => "°C",
+            "1002" => "°F",
+            "1005" => "°",
+            "1010" => "m",
+            "1012" => "cm",
+            "1013" => "mm",
+            "1014" => "µm",
+            "1019" => "in",
+            "1038" => "L",
+            "1054" => "s",
+            "1056" => "ms",
+            "1057" => "µs",
+            "1061" => "m/s",
+            "1077" => "Hz",
+            "1085" => "rpm",
+            "1130" => "Pa",
+            "1133" => "kPa",
+            "1137" => "bar",
+            "1209" => "A",
+            "1211" => "mA",
+            "1240" => "V",
+            "1342" => "%",
+            "1352" => "L/min",
+            "1997" => "",
+            _ => return format!("IODD unit {code}"),
+        }
+        .to_owned()
+    })
+    .unwrap_or_default()
+}
+
 pub fn parse(xml: &str, source: String) -> Result<Catalog> {
+    parse_with_definitions(xml, source, &[])
+}
+
+fn parse_with_definitions(xml: &str, source: String, definitions: &[Parameter]) -> Result<Catalog> {
     let doc = Document::parse(xml)?;
     let root = doc.root_element();
     ensure!(
@@ -333,7 +366,8 @@ pub fn parse(xml: &str, source: String) -> Result<Catalog> {
         .filter(|node| node.has_tag_name((IODD_NAMESPACE, "ProcessDataRef")))
         .filter_map(|node| Some((node.attribute("processDataId")?, node)))
         .collect::<HashMap<_, _>>();
-    let (parameters, standard_parameter_refs) = parameters::parse(function, &types, &texts)?;
+    let (parameters, standard_parameter_refs) =
+        parameters::parse(function, &types, &texts, definitions)?;
     let mut layouts = Vec::new();
     for process in child(function, "ProcessDataCollection")
         .into_iter()

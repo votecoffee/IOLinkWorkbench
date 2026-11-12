@@ -161,6 +161,7 @@ pub struct ParameterReading {
     pub read_duration_us: u64,
     pub raw_hex: String,
     pub raw_value: Option<String>,
+    pub displays: Vec<crate::iodd::DisplayValue>,
     pub choice_name: Option<String>,
     pub decode_error: Option<String>,
 }
@@ -180,9 +181,20 @@ pub fn read_parameter(profile: &Profile, id: &str) -> Result<ParameterReading> {
     let bytes = read_isdu(profile, parameter.index, 0)?;
     let host_read_utc = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let read_duration_us = start.elapsed().as_micros().try_into().unwrap_or(u64::MAX);
-    let (raw_value, decode_error) = match parameter.decode_raw(&bytes) {
+    let (raw_value, mut decode_error) = match parameter.decode_raw(&bytes) {
         Ok(value) => (value, None),
         Err(error) => (None, Some(error.to_string())),
+    };
+    let displays = if decode_error.is_none() {
+        match parameter.decode_displays(&bytes) {
+            Ok(values) => values,
+            Err(error) => {
+                decode_error = Some(error.to_string());
+                Vec::new()
+            }
+        }
+    } else {
+        Vec::new()
     };
     let choice_name = raw_value
         .as_deref()
@@ -197,6 +209,7 @@ pub fn read_parameter(profile: &Profile, id: &str) -> Result<ParameterReading> {
         read_duration_us,
         raw_hex: crate::decode::hex(&bytes),
         raw_value,
+        displays,
         choice_name,
         decode_error,
     })

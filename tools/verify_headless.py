@@ -200,7 +200,18 @@ def main():
     assert len(parameters["parameters"]) == 3
     reading = tomllib.loads(run(cli, "read-parameter", imported, "V_SIM_Threshold"))
     assert reading["raw_value"] == "500" and reading["choice_name"] == "Nominal setting"
+    assert reading["displays"] == [{"id": "M_SIM_Settings/1", "value": "52.0", "unit": "mm"}]
     run(cli, "read-parameter", imported, "V_SIM_Command", expected=1)
+    resolved = scratch / "resolved.toml"
+    definitions = ROOT / "samples" / "synthetic-standard-definitions.xml"
+    run(cli, "import", scratch / "iodd.zip", resolved, "--variant", "SIM-SENSOR",
+        "--standard-definitions", definitions)
+    parameters = tomllib.loads(run(cli, "parameters", resolved))
+    assert len(parameters["parameters"]) == 4 and not parameters["standard_parameter_refs"]
+    product = tomllib.loads(run(cli, "read-parameter", resolved, "V_ProductID"))
+    assert product["raw_value"] == "SIM-SENSOR" and product["index"] == 19
+    run(cli, "iodd", ROOT / "samples" / "sensor.xml", "--standard-definitions",
+        ROOT / "samples" / "sensor.xml", expected=1)
 
     clean, rows = capture(cli, source, scratch / "sim-every", "--seconds", 1)
     assert clean["last_status"]["route"] == "synthetic simulator"

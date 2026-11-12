@@ -8,6 +8,7 @@ pub struct Editor {
     toml: String,
     pub pending: bool,
     iodd_path: String,
+    standard_definitions: String,
     entry: String,
     catalog: Option<Catalog>,
     variant: Option<String>,
@@ -21,6 +22,7 @@ impl Editor {
             toml: serialize(profile),
             pending: false,
             iodd_path: String::new(),
+            standard_definitions: String::new(),
             entry: String::new(),
             catalog: None,
             variant: None,
@@ -146,6 +148,11 @@ impl Editor {
     fn iodd(&mut self, ui: &mut Ui, profile: &mut Profile, message: &mut String) -> bool {
         let mut changed = false;
         ui.heading("IODD import");
+        path_entry(
+            ui,
+            &mut self.standard_definitions,
+            "Optional standard definitions XML",
+        );
         ui.horizontal_wrapped(|ui| {
             path_entry(ui, &mut self.iodd_path, "IODD XML or ZIP");
             ui.add(
@@ -155,9 +162,11 @@ impl Editor {
             );
             if ui.button("Inspect IODD").clicked() {
                 let entry = self.entry.trim();
-                match iodd::load(
+                match iodd::load_with_definitions(
                     Path::new(self.iodd_path.trim()),
                     (!entry.is_empty()).then_some(entry),
+                    (!self.standard_definitions.trim().is_empty())
+                        .then(|| Path::new(self.standard_definitions.trim())),
                 ) {
                     Ok(catalog) => {
                         self.variant = (catalog.variants.len() == 1)

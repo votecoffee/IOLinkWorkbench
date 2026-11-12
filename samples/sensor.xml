@@ -44,6 +44,13 @@
           <ProcessDataIn id="IN" bitLength="16"><DatatypeRef datatypeId="PD"/></ProcessDataIn>
         </ProcessData>
       </ProcessDataCollection>
+      <UserInterface>
+        <MenuCollection>
+          <Menu id="M_SIM_Settings">
+            <VariableRef variableId="V_SIM_Threshold" gradient="0.1" offset="2" unitCode="1013" displayFormat="Dec.1"/>
+          </Menu>
+        </MenuCollection>
+      </UserInterface>
     </DeviceFunction>
   </ProfileBody>
   <ExternalTextCollection>

@@ -2,7 +2,7 @@
 
 Read and log one IO-Link sensor on one configured port from a portable Windows x64 desktop application or headless CLI. The application opens offline with a synthetic sensor. Its first hardware adapter targets the ifm AL1350 IoT Core HTTP(S) snapshot API.
 
-## Contents
+## Table of Contents
 
 - [Install](#install)
 - [Usage](#usage)
@@ -35,6 +35,7 @@ New-Item -ItemType Directory -Force .local
 .\iolink-cli.exe decode .\samples\simulator.toml FFF9
 .\iolink-cli.exe iodd .\samples\sensor.xml
 .\iolink-cli.exe import .\samples\sensor.xml .\.local\imported.toml --variant SIM-SENSOR
+.\iolink-cli.exe import .\samples\sensor.xml .\.local\resolved.toml --variant SIM-SENSOR --standard-definitions .\samples\synthetic-standard-definitions.xml
 .\iolink-cli.exe validate .\.local\imported.toml
 .\iolink-cli.exe parameters .\.local\imported.toml
 .\iolink-cli.exe read-parameter .\.local\imported.toml V_SIM_Threshold
@@ -48,7 +49,11 @@ New-Item -ItemType Directory -Force .local
 
 **IODD parameters.** Importing an IODD also saves its explicit **Variable** definitions in the profile. The catalog shows parameter IDs, names, indexes, declared access rights, defaults, supported single-value labels, and ranges. In **Monitor & CSV**, expand **IODD parameters**, select an entry, and choose **Read named parameter**. The CLI provides **parameters PROFILE** for offline browsing and **read-parameter PROFILE ID** for one explicit ISDU read at subindex zero. Older profiles can be reimported to add this metadata.
 
-Named reads use the independent acyclic client and report the raw bytes, supported raw scalar or text value, host read time, and total query duration. Integer, Boolean, Float32, UTF-8, and US-ASCII decoding are supported. Engineering display scaling and units for parameters require interpretation of the device documentation. Complex parameter values remain available as raw hexadecimal. A decoding error retains the returned bytes for review. Write-only named entries are rejected before transport access. Standard **StdVariableRef** entries are listed by reference ID and require the standard definitions or a documented numeric ISDU read. IODD defaults and ranges describe the device's declared settings.
+Named reads use the independent acyclic client and report the raw bytes, supported raw scalar or text value, host read time, and total query duration. Integer, Boolean, Float32, UTF-8, and US-ASCII decoding are supported. Numeric **VariableRef** menu entries supply gradient, offset, common unit codes, and **Dec.0** through **Dec.12** formatting. Read results retain each supported menu display separately alongside the raw value. Multiple menu displays, missing or unknown units, unsupported formats, and complex types appear for review. Complex parameter values remain available as raw hexadecimal. A decoding error retains the returned bytes for review. Write-only named entries are rejected before transport access. IODD defaults and ranges describe the device's declared settings.
+
+For standard **StdVariableRef** entries, supply a local **IODD-StandardDefinitions1.1.xml** using **--standard-definitions PATH** on **iodd** or **import**, or the optional definitions path in GUI Setup before inspecting the IODD. Obtain the official file from the [IO-Link Community specification package](https://io-link.com/downloads) and keep it in ignored **.local/**. The importer resolves only the referenced variables, records the definitions filename and declared version, applies scalar defaults, text length restrictions, and supported choice restrictions, and saves the resolved catalog in the profile. The definitions file is then unnecessary for named reads. Unresolved IDs remain visible for review. Standard record-item restrictions and complex length restrictions require raw interpretation. The included **synthetic-standard-definitions.xml** is an original test fixture for the synthetic sensor. Official definitions are supplied locally and are not included in the application package.
+
+Display mappings are editable in the profile TOML under **[[iodd.parameters.displays]]** and its **field** table. Preserve the parameter's raw width, kind, bit offset zero, and big-endian byte order while overriding scale, offset, decimals, or unit. Profile validation rejects changes to that raw layout. Older profiles can be reimported to add definitions and display metadata.
 
 ## AL1350 bench setup
 

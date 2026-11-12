@@ -30,6 +30,11 @@ pub fn show(
                 if let Some(length) = parameter.fixed_length { ui.label(format!("Declared length · {length} bytes")); }
                 if let Some(encoding) = &parameter.encoding { ui.label(format!("Encoding · {encoding}")); }
                 if let Some(default) = &parameter.default_value { ui.label(format!("IODD default · {default}")); }
+                if let Some(origin) = &parameter.origin { ui.small(format!("Standard definition · {origin}")); }
+                for display in &parameter.displays {
+                    let field = &display.field;
+                    ui.label(format!("Display {} · ×{} + {} {} · decimals {:?}", display.id, field.scale, field.offset, field.unit, field.decimals));
+                }
                 for range in &parameter.ranges { ui.label(format!("IODD range · {} through {}", range.lower, range.upper)); }
                 for choice in &parameter.choices { ui.label(format!("{} · {}", choice.value, choice.name)); }
                 for item in &parameter.needs_input { ui.colored_label(WARNING, item); }

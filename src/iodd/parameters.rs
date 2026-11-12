@@ -5,6 +5,11 @@ use roxmltree::Node;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
+mod display;
+mod standard;
+pub use display::{Display, DisplayValue};
+pub(super) use standard::load as load_standard;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Access {
     #[serde(rename = "ro")]
@@ -51,6 +56,10 @@ pub struct Parameter {
     pub fixed_length: Option<u16>,
     pub encoding: Option<String>,
     pub default_value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub displays: Vec<Display>,
     #[serde(default)]
     pub choices: Vec<Choice>,
     #[serde(default)]
@@ -70,7 +79,55 @@ impl Parameter {
             "parameter {} has no datatype description",
             self.id
         );
+        let mut ids = HashSet::new();
+        for display in &self.displays {
+            ensure!(
+                !display.id.trim().is_empty(),
+                "parameter display ID is empty"
+            );
+            ensure!(ids.insert(&display.id), "duplicate parameter display ID");
+            let raw = self.scalar_field()?;
+            ensure!(
+                display.field.bits == raw.bits
+                    && display.field.kind == raw.kind
+                    && display.field.bit_offset == 0
+                    && display.field.byte_order == raw.byte_order,
+                "parameter display must preserve the declared raw layout"
+            );
+            display.field.validate(usize::from(raw.bits).div_ceil(8))?;
+        }
         Ok(())
+    }
+
+    fn scalar_field(&self) -> Result<Field> {
+        let kind = match self.datatype.as_str() {
+            "IntegerT" => Kind::Signed,
+            "UIntegerT" => Kind::Unsigned,
+            "BooleanT" => Kind::Bool,
+            "Float32T" => Kind::Float32,
+            _ => anyhow::bail!("parameter is not a supported scalar"),
+        };
+        Ok(Field {
+            name: self.id.clone(),
+            kind,
+            bits: u8::try_from(self.bits.context("IODD parameter width is unavailable")?)?,
+            ..Field::default()
+        })
+    }
+
+    pub fn decode_displays(&self, payload: &[u8]) -> Result<Vec<DisplayValue>> {
+        // Validate the raw response width before any scaled interpretation.
+        self.decode_raw(payload)?;
+        self.displays
+            .iter()
+            .map(|display| {
+                Ok(DisplayValue {
+                    id: display.id.clone(),
+                    value: display.field.decode(payload)?.value,
+                    unit: display.field.unit.clone(),
+                })
+            })
+            .collect()
     }
 
     /// Return the parameter's raw scalar or text value. Engineering display scaling is separate.
@@ -102,24 +159,17 @@ impl Parameter {
                     .to_owned(),
             ));
         }
-        let kind = match self.datatype.as_str() {
-            "IntegerT" => Kind::Signed,
-            "UIntegerT" => Kind::Unsigned,
-            "BooleanT" => Kind::Bool,
-            "Float32T" => Kind::Float32,
-            _ => return Ok(None),
-        };
-        let bits = u8::try_from(self.bits.context("IODD parameter width is unavailable")?)?;
+        if !matches!(
+            self.datatype.as_str(),
+            "IntegerT" | "UIntegerT" | "BooleanT" | "Float32T"
+        ) {
+            return Ok(None);
+        }
+        let field = self.scalar_field()?;
         ensure!(
-            payload.len() == usize::from(bits).div_ceil(8),
+            payload.len() == usize::from(field.bits).div_ceil(8),
             "parameter response width differs from the IODD"
         );
-        let field = Field {
-            name: self.id.clone(),
-            kind,
-            bits,
-            ..Field::default()
-        };
         Ok(Some(field.decode(payload)?.raw))
     }
 }
@@ -128,6 +178,7 @@ pub(super) fn parse<'a, 'i>(
     function: Node<'a, 'i>,
     types: &HashMap<&str, Node<'a, 'i>>,
     texts: &HashMap<&str, &str>,
+    definitions: &[Parameter],
 ) -> Result<(Vec<Parameter>, Vec<String>)> {
     let mut parameters = Vec::new();
     let mut standard = Vec::new();
@@ -142,7 +193,17 @@ pub(super) fn parse<'a, 'i>(
                 .attribute("id")
                 .context("standard parameter reference has no ID")?;
             ensure!(ids.insert(id), "duplicate parameter ID {id}");
-            standard.push(id.to_owned());
+            if let Some(definition) = definitions.iter().find(|parameter| parameter.id == id) {
+                let parameter = standard::resolve(definition, variable, texts)?;
+                ensure!(
+                    indexes.insert(parameter.index),
+                    "duplicate parameter index {}",
+                    parameter.index
+                );
+                parameters.push(parameter);
+            } else {
+                standard.push(id.to_owned());
+            }
         }
         if !variable.has_tag_name((IODD_NAMESPACE, "Variable")) {
             continue;
@@ -170,6 +231,8 @@ pub(super) fn parse<'a, 'i>(
             fixed_length: None,
             encoding: None,
             default_value: variable.attribute("defaultValue").map(str::to_owned),
+            origin: None,
+            displays: Vec::new(),
             choices: Vec::new(),
             ranges: Vec::new(),
             needs_input: Vec::new(),
@@ -246,6 +309,10 @@ pub(super) fn parse<'a, 'i>(
         }
         parameter.validate()?;
         parameters.push(parameter);
+    }
+    display::apply(function, &mut parameters);
+    for parameter in &parameters {
+        parameter.validate()?;
     }
     Ok((parameters, standard))
 }

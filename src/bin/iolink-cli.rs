@@ -23,6 +23,9 @@ enum Command {
         path: PathBuf,
         #[arg(long)]
         entry: Option<String>,
+        /// Local IODD-StandardDefinitions1.1.xml supplied by the user.
+        #[arg(long)]
+        standard_definitions: Option<PathBuf>,
     },
     /// Save an offline simulator profile from an IODD variant and input layout.
     Import {
@@ -30,6 +33,8 @@ enum Command {
         profile: PathBuf,
         #[arg(long)]
         entry: Option<String>,
+        #[arg(long)]
+        standard_definitions: Option<PathBuf>,
         #[arg(long)]
         variant: Option<String>,
         #[arg(long)]
@@ -112,18 +117,31 @@ fn main() -> Result<()> {
             let summary = archive::verify(&directory, joined_csv.as_deref())?;
             print!("{}", toml::to_string_pretty(&summary)?);
         }
-        Command::Iodd { path, entry } => print!(
+        Command::Iodd {
+            path,
+            entry,
+            standard_definitions,
+        } => print!(
             "{}",
-            toml::to_string_pretty(&iodd::load(&path, entry.as_deref())?)?
+            toml::to_string_pretty(&iodd::load_with_definitions(
+                &path,
+                entry.as_deref(),
+                standard_definitions.as_deref()
+            )?)?
         ),
         Command::Import {
             path,
             profile,
             entry,
+            standard_definitions,
             variant,
             layout,
         } => {
-            let catalog = iodd::load(&path, entry.as_deref())?;
+            let catalog = iodd::load_with_definitions(
+                &path,
+                entry.as_deref(),
+                standard_definitions.as_deref(),
+            )?;
             let (expected_identity, imported) =
                 catalog.select(variant.as_deref(), layout.as_deref())?;
             let profile_data = Profile {
