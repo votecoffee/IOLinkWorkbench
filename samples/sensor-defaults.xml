@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<IODevice xmlns="http://www.io-link.com/IODD/2010/10" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <!-- Original offline-default parser fixture, including deliberate review cases. No associated hardware or full Checker acceptance. -->
+  <ProfileBody>
+    <DeviceIdentity vendorId="65535" deviceId="1"><DeviceVariantCollection><DeviceVariant productId="SIM-SENSOR"><Name textId="sensor"/></DeviceVariant></DeviceVariantCollection></DeviceIdentity>
+    <DeviceFunction>
+      <VariableCollection>
+        <Variable id="V_DEFAULT_Bool" index="86" accessRights="ro" defaultValue="1"><Datatype xsi:type="BooleanT"><SingleValue value="0"><Name textId="off"/></SingleValue><SingleValue value="true"><Name textId="on"/></SingleValue></Datatype><Name textId="boolean"/></Variable>
+        <Variable id="V_DEFAULT_Wide" index="87" accessRights="ro" defaultValue="+18446744073709551615"><Datatype xsi:type="UIntegerT" bitLength="64"/><Name textId="wide"/></Variable>
+        <Variable id="V_DEFAULT_Signed" index="88" accessRights="ro" defaultValue="-017"><Datatype xsi:type="IntegerT" bitLength="12"><ValueRange lowerValue="-100" upperValue="100"><Name textId="band"/></ValueRange></Datatype><Name textId="signed"/></Variable>
+        <Variable id="V_DEFAULT_Float" index="89" accessRights="ro" defaultValue="1.25e0"><Datatype xsi:type="Float32T"/><Name textId="float"/></Variable>
+        <Variable id="V_DEFAULT_Text" index="90" accessRights="ro" defaultValue=" µm "><Datatype xsi:type="StringT" fixedLength="8" encoding="UTF-8"/><Name textId="text"/></Variable>
+        <Variable id="V_DEFAULT_Octets" index="91" accessRights="ro" defaultValue="0x00,0x80,0xFF,0x2C"><Datatype xsi:type="OctetStringT" fixedLength="4"/><Name textId="octets"/></Variable>
+        <Variable id="V_DEFAULT_Array" index="92" accessRights="ro" defaultValue="-1"><Datatype xsi:type="ArrayT" count="3" subindexAccessSupported="true"><SimpleDatatype xsi:type="IntegerT" bitLength="4"><ValueRange lowerValue="-8" upperValue="7"><Name textId="band"/></ValueRange></SimpleDatatype></Datatype><Name textId="array"/></Variable>
+        <Variable id="V_DEFAULT_Record" index="93" accessRights="ro"><Datatype xsi:type="RecordT" bitLength="64" subindexAccessSupported="true">
+          <RecordItem subindex="1" bitOffset="56"><SimpleDatatype xsi:type="BooleanT"/><Name textId="boolean"/></RecordItem>
+          <RecordItem subindex="2" bitOffset="40"><SimpleDatatype xsi:type="IntegerT" bitLength="16"/><Name textId="signed"/></RecordItem>
+          <RecordItem subindex="3" bitOffset="8"><SimpleDatatype xsi:type="StringT" fixedLength="4" encoding="US-ASCII"/><Name textId="text"/></RecordItem>
+          <RecordItem subindex="4" bitOffset="0"><SimpleDatatype xsi:type="UIntegerT" bitLength="8"/><Name textId="absent"/></RecordItem>
+        </Datatype><RecordItemInfo subindex="1" defaultValue="true"/><RecordItemInfo subindex="2" defaultValue="42"/><RecordItemInfo subindex="3" defaultValue="OK"/><Name textId="record"/></Variable>
+        <Variable id="V_DEFAULT_Invalid" index="94" accessRights="ro" defaultValue="256"><Datatype xsi:type="UIntegerT" bitLength="8"/><Name textId="invalid"/></Variable>
+        <Variable id="V_DEFAULT_Outside" index="95" accessRights="ro" defaultValue="11"><Datatype xsi:type="UIntegerT" bitLength="8"><SingleValue value="0"><Name textId="off"/></SingleValue><SingleValue value="1"><Name textId="on"/></SingleValue></Datatype><Name textId="outside"/></Variable>
+        <Variable id="V_DEFAULT_Time" index="96" accessRights="ro" defaultValue="-PT2S"><Datatype xsi:type="TimeSpanT"/><Name textId="time"/></Variable>
+        <Variable id="V_DEFAULT_Command" index="97" accessRights="wo" defaultValue="128"><Datatype xsi:type="UIntegerT" bitLength="8"/><Name textId="command"/></Variable>
+        <Variable id="V_DEFAULT_Absent" index="98" accessRights="ro"><Datatype xsi:type="UIntegerT" bitLength="8"/><Name textId="absent"/></Variable>
+      </VariableCollection>
+      <ProcessDataCollection><ProcessData id="PD"><ProcessDataIn id="IN" bitLength="16" unitCode="1997"><Datatype xsi:type="UIntegerT" bitLength="16"/></ProcessDataIn></ProcessData></ProcessDataCollection>
+      <UserInterface><MenuCollection><Menu id="M_DEFAULTS"><VariableRef variableId="V_DEFAULT_Float" displayFormat="Dec.1" gradient="10"/></Menu></MenuCollection></UserInterface>
+    </DeviceFunction>
+  </ProfileBody>
+  <ExternalTextCollection><PrimaryLanguage xml:lang="en">
+    <Text id="sensor" value="Synthetic default metadata sensor"/><Text id="off" value="Off"/><Text id="on" value="On"/><Text id="boolean" value="Boolean default"/><Text id="wide" value="Wide unsigned default"/>
+    <Text id="signed" value="Signed default"/><Text id="float" value="Float default"/><Text id="text" value="Text default"/><Text id="octets" value="Octet default"/><Text id="band" value="Declared band"/>
+    <Text id="array" value="Array element defaults"/><Text id="record" value="Record member defaults"/><Text id="invalid" value="Deliberate out-of-domain default"/><Text id="outside" value="Deliberate outside-choice default"/>
+    <Text id="time" value="Unsupported temporal default"/><Text id="command" value="Write-only metadata default"/><Text id="absent" value="No default declared"/>
+  </PrimaryLanguage></ExternalTextCollection>
+</IODevice>

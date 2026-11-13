@@ -65,6 +65,13 @@ enum Command {
     Decode { profile: PathBuf, payload: String },
     /// List imported IODD parameters without contacting a gateway.
     Parameters { profile: PathBuf },
+    /// Inspect declared defaults from a saved profile without gateway access or writes.
+    Defaults {
+        profile: PathBuf,
+        id: Option<String>,
+        #[arg(long, requires = "id")]
+        subindex: Option<u8>,
+    },
     /// Save a host-only preferred parameter display to an output profile. No gateway access.
     SelectDisplay {
         profile: PathBuf,
@@ -452,6 +459,21 @@ fn main() -> Result<()> {
                 target_us,
             )?;
             print!("{}", toml::to_string_pretty(&context)?);
+        }
+        Command::Defaults {
+            profile,
+            id,
+            subindex,
+        } => {
+            let profile = Profile::load(&profile)?;
+            let report = iodd::defaults::inspect_profile(&profile, id.as_deref(), subindex)?;
+            print!("{}", toml::to_string_pretty(&report)?);
+            ensure!(
+                report.needs_review == 0
+                    && report.unsupported == 0
+                    && report.unresolved_standard_parameter_refs.is_empty(),
+                "declared default metadata needs review; declarations retained above"
+            );
         }
         Command::Validate { profile } => {
             let profile = Profile::load(&profile)?;

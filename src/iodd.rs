@@ -22,6 +22,7 @@ pub use communication::{Bitrate, Communication};
 mod events;
 pub use events::{EventDefinition, EventType};
 mod parameters;
+pub use parameters::defaults;
 mod resources;
 pub mod schema;
 pub mod stamp;

@@ -156,6 +156,21 @@ fn lexical(parameter: &Parameter, text: &str) -> Result<Atom> {
     })
 }
 
+/// A local singular representation for declared defaults, never a transport write.
+pub(super) fn default_numeric_bytes(parameter: &Parameter, value: &str) -> Result<Vec<u8>> {
+    let atom = lexical(parameter, value)?;
+    Ok(match atom {
+        Atom::Boolean(value) => vec![u8::from(value)],
+        Atom::Unsigned(value) => {
+            value.to_be_bytes()[8 - usize::from(parameter.bits.unwrap()).div_ceil(8)..].to_vec()
+        }
+        Atom::Signed(value) => {
+            value.to_be_bytes()[8 - usize::from(parameter.bits.unwrap()).div_ceil(8)..].to_vec()
+        }
+        Atom::Float(value) => value.to_be_bytes().to_vec(),
+    })
+}
+
 /// Semantic equality for standard definition references; no float widening.
 pub(super) fn equivalent(parameter: &Parameter, left: &str, right: &str) -> bool {
     if !supported(parameter) {

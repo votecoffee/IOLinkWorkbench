@@ -139,6 +139,21 @@ fn picker<'a>(
     if let Some(default) = &target.default_value {
         ui.label(format!("IODD default · {default}"));
     }
+    ui.push_id((salt, "declared-default"), |ui| {
+        ui.collapsing("Inspect declared default (offline)", |ui| {
+            match parent.inspect_default(*subindex) {
+                Ok(value) => {
+                    if value.needs_review() {
+                        ui.colored_label(WARNING, "Declared default needs review");
+                    }
+                    ui.monospace(value.text());
+                }
+                Err(error) => {
+                    ui.colored_label(WARNING, error.to_string());
+                }
+            }
+        });
+    });
     if let Some(origin) = &target.origin {
         ui.small(format!("Standard definition · {origin}"));
     }

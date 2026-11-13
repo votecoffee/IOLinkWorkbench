@@ -84,6 +84,7 @@ pub struct Review {
     pub identity_check: String,
     pub observation: Observation,
     pub decoded: DecodedParameter,
+    pub declared_default: crate::iodd::defaults::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub iodd_stamp: Option<crate::iodd::stamp::Report>,
 }
@@ -91,7 +92,7 @@ pub struct Review {
 impl Review {
     pub fn text(&self) -> String {
         format!(
-            "Saved parameter snapshot · {}\nProducer {} · decoder {}\n{}\n{} · index {}:{}\nMaster {} · firmware {} · port {} · {}\nIdentity {} · vendor {:?} · device {:?} · serial {:?}\nHost read {} · total operation {} µs\n{}",
+            "Saved parameter snapshot · {}\nProducer {} · decoder {}\n{}\n{} · index {}:{}\nMaster {} · firmware {} · port {} · {}\nIdentity {} · vendor {:?} · device {:?} · serial {:?}\nHost read {} · total operation {} µs\n{}\n\n{}",
             self.observation.route,
             self.workbench_version,
             self.decoder_version,
@@ -112,7 +113,8 @@ impl Review {
             self.observation.identity.serial,
             self.host_read_utc,
             self.read_duration_us,
-            self.decoded.text()
+            self.decoded.text(),
+            self.declared_default.text()
         )
     }
 }
@@ -232,6 +234,7 @@ impl Snapshot {
                 .into(),
             observation: self.observation.clone(),
             decoded: target.decode(&decode::parse_hex_bounded(&self.raw_hex, 232)?),
+            declared_default: parent.inspect_default(self.subindex)?,
             iodd_stamp: self
                 .profile
                 .iodd
