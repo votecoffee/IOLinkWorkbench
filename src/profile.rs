@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, fs, io::Write, path::Path};
 
 mod connection;
+mod identity;
+pub use identity::IdentityDraft;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]

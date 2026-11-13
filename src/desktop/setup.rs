@@ -7,12 +7,14 @@ use std::{
 };
 
 mod connection;
+mod identity;
 
 pub struct Editor {
     path: String,
     toml: String,
     pending: bool,
     connection: connection::Form,
+    identity: identity::Form,
     iodd_path: String,
     standard_definitions: String,
     standard_language_file: String,
@@ -35,6 +37,7 @@ impl Editor {
             toml: serialize(profile),
             pending: false,
             connection: connection::Form::new(&profile.connection),
+            identity: identity::Form::new(&profile.expected_identity),
             iodd_path: String::new(),
             standard_definitions: String::new(),
             standard_language_file: String::new(),
@@ -55,10 +58,11 @@ impl Editor {
         self.toml = serialize(profile);
         self.pending = false;
         self.connection.sync(&profile.connection);
+        self.identity.sync(&profile.expected_identity);
     }
 
     pub fn pending(&self) -> bool {
-        self.pending || self.connection.pending()
+        self.pending || self.connection.pending() || self.identity.pending()
     }
 
     pub fn busy(&self) -> bool {
@@ -127,7 +131,12 @@ impl Editor {
                 }
             });
             ui.separator();
-            if ui.add_enabled_ui(!self.pending, |ui| self.connection.show(ui, profile, message)).inner {
+            if ui.add_enabled_ui(!self.pending && !self.identity.pending(), |ui| self.connection.show(ui, profile, message)).inner {
+                self.sync(profile);
+                changed = true;
+            }
+            ui.separator();
+            if ui.add_enabled_ui(!self.pending && !self.connection.pending(), |ui| self.identity.show(ui, profile, message)).inner {
                 self.sync(profile);
                 changed = true;
             }
@@ -195,7 +204,7 @@ impl Editor {
                 }
                 if self.pending { ui.colored_label(WARNING, "Pending edits"); }
             });
-            if ui.add_enabled(!self.connection.pending(), egui::TextEdit::multiline(&mut self.toml).code_editor()
+            if ui.add_enabled(!self.connection.pending() && !self.identity.pending(), egui::TextEdit::multiline(&mut self.toml).code_editor()
                 .desired_rows(16).desired_width(f32::INFINITY)).changed()
             { self.pending = true; }
         });

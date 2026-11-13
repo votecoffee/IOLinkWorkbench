@@ -772,6 +772,73 @@ def verify_connection_settings(cli, output):
     capture(cli, restored, output / "capture", "--seconds", .25)
 
 
+def verify_identity_settings(cli, output):
+    output.mkdir()
+    imported = output / "imported.toml"
+    source = output / "source.toml"
+    run(cli, "import", ROOT / "samples/sensor-formats.xml", imported)
+    run(cli, "select-display", imported, "V_SIM_Threshold", source, "--display", "M_SIM_Threshold/2")
+    source.write_bytes(b'# Keep original identity profile bytes\n' + source.read_bytes())
+    original = source.read_bytes()
+    before = tomllib.loads(original.decode("utf-8"))
+    requests = Gateway.requests
+    pinned = output / "pinned.toml"
+    run(cli, "set-identity", source, pinned, "--vendor-id", "0xFFFF", "--device-id", "0X000001",
+        "--product-id", "SIM-SENSOR", "--product-name", "Simulated level sensor", "--serial", "SIM-0001")
+    after = tomllib.loads(pinned.read_text(encoding="utf-8"))
+    expected = dict(vendor_id=65535, device_id=1, product_id="SIM-SENSOR", product_name="Simulated level sensor", serial="SIM-0001")
+    assert after == dict(before, expected_identity=expected)
+    assert source.read_bytes() == original and Gateway.requests == requests
+    saved = pinned.read_bytes()
+    run(cli, "set-identity", source, pinned, "--serial", "other", expected=1)
+    assert pinned.read_bytes() == saved
+    run(cli, "set-identity", source, source, "--serial", "other", expected=1)
+    assert source.read_bytes() == original
+    invalid = output / "must-not-exist.toml"
+    for args in [["--vendor-id", "65536"], ["--device-id", "0x1000000"], ["--vendor-id", ""],
+                 ["--device-id=-1"], ["--device-id", "0xGG"], ["--vendor-id", "18446744073709551616"]]:
+        run(cli, "set-identity", source, invalid, *args, expected=1)
+        assert not invalid.exists()
+    for args in [[], ["--vendor-id", 1, "--clear-vendor-id"], ["--serial", "x", "--clear-serial"]]:
+        run(cli, "set-identity", source, invalid, *args, expected=2)
+        assert not invalid.exists()
+    subset = output / "subset.toml"
+    run(cli, "set-identity", pinned, subset, "--clear-all", "--vendor-id", "0xFFFF")
+    assert tomllib.loads(subset.read_text(encoding="utf-8")) == dict(after, expected_identity=dict(vendor_id=65535))
+    literals = output / "literals.toml"
+    run(cli, "set-identity", pinned, literals, "--product-name", "  µm sensor  ", "--serial", "")
+    literal_identity = tomllib.loads(literals.read_text(encoding="utf-8"))["expected_identity"]
+    assert literal_identity["product_name"] == "  µm sensor  " and literal_identity["serial"] == ""
+    cleared = output / "cleared.toml"
+    run(cli, "set-identity", literals, cleared, "--clear-vendor-id", "--clear-device-id", "--clear-product-id", "--clear-product-name", "--clear-serial")
+    assert tomllib.loads(cleared.read_text(encoding="utf-8")) == dict(after, expected_identity={})
+    conflict = output / "variant-conflict.toml"
+    text = run(cli, "set-identity", pinned, conflict, "--product-id", "OTHER")
+    assert "Review:" in text and tomllib.loads(conflict.read_text(encoding="utf-8"))["iodd"] == after["iodd"]
+    route = output / "unreachable-route.toml"
+    run(cli, "set-connection", source, route, "--gateway", "ifm-al1350", "--endpoint", "http://127.0.0.1:9")
+    offline = output / "unreachable-pinned.toml"
+    run(cli, "set-identity", route, offline, "--serial", "offline-only")
+    assert tomllib.loads(offline.read_text(encoding="utf-8"))["connection"] == tomllib.loads(route.read_text(encoding="utf-8"))["connection"]
+    assert Gateway.requests == requests and source.read_bytes() == original and pinned.read_bytes() == saved
+    snapshot = output / "parameter.json"
+    reading = tomllib.loads(run(cli, "read-parameter", pinned, "V_SIM_Threshold", "--snapshot", snapshot))
+    review = tomllib.loads(run(cli, "review-parameter", snapshot))
+    assert reading["raw_value"] == review["decoded"]["raw_value"] == "500"
+    assert reading["preferred_display"] == review["decoded"]["preferred_display"]
+    assert review["identity_check"] == "matched all configured identity fields"
+    unpinned_snapshot = output / "unpinned.json"
+    run(cli, "read-parameter", cleared, "V_SIM_Threshold", "--snapshot", unpinned_snapshot)
+    assert tomllib.loads(run(cli, "review-parameter", unpinned_snapshot))["identity_check"] == "no identity pin configured"
+    wrong = output / "wrong-serial.toml"
+    run(cli, "set-identity", pinned, wrong, "--serial", "SIM-0002")
+    rejected_snapshot = output / "must-not-save.json"
+    run(cli, "read-parameter", wrong, "V_SIM_Threshold", "--snapshot", rejected_snapshot, expected=1)
+    assert not rejected_snapshot.exists()
+    assert Gateway.requests == requests and source.read_bytes() == original and pinned.read_bytes() == saved
+    capture(cli, pinned, output / "capture", "--seconds", .25)
+
+
 def verify_temporal_defaults(cli, output):
     output.mkdir()
     profile = output / "time-defaults.toml"
@@ -1105,6 +1172,7 @@ def main():
     verify_defaults(cli, scratch / "defaults")
     verify_temporal_defaults(cli, scratch / "temporal-defaults")
     verify_connection_settings(cli, scratch / "connection-settings")
+    verify_identity_settings(cli, scratch / "identity-settings")
     verify_xsd(cli, scratch)
     source = ROOT / "samples" / "simulator.toml"
     profile = source.read_text(encoding="utf-8")
@@ -1493,7 +1561,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline reopening, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")

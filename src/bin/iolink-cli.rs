@@ -11,6 +11,8 @@ use std::{path::PathBuf, time::Duration};
 
 #[path = "iolink-cli/connection.rs"]
 mod connection;
+#[path = "iolink-cli/identity.rs"]
+mod identity;
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -46,6 +48,13 @@ enum Command {
         output: PathBuf,
         #[command(flatten)]
         changes: connection::Arguments,
+    },
+    /// Save expected device identity pins to a new profile offline; no gateway access.
+    SetIdentity {
+        profile: PathBuf,
+        output: PathBuf,
+        #[command(flatten)]
+        changes: identity::Arguments,
     },
     /// Compare declared cycle limits and a host poll interval offline; no gateway access.
     Timing {
@@ -231,6 +240,22 @@ impl IoddOptions {
 
 fn main() -> Result<()> {
     match Cli::parse().command {
+        Command::SetIdentity {
+            profile,
+            output,
+            changes,
+        } => {
+            let source = Profile::load(&profile)?;
+            let candidate = changes.apply(&source)?;
+            candidate.save_new(&output)?;
+            println!(
+                "Saved expected identity pins to {}. These are configured expectations; no device identity was read or verified.",
+                output.display()
+            );
+            if let Some(note) = candidate.identity_variant_note() {
+                println!("Review: {note}");
+            }
+        }
         Command::SetConnection {
             profile,
             output,
