@@ -1,16 +1,44 @@
 use super::Parameter;
 use crate::{
-    decode::Field,
+    decode::{Field, Kind},
     iodd::{IODD_NAMESPACE, child},
 };
+use anyhow::{Result, ensure};
 use roxmltree::Node;
 use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NumberFormat {
+    #[default]
+    Decimal,
+    BooleanDecimal,
+    Hexadecimal,
+    Binary,
+}
+
+impl NumberFormat {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Decimal => "Decimal",
+            Self::BooleanDecimal => "Dec (0/1)",
+            Self::Hexadecimal => "Hex",
+            Self::Binary => "Bin",
+        }
+    }
+
+    fn is_decimal(&self) -> bool {
+        *self == Self::Decimal
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Display {
     pub id: String,
     pub field: Field,
+    #[serde(default, skip_serializing_if = "NumberFormat::is_decimal")]
+    pub format: NumberFormat,
 }
 
 #[derive(Debug, Serialize)]
@@ -18,6 +46,73 @@ pub struct DisplayValue {
     pub id: String,
     pub value: String,
     pub unit: String,
+}
+
+impl Display {
+    pub(super) fn validate_format(&self) -> Result<()> {
+        if self.format != NumberFormat::Decimal {
+            if self.format == NumberFormat::BooleanDecimal {
+                ensure!(
+                    self.field.kind == Kind::Bool,
+                    "Boolean decimal display requires a Boolean datatype"
+                );
+            } else {
+                ensure!(
+                    matches!(self.field.kind, Kind::Signed | Kind::Unsigned),
+                    "binary/hex displays require an integer datatype"
+                );
+            }
+            ensure!(
+                self.field.scale == 1.0
+                    && self.field.offset == 0.0
+                    && self.field.unit.is_empty()
+                    && self.field.decimals.is_none(),
+                "non-default formats require unscaled values with no unit or decimal precision"
+            );
+        }
+        Ok(())
+    }
+
+    pub(super) fn decode(&self, payload: &[u8]) -> Result<DisplayValue> {
+        self.validate_format()?;
+        let value = if self.format == NumberFormat::Decimal {
+            self.field.decode(payload)?.value
+        } else if self.format == NumberFormat::BooleanDecimal {
+            self.field.read_bits(payload)?.to_string()
+        } else {
+            let width = self.field.bits;
+            let display_bits = match width {
+                1..=8 => 8,
+                9..=16 => 16,
+                17..=32 => 32,
+                _ => 64,
+            };
+            let mut bits = self.field.read_bits(payload)?;
+            if self.field.kind == Kind::Signed && width < 64 && bits & (1 << (width - 1)) != 0 {
+                bits |= u64::MAX << width;
+            }
+            bits &= u64::MAX >> (64 - display_bits);
+            if self.format == NumberFormat::Hexadecimal {
+                format!("{bits:0digits$X}h", digits = display_bits / 4)
+            } else {
+                let digits = format!("{bits:0digits$b}", digits = display_bits);
+                format!(
+                    "{}b",
+                    digits
+                        .as_bytes()
+                        .chunks(4)
+                        .map(|nibble| std::str::from_utf8(nibble).expect("binary digits"))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                )
+            }
+        };
+        Ok(DisplayValue {
+            id: self.id.clone(),
+            value,
+            unit: self.field.unit.clone(),
+        })
+    }
 }
 
 pub(super) fn apply(
@@ -87,32 +182,60 @@ pub(super) fn apply(
                 continue;
             }
             let id = format!("{menu_id}/{}", ordinal + 1);
-            let display = (|| -> anyhow::Result<Field> {
+            let display = (|| -> Result<Display> {
                 let mut field = parameter.scalar_field()?;
-                field.scale = reference.attribute("gradient").unwrap_or("1").parse()?;
-                field.offset = reference.attribute("offset").unwrap_or("0").parse()?;
-                if let Some(format) = reference.attribute("displayFormat") {
-                    field.decimals = Some(
-                        format
-                            .strip_prefix("Dec.")
-                            .ok_or_else(|| anyhow::anyhow!("unsupported display format {format}"))?
-                            .parse()?,
+                let raw_format = reference.attribute("displayFormat");
+                let mut format = match raw_format {
+                    Some("Hex") => NumberFormat::Hexadecimal,
+                    Some("Bin") => NumberFormat::Binary,
+                    None | Some("Dec") => NumberFormat::Decimal,
+                    Some(value) if value.starts_with("Dec.") => {
+                        field.decimals = Some(value[4..].parse()?);
+                        NumberFormat::Decimal
+                    }
+                    Some(value) => anyhow::bail!("unsupported display format {value}"),
+                };
+                let scaled = reference.attribute("gradient").is_some()
+                    || reference.attribute("offset").is_some();
+                let unit = reference.attribute("unitCode");
+                if format != NumberFormat::Decimal {
+                    ensure!(
+                        !scaled && unit.is_none(),
+                        "Bin/Hex cannot specify gradient, offset, or unitCode"
                     );
                 }
-                field.unit = units.resolve(reference.attribute("unitCode"));
+                if field.kind == Kind::Bool {
+                    ensure!(
+                        raw_format == Some("Dec") && !scaled && unit.is_none(),
+                        "Boolean menu displays support plain Dec without gradient, offset, or unitCode"
+                    );
+                    format = NumberFormat::BooleanDecimal;
+                }
+                field.scale = reference.attribute("gradient").unwrap_or("1").parse()?;
+                ensure!(field.scale != 0.0, "IODD display gradient must not be zero");
+                field.offset = reference.attribute("offset").unwrap_or("0").parse()?;
+                field.unit = units.resolve(unit);
                 field.validate(usize::from(field.bits).div_ceil(8))?;
-                Ok(field)
+                let display = Display {
+                    id: id.clone(),
+                    field,
+                    format,
+                };
+                display.validate_format()?;
+                Ok(display)
             })();
             match display {
-                Ok(field) => {
-                    if reference.attribute("unitCode").is_none()
-                        || field.unit.starts_with("IODD unit ")
+                Ok(display) => {
+                    if display.format == NumberFormat::Decimal
+                        && display.field.kind != Kind::Bool
+                        && (reference.attribute("unitCode").is_none()
+                            || display.field.unit.starts_with("IODD unit "))
                     {
                         parameter
                             .needs_input
                             .push(format!("Display {id} needs a confirmed unit"));
                     }
-                    parameter.displays.push(Display { id, field });
+                    parameter.displays.push(display);
                 }
                 Err(error) => parameter.needs_input.push(format!(
                     "Display {id} requires manual interpretation: {error}"
@@ -140,3 +263,6 @@ fn mark_multiple(parameter: &mut Parameter) {
         );
     }
 }
+
+#[cfg(test)]
+mod tests;

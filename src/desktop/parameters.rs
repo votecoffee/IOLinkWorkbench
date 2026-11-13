@@ -95,8 +95,12 @@ fn picker<'a>(
         if *subindex == 0 {
             for display in &array.element.displays {
                 ui.label(format!(
-                    "Each element · ×{} + {} {}",
-                    display.field.scale, display.field.offset, display.field.unit
+                    "Each element · {} · {} · ×{} + {} {}",
+                    display.id,
+                    display.format.label(),
+                    display.field.scale,
+                    display.field.offset,
+                    display.field.unit
                 ));
             }
         }
@@ -130,8 +134,13 @@ fn picker<'a>(
     for display in &target.displays {
         let field = &display.field;
         ui.label(format!(
-            "Display {} · ×{} + {} {} · decimals {:?}",
-            display.id, field.scale, field.offset, field.unit, field.decimals
+            "Display {} · {} · ×{} + {} {} · decimals {:?}",
+            display.id,
+            display.format.label(),
+            field.scale,
+            field.offset,
+            field.unit,
+            field.decimals
         ));
     }
     for range in &target.ranges {

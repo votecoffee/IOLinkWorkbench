@@ -481,6 +481,22 @@ def main():
         assert tomllib.loads(run(cli, "read-parameter", array_profile, "V_SIM_History", "--subindex", subindex))["raw_value"] == value
     capture(cli, array_profile, scratch / "sim-array", "--seconds", 0.25)
 
+    formats_profile = scratch / "formats.toml"
+    run(cli, "import", ROOT / "samples/sensor-formats.xml", formats_profile)
+    views = tomllib.loads(run(cli, "read-parameter", formats_profile, "V_SIM_Threshold"))
+    assert views["raw_value"] == "500"
+    assert [display["value"] for display in views["displays"]] == ["500", "01F4h", "0000 0001 1111 0100b"]
+    offline_views = tomllib.loads(run(cli, "decode-parameter", formats_profile, "V_SIM_Threshold", "01F4"))
+    assert offline_views["displays"] == views["displays"]
+    format_record = tomllib.loads(run(cli, "read-parameter", formats_profile, "V_SIM_Record"))
+    assert format_record["record_items"][0]["value"]["displays"][1]["value"] == "FFECh"
+    assert format_record["record_items"][1]["value"]["raw_value"] == "true"
+    assert format_record["record_items"][1]["value"]["displays"][0]["value"] == "1"
+    format_array = tomllib.loads(run(cli, "read-parameter", formats_profile, "V_SIM_History"))
+    assert format_array["array_items"][1]["value"]["displays"][0]["value"] == "FCh"
+    assert format_array["array_items"][1]["value"]["displays"][1]["value"] == "1111 1100b"
+    run(cli, "decode-parameter", formats_profile, "V_SIM_Threshold", "FF", expected=1)
+
     clean, rows = capture(cli, source, scratch / "sim-every", "--seconds", 1)
     assert clean["last_status"]["route"] == "synthetic simulator"
     assert clean["row_kind"] == "source_update"
@@ -634,6 +650,19 @@ kind = "bool"
             text = text.replace('ifm_firmware = ""', 'ifm_firmware = "3.1.42"')
             text = text.replace('port = 1', 'port = 1\nifm_mode = 3\nifm_cycle_unit = "microseconds"')
             parameter_fixture.write_text(text.replace('poll_us = 1000', 'poll_us = 10000'), encoding="utf-8")
+            Gateway.device_id = 1
+            format_fixture = scratch / "format-fixture.toml"
+            format_text = formats_profile.read_text(encoding="utf-8").replace('gateway = "simulator"', 'gateway = "ifm_al1350"')
+            format_text = format_text.replace('endpoint = ""', f'endpoint = "http://127.0.0.1:{server.server_port}"')
+            format_text = format_text.replace('ifm_firmware = ""', 'ifm_firmware = "3.1.42"')
+            format_text = format_text.replace('port = 1', 'port = 1\nifm_mode = 3\nifm_cycle_unit = "microseconds"')
+            format_fixture.write_text(format_text, encoding="utf-8")
+            format_read = tomllib.loads(run(cli, "read-parameter", format_fixture, "V_SIM_Threshold"))
+            assert format_read["displays"][1]["value"] == "01F4h"
+            bool_read = tomllib.loads(run(cli, "read-parameter", format_fixture, "V_SIM_Record", "--subindex", 2))
+            assert bool_read["raw_value"] == "true" and bool_read["displays"][0]["value"] == "1"
+            packed_read = tomllib.loads(run(cli, "read-parameter", format_fixture, "V_SIM_History"))
+            assert packed_read["array_items"][1]["value"]["displays"][0]["value"] == "FCh"
             parallel_parameter_read(cli, parameter_fixture, scratch / "ifm-parallel-parameter")
             parallel_parameter_read(cli, parameter_fixture, scratch / "ifm-parallel-diagnostics", diagnostics=True)
             Gateway.fail_detailed = True
@@ -689,7 +718,7 @@ kind = "bool"
 
     print("PASS: ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
-          "named scalar/record/array reads, array and localized CSV fields, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling, and read-only AL1350 loopback")
+          "named scalar/record/array reads, binary/hex/plain-decimal parameter views, array and localized CSV fields, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 
 

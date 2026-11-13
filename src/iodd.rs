@@ -23,8 +23,8 @@ mod parameters;
 mod resources;
 pub mod schema;
 pub use parameters::{
-    Access, Array, Choice, DecodedParameter, Display, DisplayValue, Parameter, Record, RecordItem,
-    RecordValue, ValueRange,
+    Access, Array, Choice, DecodedParameter, Display, DisplayValue, NumberFormat, Parameter,
+    Record, RecordItem, RecordValue, ValueRange,
 };
 pub use resources::Localization;
 

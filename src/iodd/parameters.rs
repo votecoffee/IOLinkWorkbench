@@ -11,7 +11,7 @@ mod record;
 mod standard;
 mod value;
 pub use array::Array;
-pub use display::{Display, DisplayValue};
+pub use display::{Display, DisplayValue, NumberFormat};
 pub use record::{Record, RecordItem};
 pub(super) use standard::load as load_standard;
 pub use value::{DecodedParameter, RecordValue};
@@ -111,6 +111,7 @@ impl Parameter {
                 "parameter display must preserve the declared raw layout"
             );
             display.field.validate(usize::from(raw.bits).div_ceil(8))?;
+            display.validate_format()?;
         }
         Ok(())
     }
@@ -172,13 +173,7 @@ impl Parameter {
         self.decode_raw(payload)?;
         self.displays
             .iter()
-            .map(|display| {
-                Ok(DisplayValue {
-                    id: display.id.clone(),
-                    value: display.field.decode(payload)?.value,
-                    unit: display.field.unit.clone(),
-                })
-            })
+            .map(|display| display.decode(payload))
             .collect()
     }
 
