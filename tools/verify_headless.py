@@ -87,7 +87,7 @@ class Gateway(BaseHTTPRequestHandler):
                 # Documented examples use both styles of path key.
                 response["data"][path if self.polls % 2 else path.lstrip("/")] = result
         elif address == self.device + "/iolreadacyclic" and request["data"] in (
-                {"index": 19, "subindex": 0}, {"index": 36, "subindex": 0}, {"index": 37, "subindex": 0}, {"index": 64, "subindex": 0}, {"index": 65, "subindex": 0},
+                {"index": 19, "subindex": 0}, {"index": 36, "subindex": 0}, {"index": 37, "subindex": 0}, {"index": 48, "subindex": 0}, {"index": 64, "subindex": 0}, {"index": 65, "subindex": 0},
                 *({"index": 66, "subindex": subindex} for subindex in range(5)),
                 *({"index": 67, "subindex": subindex} for subindex in range(8)),
                 {"index": 71, "subindex": 0}, {"index": 72, "subindex": 0},
@@ -104,7 +104,7 @@ class Gateway(BaseHTTPRequestHandler):
                 if not self.parameter_release.wait(timeout=3):
                     response["code"] = 500
             response["data"] = {"value": {
-                (19, 0): "53494D2D53454E534F52", (64, 0): self.threshold_payload, (65, 0): "666978747572652073656E736F72",
+                (19, 0): "53494D2D53454E534F52", (48, 0): "2A", (64, 0): self.threshold_payload, (65, 0): "666978747572652073656E736F72",
                 (36, 0): "02", (37, 0): "E48DFE000000",
                 (66, 0): "FFEC010A54455354", (66, 1): "FFEC", (66, 2): "01", (66, 3): "0A", (66, 4): "54455354",
                 (67, 0): "02C495F0", (67, 1): "02", (67, 2): "FC", (67, 3): "04", (67, 4): "F9", (67, 5): "05", (67, 6): "FF", (67, 7): "00",
@@ -644,6 +644,58 @@ def verify_value_definitions(cli, profile, output, loopback=False):
             Gateway.wide_payload = "FFFFFFFFFFFFFFFF"
 
 
+def verify_range_reads(cli, profile, output, band="Operating band", measurement="Measurement range", commands="Vendor commands (offline metadata only)"):
+    output.mkdir()
+    snapshot = output / "offset.json"
+    result = tomllib.loads(run(cli, "read-parameter", profile, "V_OffsetTime", "--snapshot", snapshot))
+    assert result["raw_hex"] == "2A" and result["raw_value"] == "42" and result["displays"][0]["value"] == "21"
+    assert result["value_assessment"]["matched_range_names"] == [band]
+    before = Gateway.requests
+    restored = tomllib.loads(run(cli, "review-parameter", snapshot))["decoded"]
+    offline = tomllib.loads(run(cli, "decode-parameter", profile, "V_OffsetTime", "2A"))
+    assert restored["value_assessment"] == offline["value_assessment"] == result["value_assessment"]
+    outside = tomllib.loads(run(cli, "decode-parameter", profile, "V_OffsetTime", "13"))
+    assert outside["raw_value"] == "19" and outside["value_assessment"]["status"] == "outside_definition"
+    assert "matched_range_names" not in outside["value_assessment"]
+    inline = tomllib.loads(run(cli, "decode-parameter", profile, "V_SIM_Threshold", "01F4"))
+    assert inline["value_assessment"]["matched_range_names"] == [measurement]
+    for variable, subindex in [("V_SystemCommand", 0), ("V_DirectParameters_1", 16)]:
+        decoded = tomllib.loads(run(cli, "decode-parameter", profile, variable, "CC", "--subindex", subindex))
+        assert decoded["value_assessment"]["matched_range_names"] == [commands]
+        run(cli, "read-parameter", profile, variable, "--subindex", subindex, expected=1)
+    assert Gateway.requests == before
+
+
+def verify_standard_ranges(cli, output):
+    output.mkdir()
+    xml = ROOT / "samples/sensor-standard-values.xml"
+    definitions = ROOT / "samples/synthetic-value-standard-definitions.xml"
+    profile = output / "standard-values.toml"
+    run(cli, "import", xml, profile, "--standard-definitions", definitions)
+    verify_range_reads(cli, profile, output / "english")
+    german = output / "german.toml"
+    run(cli, "import", xml, german, "--standard-definitions", definitions, "--language", "de")
+    verify_range_reads(cli, german, output / "german", "Arbeitsbereich", "Messbereich", "Herstellerbefehle (nur Offline-Metadaten)")
+    text = xml.read_text(encoding="utf-8")
+    before = Gateway.requests
+    saved = profile.read_bytes()
+    variants = [
+        text.replace('lowerValue="200" upperValue="210"', 'lowerValue="127" upperValue="129"'),
+        text.replace('<StdSingleValueRef value="128"/>', '').replace('lowerValue="200" upperValue="210"', 'lowerValue="120" upperValue="128"'),
+        text.replace('lowerValue="+020"', 'lowerValue="0"'),
+        text.replace('<StdSingleValueRef value="+00"/>', '<StdSingleValueRef value="+00"/><StdSingleValueRef value="0"/>'),
+        text.replace('upperValue="+050"', 'upperValue="256"'),
+        text.replace('upperValue="+050"', 'upperValue="20"'),
+        text.replace('<StdSingleValueRef value="+00"/>', '<StdValueRangeRef lowerValue="1" upperValue="255"/>'),
+    ]
+    for number, contents in enumerate(variants):
+        path = output / f"rejected-{number}.xml"
+        path.write_bytes(contents.encode("utf-8"))
+        run(cli, "import", path, profile, "--standard-definitions", definitions, expected=1)
+        assert profile.read_bytes() == saved and Gateway.requests == before
+    return profile
+
+
 def verify_cycle_capture(cli, profile, output, expected_port, snapshots=False):
     report, rows = capture(cli, profile, output, "--seconds", .25)
     assert report["iodd_communication"]["minimum_cycle_us"] == 2300
@@ -887,6 +939,7 @@ def main():
     scratch.mkdir(parents=True)
     verify_stamps(cli, scratch / "stamps")
     communication_profile = verify_communication(cli, scratch / "communication")
+    standard_range_profile = verify_standard_ranges(cli, scratch / "standard-ranges")
     verify_xsd(cli, scratch)
     source = ROOT / "samples" / "simulator.toml"
     profile = source.read_text(encoding="utf-8")
@@ -1177,6 +1230,12 @@ kind = "bool"
             cycle_text = cycle_text.replace('ifm_firmware = ""', 'ifm_firmware = "3.1.42"').replace('port = 1', 'port = 1\nifm_mode = 3\nifm_cycle_unit = "microseconds"').replace('poll_us = 1000', 'poll_us = 10000')
             cycle_fixture.write_bytes(cycle_text.encode("utf-8"))
             verify_cycle_capture(cli, cycle_fixture, scratch / "ifm-cycle", 1200, snapshots=True)
+            range_fixture = scratch / "range-fixture.toml"
+            range_text = standard_range_profile.read_text(encoding="utf-8").replace('gateway = "simulator"', 'gateway = "ifm_al1350"')
+            range_text = range_text.replace('endpoint = ""', f'endpoint = "http://127.0.0.1:{server.server_port}"')
+            range_text = range_text.replace('ifm_firmware = ""', 'ifm_firmware = "3.1.42"').replace('port = 1', 'port = 1\nifm_mode = 3')
+            range_fixture.write_bytes(range_text.encode("utf-8"))
+            verify_range_reads(cli, range_fixture, scratch / "ifm-ranges")
             strings_fixture = scratch / "strings-fixture.toml"
             strings_text = strings_profile.read_text(encoding="utf-8").replace('gateway = "simulator"', 'gateway = "ifm_al1350"')
             strings_text = strings_text.replace('endpoint = ""', f'endpoint = "http://127.0.0.1:{server.server_port}"')
@@ -1269,7 +1328,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline reopening, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")

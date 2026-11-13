@@ -19,6 +19,8 @@ pub struct ValueAssessment {
     pub status: AssessmentStatus,
     pub matched_choices: usize,
     pub matched_ranges: usize,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub matched_range_names: Vec<String>,
     pub notes: Vec<String>,
 }
 
@@ -47,6 +49,12 @@ impl ValueAssessment {
         );
         for note in &self.notes {
             text.push_str(&format!("\n  {note}"));
+        }
+        if !self.matched_range_names.is_empty() {
+            text.push_str(&format!(
+                "\nMatched range names · {}",
+                self.matched_range_names.join(" · ")
+            ));
         }
         text
     }
@@ -156,6 +164,57 @@ pub(super) fn equivalent(parameter: &Parameter, left: &str, right: &str) -> bool
     matches!((lexical(parameter, left), lexical(parameter, right)), (Ok(a), Ok(b)) if a == b)
 }
 
+fn bounds(parameter: &Parameter, range: &super::ValueRange) -> Result<(Atom, Atom)> {
+    ensure!(
+        parameter.datatype != "BooleanT",
+        "Boolean ranges are unsupported"
+    );
+    let lower = lexical(parameter, &range.lower)?;
+    let upper = lexical(parameter, &range.upper)?;
+    ensure!(lower < upper, "lower bound must be less than upper bound");
+    Ok((lower, upper))
+}
+
+pub(super) fn range_contains(
+    parameter: &Parameter,
+    range: &super::ValueRange,
+    value: &str,
+) -> Result<bool> {
+    let (lower, upper) = bounds(parameter, range)?;
+    let value = lexical(parameter, value)?;
+    Ok(lower <= value && value <= upper)
+}
+
+/// Standard-reference overrides must be unambiguous before a mapping is accepted.
+pub(super) fn validate_values(parameter: &Parameter) -> Result<()> {
+    if parameter.choices.is_empty() && parameter.ranges.is_empty() {
+        return Ok(());
+    }
+    ensure!(
+        supported(parameter),
+        "allowed-value overrides require a supported numeric/Boolean datatype"
+    );
+    let mut intervals = Vec::new();
+    for choice in &parameter.choices {
+        let atom = lexical(parameter, &choice.value)
+            .with_context(|| format!("invalid choice {}", choice.value))?;
+        intervals.push((atom, atom));
+    }
+    for range in &parameter.ranges {
+        intervals.push(bounds(parameter, range)?);
+    }
+    intervals.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(Ordering::Equal));
+    let mut previous_upper = None;
+    for (lower, upper) in intervals {
+        ensure!(
+            previous_upper.is_none_or(|previous| previous < lower),
+            "allowed values overlap or contain equivalent choices"
+        );
+        previous_upper = Some(upper);
+    }
+    Ok(())
+}
+
 pub(super) fn assess(
     parameter: &Parameter,
     raw: &str,
@@ -167,6 +226,7 @@ pub(super) fn assess(
         status: AssessmentStatus::NotEvaluated,
         matched_choices: 0,
         matched_ranges: 0,
+        matched_range_names: Vec::new(),
         notes: Vec::new(),
     };
     if !supported(parameter) {
@@ -186,19 +246,10 @@ pub(super) fn assess(
         }
     }
     for range in &parameter.ranges {
-        let parsed = (|| -> Result<(Atom, Atom)> {
-            ensure!(
-                parameter.datatype != "BooleanT",
-                "Boolean ranges are unsupported"
-            );
-            let lower = lexical(parameter, &range.lower)?;
-            let upper = lexical(parameter, &range.upper)?;
-            ensure!(lower < upper, "lower bound must be less than upper bound");
-            Ok((lower, upper))
-        })();
+        let parsed = bounds(parameter, range);
         match parsed {
             Ok(bounds) => {
-                ranges.push(bounds);
+                ranges.push((bounds.0, bounds.1, range));
                 intervals.push(bounds);
             }
             Err(error) => result.note(format!("Range {}…{}: {error}", range.lower, range.upper)),
@@ -234,8 +285,14 @@ pub(super) fn assess(
             }
             result.matched_ranges = ranges
                 .iter()
-                .filter(|(lower, upper)| *lower <= atom && atom <= *upper)
+                .filter(|(lower, upper, _)| *lower <= atom && atom <= *upper)
                 .count();
+            result.matched_range_names = ranges
+                .iter()
+                .filter(|(lower, upper, _)| *lower <= atom && atom <= *upper)
+                .filter_map(|(_, _, range)| range.name.clone())
+                .take(16)
+                .collect();
             result.status = if !result.notes.is_empty() {
                 AssessmentStatus::DefinitionNeedsReview
             } else if result.matched_choices + result.matched_ranges > 0 {

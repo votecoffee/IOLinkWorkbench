@@ -156,8 +156,14 @@ fn picker<'a>(
     }
     for range in &target.ranges {
         ui.label(format!(
-            "IODD range · {} through {}",
-            range.lower, range.upper
+            "IODD range · {} through {}{}",
+            range.lower,
+            range.upper,
+            range
+                .name
+                .as_ref()
+                .map(|name| format!(" · {name}"))
+                .unwrap_or_default()
         ));
     }
     for choice in &target.choices {

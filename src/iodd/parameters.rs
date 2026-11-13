@@ -53,6 +53,8 @@ pub struct Choice {
 pub struct ValueRange {
     pub lower: String,
     pub upper: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -396,6 +398,7 @@ fn parse_parameter<'a, 'i>(
                 }
                 if value.has_tag_name((IODD_NAMESPACE, "ValueRange")) {
                     parameter.ranges.push(ValueRange {
+                        name: child(value, "Name").map(|_| label(value, texts, "")),
                         lower: value
                             .attribute("lowerValue")
                             .context("parameter range has no lower bound")?

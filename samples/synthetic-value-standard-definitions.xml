@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<IODDStandardDefinitions xmlns="http://www.io-link.com/IODD/2010/10" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <!-- Original abbreviated value-definition fixture. Use official definitions for a real device. -->
+  <DocumentInfo version="synthetic-values-1" releaseDate="2025-01-01"/>
+  <DatatypeCollection><Datatype id="COMMAND" xsi:type="UIntegerT" bitLength="8"><SingleValue value="128"><Name textId="reset"/></SingleValue></Datatype></DatatypeCollection>
+  <VariableCollection>
+    <Variable id="V_OffsetTime" index="48" accessRights="rw"><Datatype xsi:type="UIntegerT" bitLength="8"><SingleValue value="0"><Name textId="zero"/></SingleValue><ValueRange lowerValue="1" upperValue="255"><Name textId="baseRange"/></ValueRange></Datatype><Name textId="offset"/></Variable>
+    <Variable id="V_SystemCommand" index="2" accessRights="wo"><DatatypeRef datatypeId="COMMAND"/><Name textId="command"/></Variable>
+    <Variable id="V_DirectParameters_1" index="0" accessRights="rw"><Datatype xsi:type="RecordT" bitLength="16"><RecordItem subindex="1" bitOffset="8" accessRightRestriction="ro"><SimpleDatatype xsi:type="UIntegerT" bitLength="8"/><Name textId="identity"/></RecordItem><RecordItem subindex="16" bitOffset="0" accessRightRestriction="wo"><DatatypeRef datatypeId="COMMAND"/><Name textId="command"/></RecordItem></Datatype><Name textId="record"/></Variable>
+  </VariableCollection>
+  <ExternalTextCollection>
+    <PrimaryLanguage xml:lang="en"><Text id="zero" value="Zero offset"/><Text id="baseRange" value="Standard nonzero values"/><Text id="offset" value="Synthetic offset time"/><Text id="command" value="Synthetic command"/><Text id="reset" value="Synthetic reset"/><Text id="identity" value="Identity byte"/><Text id="record" value="Synthetic direct parameter record"/></PrimaryLanguage>
+    <Language xml:lang="de"><Text id="zero" value="Nullversatz"/><Text id="baseRange" value="Standardwerte ungleich null"/><Text id="offset" value="Synthetische Offsetzeit"/><Text id="command" value="Synthetischer Befehl"/><Text id="reset" value="Synthetisches Zurücksetzen"/><Text id="identity" value="Identitätsbyte"/><Text id="record" value="Synthetischer Direktparameter-Datensatz"/></Language>
+  </ExternalTextCollection>
+</IODDStandardDefinitions>

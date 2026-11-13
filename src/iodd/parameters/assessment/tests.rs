@@ -137,6 +137,7 @@ fn invalid_ambiguous_and_overlapping_definitions_are_reported_without_guessing()
     for (lower, upper) in [("4", "4"), ("5", "4"), ("-1", "4"), ("0", "256")] {
         unsigned.choices.clear();
         unsigned.ranges = vec![super::super::ValueRange {
+            name: None,
             lower: lower.into(),
             upper: upper.into(),
         }];
@@ -147,10 +148,12 @@ fn invalid_ambiguous_and_overlapping_definitions_are_reported_without_guessing()
     }
     unsigned.ranges = vec![
         super::super::ValueRange {
+            name: None,
             lower: "0".into(),
             upper: "4".into(),
         },
         super::super::ValueRange {
+            name: None,
             lower: "4".into(),
             upper: "6".into(),
         },
@@ -242,6 +245,7 @@ fn signed_extremes_whitespace_and_definition_diagnostics_remain_bounded() -> Res
         name: "Signed minimum".into(),
     }];
     parameter.ranges = vec![super::super::ValueRange {
+        name: None,
         lower: "+000".into(),
         upper: "+9223372036854775807".into(),
     }];

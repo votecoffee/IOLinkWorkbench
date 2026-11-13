@@ -186,6 +186,16 @@ pub(super) fn resolve(
     let mut ranges = Vec::new();
     let mut subindexes = HashSet::new();
     for value in reference.children() {
+        if value.is_element() && value.tag_name().namespace() == Some(IODD_NAMESPACE) {
+            ensure!(
+                matches!(
+                    value.tag_name().name(),
+                    "StdSingleValueRef" | "SingleValue" | "ValueRange" | "StdRecordItemRef"
+                ),
+                "unsupported standard-reference directive {}",
+                value.tag_name().name()
+            );
+        }
         if value.has_tag_name((IODD_NAMESPACE, "StdSingleValueRef")) {
             let raw = value
                 .attribute("value")
@@ -216,7 +226,8 @@ pub(super) fn resolve(
             });
         }
         if value.has_tag_name((IODD_NAMESPACE, "ValueRange")) {
-            ranges.push(ValueRange {
+            let range = ValueRange {
+                name: child(value, "Name").map(|_| crate::iodd::label(value, texts, "")),
                 lower: value
                     .attribute("lowerValue")
                     .context("missing lower value")?
@@ -225,7 +236,15 @@ pub(super) fn resolve(
                     .attribute("upperValue")
                     .context("missing upper value")?
                     .into(),
-            });
+            };
+            for choice in &definition.choices {
+                ensure!(
+                    !super::assessment::range_contains(definition, &range, &choice.value)?,
+                    "vendor range cannot redefine standard choice {}",
+                    choice.value
+                );
+            }
+            ranges.push(range);
         }
         if value.has_tag_name((IODD_NAMESPACE, "StdRecordItemRef")) {
             let subindex: u8 = value
@@ -252,7 +271,13 @@ pub(super) fn resolve(
     if !choices.is_empty() || !ranges.is_empty() || parameter.id == "V_SystemCommand" {
         parameter.choices = choices;
         parameter.ranges = ranges;
+        super::assessment::validate_values(&parameter).with_context(|| {
+            format!("standard parameter {} allowed-value override", parameter.id)
+        })?;
     }
     parameter.validate()?;
     Ok(parameter)
 }
+
+#[cfg(test)]
+mod tests;

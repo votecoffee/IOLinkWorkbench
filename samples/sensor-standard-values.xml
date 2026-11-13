@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<IODevice xmlns="http://www.io-link.com/IODD/2010/10" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <!-- Original abbreviated parser fixture. No physical sensor or official Checker acceptance. -->
+  <ProfileBody>
+    <DeviceIdentity vendorId="65535" deviceId="1"><DeviceVariantCollection><DeviceVariant productId="SIM-SENSOR"><Name textId="sensor"/></DeviceVariant></DeviceVariantCollection></DeviceIdentity>
+    <DeviceFunction>
+      <VariableCollection>
+        <StdVariableRef id="V_OffsetTime" defaultValue="42"><StdSingleValueRef value="+00"/><SingleValue value="+010"><Name textId="special"/></SingleValue><ValueRange lowerValue="+020" upperValue="+050"><Name textId="operating"/></ValueRange></StdVariableRef>
+        <StdVariableRef id="V_SystemCommand"><StdSingleValueRef value="128"/><ValueRange lowerValue="200" upperValue="210"><Name textId="commands"/></ValueRange></StdVariableRef>
+        <StdVariableRef id="V_DirectParameters_1"><StdRecordItemRef subindex="16"><StdSingleValueRef value="128"/><ValueRange lowerValue="200" upperValue="210"><Name textId="commands"/></ValueRange></StdRecordItemRef></StdVariableRef>
+        <Variable id="V_SIM_Threshold" index="64" accessRights="ro"><Datatype xsi:type="IntegerT" bitLength="16"><ValueRange lowerValue="-1000" upperValue="1000"><Name textId="measurement"/></ValueRange></Datatype><Name textId="threshold"/></Variable>
+      </VariableCollection>
+      <ProcessDataCollection><ProcessData id="PD"><ProcessDataIn id="IN" bitLength="16" unitCode="1997"><Datatype xsi:type="UIntegerT" bitLength="16"/></ProcessDataIn></ProcessData></ProcessDataCollection>
+      <UserInterface><MenuCollection><Menu id="M_VALUES"><VariableRef variableId="V_OffsetTime" displayFormat="Dec" gradient="0.5"/></Menu></MenuCollection></UserInterface>
+    </DeviceFunction>
+  </ProfileBody>
+  <ExternalTextCollection>
+    <PrimaryLanguage xml:lang="en"><Text id="sensor" value="Synthetic standard-value sensor"/><Text id="special" value="Special value"/><Text id="operating" value="Operating band"/><Text id="commands" value="Vendor commands (offline metadata only)"/><Text id="measurement" value="Measurement range"/><Text id="threshold" value="Threshold"/></PrimaryLanguage>
+    <Language xml:lang="de"><Text id="sensor" value="Synthetischer Standardwertsensor"/><Text id="special" value="Sonderwert"/><Text id="operating" value="Arbeitsbereich"/><Text id="commands" value="Herstellerbefehle (nur Offline-Metadaten)"/><Text id="measurement" value="Messbereich"/><Text id="threshold" value="Schwellwert"/></Language>
+  </ExternalTextCollection>
+</IODevice>
