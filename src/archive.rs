@@ -73,6 +73,7 @@ struct Manifest {
     logger_metrics: Option<crate::capture::LoggerMetrics>,
     local_api: Option<crate::local_api::Summary>,
     mqtt: Option<crate::mqtt::Summary>,
+    shared_memory: Option<crate::shared_memory::Summary>,
 }
 
 fn legacy_format() -> u32 {
@@ -377,6 +378,9 @@ fn check_manifest(manifest: &Manifest, profile: &Profile) -> Result<()> {
     }
     if let Some(mqtt) = &manifest.mqtt {
         mqtt.validate()?;
+    }
+    if let Some(shm) = &manifest.shared_memory {
+        shm.validate()?;
     }
     Ok(())
 }

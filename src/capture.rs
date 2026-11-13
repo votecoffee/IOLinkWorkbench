@@ -74,6 +74,7 @@ pub struct Options {
     pub simulated_writer_delay: Duration,
     pub local_api: Option<crate::local_api::Config>,
     pub mqtt: Option<crate::mqtt::Config>,
+    pub shared_memory: Option<crate::shared_memory::Config>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize)]
@@ -191,6 +192,8 @@ pub struct Report {
     pub local_api: Option<crate::local_api::Summary>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mqtt: Option<crate::mqtt::Summary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shared_memory: Option<crate::shared_memory::Summary>,
     pub counts: Counts,
     pub host_timer: &'static str,
     pub host_poll_start_spacing: Option<Spacing>,
@@ -206,6 +209,10 @@ impl Report {
             && self.writer_error.is_none()
             && self.local_api.as_ref().is_none_or(|api| !api.worker_failed)
             && self.mqtt.as_ref().is_none_or(|mqtt| !mqtt.worker_failed)
+            && self
+                .shared_memory
+                .as_ref()
+                .is_none_or(|shm| !shm.worker_failed)
     }
 }
 
@@ -343,6 +350,11 @@ fn run_with_transport(
         .as_ref()
         .map(|config| crate::mqtt::Service::start(config, profile, start, &utc_start))
         .transpose()?;
+    let shared_memory = options
+        .shared_memory
+        .as_ref()
+        .map(|config| crate::shared_memory::Service::start(config, profile, start, &utc_start))
+        .transpose()?;
     let deadline = options
         .duration
         .and_then(|duration| start.checked_add(duration));
@@ -433,6 +445,9 @@ fn run_with_transport(
                     if let Some(mqtt) = &mqtt {
                         mqtt.connected(state.generation, &status);
                     }
+                    if let Some(shm) = &shared_memory {
+                        shm.connected(state.generation, &status);
+                    }
                     state.message.clear();
                     state.message.push_str("Connected read-only");
                     route_pin = Some(status);
@@ -483,6 +498,9 @@ fn run_with_transport(
                 }
                 if let Some(mqtt) = &mqtt {
                     mqtt.disconnected(state.generation);
+                }
+                if let Some(shm) = &shared_memory {
+                    shm.disconnected(state.generation);
                 }
                 if let Some(live) = live {
                     live.force_push(state.clone());
@@ -586,7 +604,7 @@ fn run_with_transport(
                 }
             }
         }
-        if local_api.is_some() || mqtt.is_some() {
+        if local_api.is_some() || mqtt.is_some() || shared_memory.is_some() {
             let sample = crate::telemetry::Sample {
                 input,
                 freshness,
@@ -608,6 +626,9 @@ fn run_with_transport(
             }
             if let Some(mqtt) = &mqtt {
                 mqtt.sample(state.generation, sample);
+            }
+            if let Some(shm) = &shared_memory {
+                shm.sample(state.generation, sample);
             }
         }
         if stamp.saturating_duration_since(last_ui) >= Duration::from_millis(80) {
@@ -643,6 +664,10 @@ fn run_with_transport(
     let mqtt = mqtt.map(|mqtt| {
         mqtt.ended(state.generation);
         mqtt.finish()
+    });
+    let shared_memory = shared_memory.map(|shm| {
+        shm.ended(state.generation);
+        shm.finish()
     });
     let freshness = state.status.as_ref().map(|status| status.freshness);
     let report = Report {
@@ -682,6 +707,7 @@ fn run_with_transport(
         logger_metrics: summary.metrics,
         local_api,
         mqtt,
+        shared_memory,
         counts: state.counts,
         host_timer: timer.label(),
         host_poll_start_spacing: poll_start.summarize(),

@@ -92,6 +92,7 @@ pub(super) fn render(
             // Render enabled API controls without starting acquisition or a listener.
             app.api_enabled = tab == Tab::Monitor;
             app.mqtt_enabled = tab == Tab::Monitor;
+            app.shared_memory_enabled = tab == Tab::Monitor;
             let before = app.profile.clone();
             let mut case = Case {
                 profile: name,

@@ -101,6 +101,9 @@ struct App {
     mqtt_broker: String,
     mqtt_topic: String,
     mqtt_interval_ms: u64,
+    shared_memory_enabled: bool,
+    shared_memory_name: String,
+    shared_memory_interval_ms: u64,
     worker: Option<Worker<Report>>,
     isdu_worker: Option<Worker<String>>,
     isdu_index: u16,
@@ -140,6 +143,9 @@ impl App {
             mqtt_broker: "127.0.0.1:1883".into(),
             mqtt_topic: "iolink-workbench/input".into(),
             mqtt_interval_ms: 100,
+            shared_memory_enabled: false,
+            shared_memory_name: "input".into(),
+            shared_memory_interval_ms: 10,
             worker: None,
             isdu_worker: None,
             isdu_index: 19,
@@ -197,6 +203,13 @@ impl App {
             None
         };
         let options = Options {
+            shared_memory: self.shared_memory_enabled.then(|| {
+                iolink_workbench::shared_memory::Config {
+                    name: self.shared_memory_name.clone(),
+                    interval_ms: self.shared_memory_interval_ms,
+                    ..Default::default()
+                }
+            }),
             mqtt,
             output,
             duration: (record && self.duration != 0)
@@ -290,6 +303,21 @@ impl App {
         let available = !running && !self.closing && !self.setup.pending() && !self.setup.busy();
         ui.add_enabled_ui(available, |ui| {
             ui.horizontal_wrapped(|ui| {
+                ui.checkbox(
+                    &mut self.shared_memory_enabled,
+                    "Windows shared-memory snapshot",
+                );
+                if self.shared_memory_enabled {
+                    ui.label("Name");
+                    ui.text_edit_singleline(&mut self.shared_memory_name);
+                    ui.add(
+                        egui::DragValue::new(&mut self.shared_memory_interval_ms)
+                            .range(1..=1000)
+                            .suffix(" ms"),
+                    );
+                }
+            });
+            ui.horizontal_wrapped(|ui| {
                 ui.checkbox(&mut self.mqtt_enabled, "MQTT latest-state publishing");
                 ui.label("Broker IP:port");
                 ui.text_edit_singleline(&mut self.mqtt_broker);
@@ -380,6 +408,19 @@ impl App {
         }
         if running && self.api_enabled {
             ui.label(format!("Local API requested at http://127.0.0.1:{}/v1/status · API drops are separate from CSV/source loss", self.api_port));
+        }
+        if running && self.shared_memory_enabled {
+            ui.label(format!(
+                "Shared memory requested · Local\\IOLinkWorkbench.Snapshot.{} · latest state",
+                self.shared_memory_name
+            ));
+        }
+        if let Some(shm) = self
+            .report
+            .as_ref()
+            .and_then(|report| report.shared_memory.as_ref())
+        {
+            ui.label(format!("Shared memory stopped · {} commits · {} queue drops · {} coalesced · {} busy skips · final snapshot: {}",shm.snapshots_written,shm.queue_dropped,shm.coalesced,shm.busy_skips,shm.final_snapshot_written));
         }
         if running && self.mqtt_enabled {
             ui.label(format!(

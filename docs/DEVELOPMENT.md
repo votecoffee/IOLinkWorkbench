@@ -12,6 +12,7 @@ Read [AGENTS.md](../AGENTS.md) and the [operations guide](OPERATIONS.md) before 
 | `src/capture*` | Cyclic acquisition, receive timestamps, selection, bounded queue, writer, finalized reports and timing/loss accounting |
 | `src/local_api*` | Optional read-only loopback server, independent queue/ingest/history, request bounds, typed rendering, session cursors and API loss accounting |
 | `src/mqtt*`, `src/telemetry.rs` | Independent latest-state publisher, bounded protocol handling and MQTT accounting; shared pure raw/typed telemetry rendering |
+| `src/shared_memory*` | Windows mapping/mutex ownership, explicit ABI, bounded latest-state handoff, native read helper and independent commit/skip accounting |
 | `src/archive*` | Offline capture verification, bounded review and re-decode exports |
 | `src/parameter_snapshot*`, diagnostics | Explicit acyclic results and offline reopening with embedded context |
 | `src/bin/iolink-cli*`, `src/desktop*` | Shared core operations exposed through CLI and GUI; pending GUI drafts guard acquisition |
@@ -35,6 +36,7 @@ cargo build --locked --release --target x86_64-pc-windows-msvc --bins
 python tools/verify_headless.py target/x86_64-pc-windows-msvc/release/iolink-cli.exe
 python tools/verify_local_api.py target/x86_64-pc-windows-msvc/release/iolink-cli.exe
 python tools/verify_mqtt.py target/x86_64-pc-windows-msvc/release/iolink-cli.exe
+python tools/verify_shared_memory.py target/x86_64-pc-windows-msvc/release/iolink-cli.exe
 python tools/verify_gui.py target/x86_64-pc-windows-msvc/release/iolink-workbench.exe --output .local/gui-check-NEW.json
 ```
 

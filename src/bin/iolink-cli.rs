@@ -21,6 +21,8 @@ mod logging;
 mod mapping;
 #[path = "iolink-cli/mqtt.rs"]
 mod mqtt;
+#[path = "iolink-cli/shared_memory.rs"]
+mod shared_memory;
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -31,6 +33,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Read one consistent Windows shared-memory snapshot; no profile/gateway access.
+    ReadSharedMemory {
+        name: String,
+        #[arg(long, default_value_t = 50)]
+        wait_ms: u32,
+        #[arg(long, default_value_t = 1000)]
+        max_age_ms: u64,
+    },
     /// List device variants, process input layouts, and fields needing review.
     Iodd {
         path: PathBuf,
@@ -230,6 +240,8 @@ enum Command {
         api: local_api::Arguments,
         #[command(flatten)]
         mqtt: mqtt::Arguments,
+        #[command(flatten)]
+        shared_memory: shared_memory::Arguments,
     },
 }
 
@@ -275,6 +287,18 @@ impl IoddOptions {
 
 fn main() -> Result<()> {
     match Cli::parse().command {
+        Command::ReadSharedMemory {
+            name,
+            wait_ms,
+            max_age_ms,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&iolink_workbench::shared_memory::read(
+                    &name, wait_ms, max_age_ms
+                )?)?
+            );
+        }
         Command::Logging { profile } => {
             let profile = Profile::load(&profile)?;
             print!("{}", toml::to_string_pretty(&profile.logging_plan()?)?);
@@ -687,6 +711,7 @@ fn main() -> Result<()> {
             fields,
             api,
             mqtt,
+            shared_memory,
         } => {
             ensure!(
                 seconds.is_finite() && (0.01..=86400.0).contains(&seconds),
@@ -715,6 +740,7 @@ fn main() -> Result<()> {
                     simulated_writer_delay: Duration::from_millis(simulate_writer_delay_ms),
                     local_api: api.config(),
                     mqtt: mqtt.config(),
+                    shared_memory: shared_memory.config(),
                 },
                 &stop,
                 None,

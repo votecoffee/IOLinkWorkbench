@@ -7,6 +7,7 @@ pub mod local_api;
 pub mod mqtt;
 pub mod parameter_snapshot;
 pub mod profile;
+pub mod shared_memory;
 mod telemetry;
 pub mod timing;
 pub mod transport;
