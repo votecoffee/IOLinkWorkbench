@@ -15,10 +15,13 @@ use std::{
 
 mod redecode;
 pub use redecode::{FileDigest, Redecode};
+mod verify_export;
+pub use verify_export::{ExportVerification, verify_export};
 mod review;
 pub use review::{Bucket, NumericSummary, RecordedTiming, Review, SignalReview};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Summary {
     pub profile: String,
     pub utc_start: String,
@@ -237,6 +240,118 @@ fn validate_row(row: &Row<'_>, previous: Option<&Row<'_>>, manifest: &Manifest) 
     Ok(())
 }
 
+fn check_values(
+    profile: &Profile,
+    fields: &[&crate::decode::Field],
+    row: &Row<'_>,
+    record: &csv::StringRecord,
+) -> Result<(Vec<u8>, bool)> {
+    let payload = if row.raw_hex.is_empty() {
+        Vec::new()
+    } else {
+        decode::parse_hex(row.raw_hex)?
+    };
+    ensure!(
+        decode::hex(&payload) == row.raw_hex,
+        "raw payload is not canonical hexadecimal"
+    );
+    let typed = row.validity == Validity::Valid && row.stale != Some(true);
+    if row.validity == Validity::Valid {
+        ensure!(
+            payload.len() == profile.input_bytes,
+            "valid payload width differs from the saved profile"
+        );
+    }
+    for (column, field) in fields.iter().enumerate() {
+        let expected = if typed {
+            field.decode(&payload)?.value
+        } else {
+            String::new()
+        };
+        ensure!(
+            record[CSV_METADATA.len() + column] == expected,
+            "typed value for {} differs from the raw payload or validity",
+            field.name
+        );
+    }
+    Ok((payload, typed))
+}
+
+impl Summary {
+    fn new(manifest: &Manifest, joined_csv: Option<&Path>) -> Self {
+        Self {
+            profile: manifest.profile.clone(),
+            utc_start: manifest.utc_start.clone(),
+            csv_parts: manifest.csv_parts,
+            rows_checked: 0,
+            valid_rows: 0,
+            invalid_rows: 0,
+            unknown_validity_rows: 0,
+            stale_rows: 0,
+            row_kind: manifest.row_kind.clone(),
+            first_sample_index: None,
+            last_sample_index: None,
+            missing_sample_indexes: 0,
+            generations_in_csv: 0,
+            recorded_source_gaps: manifest.source_gaps_observed,
+            recorded_source_update_loss: manifest.source_update_loss.clone(),
+            capture_had_error: manifest.terminal_error.is_some() || manifest.writer_error.is_some(),
+            joined_csv: joined_csv.map(Path::to_owned),
+        }
+    }
+
+    fn observe(&mut self, row: &Row<'_>, previous: Option<&Row<'_>>) {
+        self.rows_checked += 1;
+        match row.validity {
+            Validity::Valid => self.valid_rows += 1,
+            Validity::Invalid => self.invalid_rows += 1,
+            Validity::Unknown => self.unknown_validity_rows += 1,
+        }
+        self.stale_rows += u64::from(row.stale == Some(true));
+        if previous.is_none_or(|previous| previous.generation != row.generation) {
+            self.generations_in_csv += 1;
+        }
+        self.first_sample_index.get_or_insert(row.sample_index);
+        self.last_sample_index = Some(row.sample_index);
+    }
+
+    fn finish(&mut self, manifest: &Manifest) -> Result<()> {
+        ensure!(
+            self.rows_checked == manifest.csv_rows_flushed,
+            "report confirms {} CSV rows, found {}",
+            manifest.csv_rows_flushed,
+            self.rows_checked
+        );
+        self.missing_sample_indexes = manifest.counts.selected - self.rows_checked;
+        Ok(())
+    }
+}
+
+fn check_manifest(manifest: &Manifest, profile: &Profile) -> Result<()> {
+    ensure!(
+        manifest.format_version == 1,
+        "unsupported capture format {}",
+        manifest.format_version
+    );
+    ensure!(
+        profile.name == manifest.profile,
+        "saved profile name differs from the report"
+    );
+    chrono::DateTime::parse_from_rfc3339(&manifest.utc_start)
+        .context("invalid UTC capture origin")?;
+    ensure!(
+        manifest.csv_rows_unconfirmed == 0,
+        "report has {} unconfirmed CSV rows; this capture cannot be verified as complete",
+        manifest.csv_rows_unconfirmed
+    );
+    ensure!(
+        u128::from(manifest.counts.selected)
+            == u128::from(manifest.csv_rows_flushed) + u128::from(manifest.counts.logger_overruns),
+        "report's CSV row accounting is inconsistent"
+    );
+    Ok(())
+}
+
 /// Check a finalized capture using its saved profile and optionally publish a joined CSV.
 /// All rows are checked while streaming. The joined file becomes visible only after success.
 pub fn verify(directory: &Path, joined_csv: Option<&Path>) -> Result<Summary> {
@@ -263,41 +378,32 @@ pub fn redecode(directory: &Path, mapping: &Profile, output: &Path) -> Result<Re
     export.finish(summary)
 }
 
+trait Observer {
+    fn source(
+        &mut self,
+        profile: &Profile,
+        profile_bytes: &[u8],
+        manifest_bytes: &[u8],
+    ) -> Result<()>;
+    fn row(&mut self, original: &csv::StringRecord, payload: &[u8], typed: bool) -> Result<()>;
+    fn source_part(&mut self, file: FileDigest) -> Result<()>;
+}
+
 fn inspect(
     directory: &Path,
     joined_csv: Option<&Path>,
     request: Option<(Option<&str>, usize)>,
-    mut export: Option<&mut redecode::Exporter>,
+    mut export: Option<&mut dyn Observer>,
 ) -> Result<(Summary, Option<review::Collector>)> {
     let directory = directory
         .canonicalize()
         .with_context(|| directory.display().to_string())?;
     let manifest_bytes = fs::read(directory.join("capture.toml"))?;
     let manifest: Manifest = toml::from_str(std::str::from_utf8(&manifest_bytes)?)?;
-    ensure!(
-        manifest.format_version == 1,
-        "unsupported capture format {}",
-        manifest.format_version
-    );
     let profile_bytes = fs::read(directory.join("profile.toml"))?;
     let profile =
         Profile::parse(std::str::from_utf8(&profile_bytes)?).context("saved capture profile")?;
-    ensure!(
-        profile.name == manifest.profile,
-        "saved profile name differs from the report"
-    );
-    chrono::DateTime::parse_from_rfc3339(&manifest.utc_start)
-        .context("invalid UTC capture origin")?;
-    ensure!(
-        manifest.csv_rows_unconfirmed == 0,
-        "report has {} unconfirmed CSV rows; this capture cannot be verified as complete",
-        manifest.csv_rows_unconfirmed
-    );
-    ensure!(
-        u128::from(manifest.counts.selected)
-            == u128::from(manifest.csv_rows_flushed) + u128::from(manifest.counts.logger_overruns),
-        "report's CSV row accounting is inconsistent"
-    );
+    check_manifest(&manifest, &profile)?;
     let parts = parts(&directory, manifest.csv_parts)?;
     if let Some(export) = &mut export {
         export.source(&profile, &profile_bytes, &manifest_bytes)?;
@@ -335,25 +441,7 @@ fn inspect(
     if let Some(writer) = &mut writer {
         writer.write_record(&header)?;
     }
-    let mut summary = Summary {
-        profile: manifest.profile.clone(),
-        utc_start: manifest.utc_start.clone(),
-        csv_parts: manifest.csv_parts,
-        rows_checked: 0,
-        valid_rows: 0,
-        invalid_rows: 0,
-        unknown_validity_rows: 0,
-        stale_rows: 0,
-        row_kind: manifest.row_kind.clone(),
-        first_sample_index: None,
-        last_sample_index: None,
-        missing_sample_indexes: 0,
-        generations_in_csv: 0,
-        recorded_source_gaps: manifest.source_gaps_observed,
-        recorded_source_update_loss: manifest.source_update_loss.clone(),
-        capture_had_error: manifest.terminal_error.is_some() || manifest.writer_error.is_some(),
-        joined_csv: joined_csv.map(Path::to_owned),
-    };
+    let mut summary = Summary::new(&manifest, joined_csv);
     let mut previous_record = None::<csv::StringRecord>;
     for part in parts {
         let path = directory.join(format!("capture-{part:04}.csv"));
@@ -376,34 +464,7 @@ fn inspect(
                     .map(|record| record.deserialize(Some(&header_record)))
                     .transpose()?;
                 validate_row(&row, previous.as_ref(), &manifest)?;
-                let payload = if row.raw_hex.is_empty() {
-                    Vec::new()
-                } else {
-                    decode::parse_hex(row.raw_hex)?
-                };
-                ensure!(
-                    decode::hex(&payload) == row.raw_hex,
-                    "raw payload is not canonical hexadecimal"
-                );
-                let typed = row.validity == Validity::Valid && row.stale != Some(true);
-                if row.validity == Validity::Valid {
-                    ensure!(
-                        payload.len() == profile.input_bytes,
-                        "valid payload width differs from the saved profile"
-                    );
-                }
-                for (column, field) in fields.iter().enumerate() {
-                    let expected = if typed {
-                        field.decode(&payload)?.value
-                    } else {
-                        String::new()
-                    };
-                    ensure!(
-                        record[CSV_METADATA.len() + column] == expected,
-                        "typed value for {} differs from the raw payload or validity",
-                        field.name
-                    );
-                }
+                let (payload, typed) = check_values(&profile, &fields, &row, &record)?;
                 if let Some(export) = &mut export {
                     export.row(&record, &payload, typed)?;
                 }
@@ -413,21 +474,7 @@ fn inspect(
                 if let Some(writer) = &mut writer {
                     writer.write_record(&record)?;
                 }
-                summary.rows_checked += 1;
-                match row.validity {
-                    Validity::Valid => summary.valid_rows += 1,
-                    Validity::Invalid => summary.invalid_rows += 1,
-                    Validity::Unknown => summary.unknown_validity_rows += 1,
-                }
-                summary.stale_rows += u64::from(row.stale == Some(true));
-                if previous
-                    .as_ref()
-                    .is_none_or(|previous| previous.generation != row.generation)
-                {
-                    summary.generations_in_csv += 1;
-                }
-                summary.first_sample_index.get_or_insert(row.sample_index);
-                summary.last_sample_index = Some(row.sample_index);
+                summary.observe(&row, previous.as_ref());
                 Ok(record)
             };
             previous_record = Some(
@@ -439,16 +486,10 @@ fn inspect(
                 reader
                     .get_ref()
                     .receipt(&format!("capture-{part:04}.csv"))?,
-            );
+            )?;
         }
     }
-    ensure!(
-        summary.rows_checked == manifest.csv_rows_flushed,
-        "report confirms {} CSV rows, found {}",
-        manifest.csv_rows_flushed,
-        summary.rows_checked
-    );
-    summary.missing_sample_indexes = manifest.counts.selected - summary.rows_checked;
+    summary.finish(&manifest)?;
     if let Some(writer) = &mut writer {
         writer.flush()?;
     }

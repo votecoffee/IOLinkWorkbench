@@ -323,6 +323,13 @@ impl Profile {
             ensure!(names.contains(name), "log field {name} does not exist");
             ensure!(selected.insert(name), "duplicate log selection {name}");
         }
+        let mut labels = HashSet::new();
+        for label in crate::capture::csv_header(self) {
+            ensure!(
+                labels.insert(label.clone()),
+                "CSV column label collides: {label}"
+            );
+        }
         Ok(())
     }
 
@@ -346,3 +353,6 @@ pub enum CycleUnit {
     Microseconds,
     Milliseconds,
 }
+
+#[cfg(test)]
+mod tests;

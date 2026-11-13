@@ -5,7 +5,7 @@ use crate::{
     transport::Validity,
 };
 
-fn fixture(width: usize) -> Result<tempfile::TempDir> {
+pub(in crate::archive) fn fixture(width: usize) -> Result<tempfile::TempDir> {
     let directory = tempfile::tempdir()?;
     let profile = Profile {
         name: "Recorded source".into(),
@@ -86,7 +86,7 @@ freshness = "snapshots"
     Ok(directory)
 }
 
-fn mapping(width: usize) -> Profile {
+pub(in crate::archive) fn mapping(width: usize) -> Profile {
     let mut profile = Profile {
         name: "Revised interpretation".into(),
         input_bytes: width,

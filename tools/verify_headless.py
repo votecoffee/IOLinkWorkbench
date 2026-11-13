@@ -190,6 +190,15 @@ byte_order = "little_endian"
     assert Gateway.polls == polls
     assert receipt == tomllib.loads((output / "receipt.toml").read_text(encoding="utf-8"))
     assert receipt["kind"] == "offline_redecode" and "not performed" in receipt["identity_verification"]
+    local_check = tomllib.loads(run(cli, "verify-export", output))
+    assert local_check["rows_checked"] == len(rows) and local_check["local_file_hashes_checked"] == 4
+    assert not local_check["original_source_reverified"] and local_check["original_csv_hashes_checked"] == 0
+    assert "original_source_directory" not in local_check
+    full_check = tomllib.loads(run(cli, "verify-export", output, "--source", path))
+    assert full_check["original_source_reverified"] and full_check["original_csv_hashes_checked"] == report["csv_parts"]
+    assert full_check["source_capture"] == local_check["source_capture"]
+    assert not run(cli, "verify-export", output, "--source", path.with_name(path.name + "-missing-source"), expected=1)
+    assert Gateway.polls == polls
     assert receipt["source_capture"]["recorded_source_update_loss"] == report["source_update_loss"]
     assert receipt["source_capture"]["missing_sample_indexes"] == report["counts"]["logger_overruns"]
     with (output / "data.csv").open(encoding="utf-8", newline="") as file:
@@ -484,6 +493,22 @@ def main():
         assert list(csv.DictReader(csv_file)) == rows
     assert checked["csv_parts"] == change["csv_parts"]
 
+    copied_bundle = scratch / "copied-redecode-bundle"
+    shutil.copytree(scratch / "sim-change-redecoded", copied_bundle)
+    receipt_path = copied_bundle / "receipt.toml"
+    text = receipt_path.read_text(encoding="utf-8")
+    text = "\n".join(line if not line.startswith(("source_directory = ", "output_directory = "))
+                      else line.split(" = ")[0] + " = " + json.dumps(str(scratch / "unavailable-recorded-path"))
+                      for line in text.splitlines()) + "\n"
+    receipt_path.write_text(text, encoding="utf-8", newline="\n")
+    assert not tomllib.loads(run(cli, "verify-export", copied_bundle))["original_source_reverified"]
+    relocated_source = scratch / "relocated-source"
+    shutil.copytree(scratch / "sim-change", relocated_source)
+    assert tomllib.loads(run(cli, "verify-export", copied_bundle, "--source", relocated_source))["original_source_reverified"]
+    with (copied_bundle / "data.csv").open("a", encoding="utf-8", newline="") as file:
+        file.write("\n")
+    assert not run(cli, "verify-export", copied_bundle, expected=1)
+
     corrupt = scratch / "corrupt-for-redecode"
     shutil.copytree(scratch / "sim-change", corrupt)
     part = corrupt / "capture-0001.csv"
@@ -604,7 +629,7 @@ def main():
             thread.join()
 
     print("PASS: ZIP and variant selection, offline decoding, equal updates, on-change, rotation, "
-          "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports and hash receipts, CSV joining, "
+          "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "named scalar/record/array reads, array and localized CSV fields, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 

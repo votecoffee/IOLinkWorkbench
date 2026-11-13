@@ -96,6 +96,12 @@ enum Command {
         mapping_profile: PathBuf,
         output: PathBuf,
     },
+    /// Verify a re-decode bundle; optionally reverify an explicitly supplied original capture.
+    VerifyExport {
+        directory: PathBuf,
+        #[arg(long)]
+        source: Option<PathBuf>,
+    },
     /// Read master, firmware, port, and connected identity.
     Status {
         profile: PathBuf,
@@ -158,6 +164,12 @@ impl IoddOptions {
 
 fn main() -> Result<()> {
     match Cli::parse().command {
+        Command::VerifyExport { directory, source } => {
+            print!(
+                "{}",
+                toml::to_string_pretty(&archive::verify_export(&directory, source.as_deref())?)?
+            );
+        }
         Command::RedecodeCapture {
             directory,
             mapping_profile,

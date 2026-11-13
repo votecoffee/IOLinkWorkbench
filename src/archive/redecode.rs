@@ -5,7 +5,7 @@ use crate::{
     profile::Profile,
 };
 use anyhow::{Context, Result, ensure};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File, OpenOptions},
@@ -13,14 +13,17 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct FileDigest {
     pub name: String,
     pub bytes: u64,
     pub sha256: String,
 }
 
-fn digest(name: &str, bytes: &[u8]) -> FileDigest {
+pub(super) const IDENTITY_VERIFICATION: &str = "not performed; new interpretation of saved payloads, not a new acquisition or device verification";
+
+pub(super) fn digest(name: &str, bytes: &[u8]) -> FileDigest {
     FileDigest {
         name: name.into(),
         bytes: bytes.len() as u64,
@@ -70,15 +73,16 @@ impl Read for DigestReader {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Redecode {
     pub format_version: u32,
-    pub kind: &'static str,
-    pub workbench_version: &'static str,
+    pub kind: String,
+    pub workbench_version: String,
     pub created_utc: String,
     pub output_directory: PathBuf,
     pub source_directory: PathBuf,
-    pub identity_verification: &'static str,
+    pub identity_verification: String,
     pub source_capture: Summary,
     pub mapping_profile: String,
     pub input_bytes: usize,
@@ -235,12 +239,12 @@ impl Exporter {
         drop(file);
         let receipt = Redecode {
             format_version: 1,
-            kind: "offline_redecode",
-            workbench_version: env!("CARGO_PKG_VERSION"),
+            kind: "offline_redecode".into(),
+            workbench_version: env!("CARGO_PKG_VERSION").into(),
             created_utc: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             output_directory: self.destination.clone(),
             source_directory: self.source_directory.clone(),
-            identity_verification: "not performed; new interpretation of saved payloads, not a new acquisition or device verification",
+            identity_verification: IDENTITY_VERIFICATION.into(),
             source_capture: summary,
             mapping_profile: self.mapping.name.clone(),
             input_bytes: self.mapping.input_bytes,
@@ -258,6 +262,24 @@ impl Exporter {
         )?;
         publish(self.staging.path(), &self.destination)?;
         Ok(receipt)
+    }
+}
+
+impl super::Observer for Exporter {
+    fn source(
+        &mut self,
+        profile: &Profile,
+        profile_bytes: &[u8],
+        manifest_bytes: &[u8],
+    ) -> Result<()> {
+        Exporter::source(self, profile, profile_bytes, manifest_bytes)
+    }
+    fn row(&mut self, original: &csv::StringRecord, payload: &[u8], typed: bool) -> Result<()> {
+        Exporter::row(self, original, payload, typed)
+    }
+    fn source_part(&mut self, file: FileDigest) -> Result<()> {
+        Exporter::source_part(self, file);
+        Ok(())
     }
 }
 
@@ -287,4 +309,4 @@ fn publish(_staging: &Path, _destination: &Path) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

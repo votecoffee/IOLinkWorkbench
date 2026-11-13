@@ -9,6 +9,7 @@ enum Outcome {
     Verified(Box<archive::Summary>),
     Reviewed(Box<archive::Review>),
     Exported(Box<archive::Redecode>),
+    ExportVerified(Box<archive::ExportVerification>),
 }
 
 #[derive(Default)]
@@ -17,6 +18,9 @@ pub struct Verifier {
     joined_csv: String,
     export_directory: String,
     export: Option<archive::Redecode>,
+    bundle_directory: String,
+    bundle_check_original: bool,
+    checked_export: Option<archive::ExportVerification>,
     worker: Option<Worker<Outcome>>,
     review: Option<archive::Review>,
     field: String,
@@ -30,6 +34,7 @@ impl Verifier {
     pub fn update(&mut self, ctx: &Context) {
         if let Some(result) = completed(&mut self.worker) {
             self.export = None;
+            self.checked_export = None;
             match result {
                 Ok(Outcome::Verified(summary)) => {
                     self.review = None;
@@ -47,7 +52,14 @@ impl Verifier {
                     self.review = Some(*review);
                     self.message = "Capture verified and field reviewed".into();
                 }
+                Ok(Outcome::ExportVerified(summary)) => {
+                    self.summary = None;
+                    self.review = None;
+                    self.checked_export = Some(*summary);
+                    self.message = "Re-decoded bundle checks passed".into();
+                }
                 Ok(Outcome::Exported(receipt)) => {
+                    self.bundle_directory = receipt.output_directory.to_string_lossy().into_owned();
                     self.summary = None;
                     self.review = None;
                     self.export = Some(*receipt);
@@ -78,6 +90,8 @@ impl Verifier {
             self.field.clone(),
             self.buckets,
             self.export_directory.clone(),
+            self.bundle_directory.clone(),
+            self.bundle_check_original,
         );
         ui.label("Choose a finalized capture folder containing capture.toml, profile.toml, and its CSV parts.");
         ui.add_enabled_ui(self.worker.is_none(), |ui| {
@@ -93,6 +107,7 @@ impl Verifier {
                     let output = self.joined_csv.trim();
                     let joined_csv = (!output.is_empty()).then(|| PathBuf::from(output));
                     self.export = None;
+                    self.checked_export = None;
                     self.summary = None;
                     self.review = None;
                     match background("verify-saved-capture", move || {
@@ -120,6 +135,7 @@ impl Verifier {
                     let field = (!self.field.is_empty()).then(|| self.field.clone());
                     let buckets = usize::from(self.buckets);
                     self.export = None;
+                    self.checked_export = None;
                     self.summary = None;
                     self.review = None;
                     match background("review-saved-capture", move || {
@@ -144,6 +160,7 @@ impl Verifier {
                         self.summary = None;
                         self.review = None;
                         self.export = None;
+                        self.checked_export = None;
                         match background("redecode-saved-capture", move || {
                             Ok(Outcome::Exported(Box::new(archive::redecode(&directory, &mapping, &output)?)))
                         }) {
@@ -154,7 +171,28 @@ impl Verifier {
                 });
                 if !mapping_available { ui.colored_label(WARNING, "Finish IODD inspection and apply pending Setup edits before exporting."); }
             });
-
+            ui.collapsing("Verify re-decoded bundle", |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Existing bundle folder");
+                    path_entry(ui, &mut self.bundle_directory, "Folder containing receipt.toml and data.csv");
+                });
+                ui.checkbox(&mut self.bundle_check_original, "Also reverify the original Capture folder above");
+                ui.small("Stored paths in the receipt are not followed. Local checks use only this bundle; optional original-source checks use the Capture folder you entered.");
+                if ui.button("Verify bundle").clicked() {
+                    let directory = PathBuf::from(self.bundle_directory.trim());
+                    let source = self.bundle_check_original.then(|| PathBuf::from(self.directory.trim()));
+                    self.summary = None;
+                    self.review = None;
+                    self.export = None;
+                    self.checked_export = None;
+                    match background("verify-redecoded-bundle", move || {
+                        Ok(Outcome::ExportVerified(Box::new(archive::verify_export(&directory, source.as_deref())?)))
+                    }) {
+                        Ok(worker) => { self.worker = Some(worker); self.message = "Checking bundle hashes and saved values…".into(); }
+                        Err(error) => self.message = error.to_string(),
+                    }
+                }
+            });
         });
         if before
             != (
@@ -163,6 +201,8 @@ impl Verifier {
                 self.field.clone(),
                 self.buckets,
                 self.export_directory.clone(),
+                self.bundle_directory.clone(),
+                self.bundle_check_original,
             )
         {
             if before.0 != self.directory {
@@ -171,13 +211,18 @@ impl Verifier {
             self.summary = None;
             self.review = None;
             self.export = None;
+            self.checked_export = None;
             if self.worker.is_none() {
                 self.message.clear();
             }
         }
         if !self.message.is_empty() {
             ui.colored_label(
-                if self.summary.is_some() || self.review.is_some() || self.export.is_some() {
+                if self.summary.is_some()
+                    || self.review.is_some()
+                    || self.export.is_some()
+                    || self.checked_export.is_some()
+                {
                     ACCENT
                 } else {
                     WARNING
@@ -227,6 +272,34 @@ impl Verifier {
         if let Some(review) = &self.review {
             review::show(ui, review);
         }
+        if let Some(check) = &self.checked_export {
+            ui.label(format!(
+                "{} · {} rows · {} mapped fields · {} local file hashes checked",
+                check.mapping_profile,
+                check.rows_checked,
+                check.fields_checked,
+                check.local_file_hashes_checked
+            ));
+            ui.label(format!("Bundle · {}", check.export_directory.display()));
+            if let Some(source) = &check.original_source_directory {
+                ui.label(format!(
+                    "Original capture reverified · {} · {} CSV hashes checked",
+                    source.display(),
+                    check.original_csv_hashes_checked
+                ));
+            } else {
+                ui.label("Original capture not reverified; checks apply to this bundle only.");
+            }
+            ui.label(format!(
+                "Recorded source-update loss · {} · {} selected sample indexes absent from CSV",
+                check.source_capture.recorded_source_update_loss,
+                check.source_capture.missing_sample_indexes
+            ));
+            ui.small(check.scope);
+            if check.source_capture.capture_had_error {
+                ui.colored_label(WARNING, "The saved acquisition reported a terminal or writer error; that flag is retained.");
+            }
+        }
         if let Some(receipt) = &self.export {
             ui.label(format!("Export mapping · {}", receipt.mapping_profile));
             ui.label(format!(
@@ -235,7 +308,7 @@ impl Verifier {
             ));
             ui.label(format!("Saved to {}", receipt.output_directory.display()));
             ui.small("Bundle: data.csv, mapping-profile.toml, source-profile.toml, source-capture.toml, and receipt.toml with SHA256 file hashes.");
-            ui.small(receipt.identity_verification);
+            ui.small(&receipt.identity_verification);
             if receipt.source_capture.capture_had_error {
                 ui.colored_label(WARNING, "The original capture reported a terminal or writer error; that flag is retained in the export receipt.");
             }
