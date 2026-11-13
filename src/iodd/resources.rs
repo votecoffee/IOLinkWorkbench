@@ -82,6 +82,7 @@ pub(super) fn language_tag(value: &str) -> Result<String> {
 
 pub(super) struct Companion {
     pub xml: String,
+    pub bytes: Vec<u8>,
     pub source: String,
 }
 
@@ -117,8 +118,10 @@ pub(super) fn local_companion(
             "automatic language sidecar is a symbolic link"
         );
     }
+    let bytes = super::read_xml_bytes(selected)?;
     Ok(Some(Companion {
-        xml: super::read_xml(selected)?,
+        xml: super::decode_xml(bytes.clone())?,
+        bytes,
         source: selected
             .file_name()
             .context("language file has no filename")?

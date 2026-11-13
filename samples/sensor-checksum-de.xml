@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ExternalTextDocument xmlns="http://www.io-link.com/IODD/2010/10">
+  <!-- Original translation checksum fixture; no official Checker acceptance is claimed. -->
+  <DocumentInfo version="V1.0" releaseDate="2025-01-01"/>
+  <Language xml:lang="de"><Text id="sensor" value="Synthetischer Prüfsummensensor µm 🔧"/><Text id="threshold" value="Schwellwert"/></Language>
+  <Stamp crc="3967000593"><Checker name="Workbench synthetic CRC test fixture" version="V0.0.0.1"/></Stamp>
+</ExternalTextDocument>

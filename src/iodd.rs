@@ -22,6 +22,7 @@ pub use events::{EventDefinition, EventType};
 mod parameters;
 mod resources;
 pub mod schema;
+pub mod stamp;
 pub use parameters::{
     Access, Array, AssessmentStatus, Choice, DecodedParameter, Display, DisplayValue, NumberFormat,
     Parameter, Record, RecordItem, RecordValue, TimeValue, ValueAssessment, ValueRange,
@@ -53,6 +54,7 @@ pub struct Catalog {
     pub parameters: Vec<Parameter>,
     pub standard_parameter_refs: Vec<String>,
     pub schema_validation: Option<schema::Report>,
+    pub stamp_validation: Option<stamp::Report>,
     pub localization: Option<Localization>,
     pub events: Vec<EventDefinition>,
     pub standard_event_refs: Vec<u16>,
@@ -118,6 +120,7 @@ impl Catalog {
                 parameters: self.parameters.clone(),
                 standard_parameter_refs: self.standard_parameter_refs.clone(),
                 schema_validation: self.schema_validation.clone(),
+                stamp_validation: self.stamp_validation.clone(),
                 localization: self.localization.clone(),
                 events: self.events.clone(),
                 standard_event_refs: self.standard_event_refs.clone(),
@@ -158,6 +161,7 @@ pub fn load_checked(
 
 #[derive(Default)]
 pub struct LoadOptions<'a> {
+    pub require_stamp: bool,
     pub entry: Option<&'a str>,
     pub definitions: Option<&'a Path>,
     pub xsd: Option<&'a Path>,
@@ -184,6 +188,8 @@ pub fn load_with_options(path: &Path, options: &LoadOptions<'_>) -> Result<Catal
         language.as_deref(),
         options.language_file,
     )?;
+    let stamps = stamp::check(&input.bytes, input.name.clone(), input.companion.as_ref())?;
+    stamps.enforce(options.require_stamp)?;
     let validation = options
         .xsd
         .map(|xsd| schema::validate(&input.bytes, xsd))
@@ -220,6 +226,7 @@ pub fn load_with_options(path: &Path, options: &LoadOptions<'_>) -> Result<Catal
         &units,
     )?;
     catalog.schema_validation = validation;
+    catalog.stamp_validation = Some(stamps);
     if let Some(localization) = &mut catalog.localization {
         if let Some(standard) = &definitions.localization {
             localization.review.extend(
@@ -246,6 +253,22 @@ pub fn load_with_options(path: &Path, options: &LoadOptions<'_>) -> Result<Catal
 pub fn check_schema(path: &Path, entry: Option<&str>, xsd: &Path) -> Result<schema::Report> {
     let (bytes, _) = source_bytes(path, entry)?;
     schema::validate(&bytes, xsd)
+}
+
+/// Inspect original main/selected-language bytes without importing a device mapping.
+pub fn check_stamps(
+    path: &Path,
+    entry: Option<&str>,
+    language: Option<&str>,
+    language_file: Option<&Path>,
+) -> Result<stamp::Report> {
+    ensure!(
+        language_file.is_none() || language.is_some(),
+        "a language file requires an explicit language tag"
+    );
+    let language = language.map(resources::language_tag).transpose()?;
+    let input = read_source(path, entry, language.as_deref(), language_file)?;
+    stamp::check(&input.bytes, input.name, input.companion.as_ref())
 }
 
 struct Source {
@@ -331,7 +354,8 @@ fn read_source(
                         .take(XML_LIMIT + 1)
                         .read_to_end(&mut bytes)?;
                     companion = Some(resources::Companion {
-                        xml: decode_xml(bytes)?,
+                        xml: decode_xml(bytes.clone())?,
+                        bytes,
                         source: format!("{}#{name}", path.file_name().unwrap().to_string_lossy()),
                     });
                 }
@@ -348,8 +372,10 @@ fn read_source(
     };
     ensure!(bytes.len() as u64 <= XML_LIMIT, "IODD XML exceeds 8 MiB");
     if let Some(path) = language_file {
+        let raw = read_xml_bytes(path)?;
         companion = Some(resources::Companion {
-            xml: read_xml(path)?,
+            xml: decode_xml(raw.clone())?,
+            bytes: raw,
             source: path
                 .file_name()
                 .context("language file has no filename")?
@@ -366,12 +392,17 @@ fn read_source(
 }
 
 fn read_xml(path: &Path) -> Result<String> {
+    decode_xml(read_xml_bytes(path)?)
+}
+
+fn read_xml_bytes(path: &Path) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
     File::open(path)
         .with_context(|| path.display().to_string())?
         .take(XML_LIMIT + 1)
         .read_to_end(&mut bytes)?;
-    decode_xml(bytes)
+    ensure!(bytes.len() as u64 <= XML_LIMIT, "IODD XML exceeds 8 MiB");
+    Ok(bytes)
 }
 
 fn decode_xml(bytes: Vec<u8>) -> Result<String> {
@@ -770,6 +801,7 @@ fn parse_resources(
         parameters,
         standard_parameter_refs,
         schema_validation: None,
+        stamp_validation: None,
         localization: Some(selected.metadata),
         events,
         standard_event_refs,

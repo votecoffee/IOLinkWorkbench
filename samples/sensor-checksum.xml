@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<IODevice xmlns="http://www.io-link.com/IODD/2010/10" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <!-- Original checksum test fixture; not output from the official IODD Checker. -->
+  <DocumentInfo version="V1.0" releaseDate="2025-01-01"/>
+  <ProfileBody>
+    <DeviceIdentity vendorId="65535" deviceId="1"><DeviceVariantCollection><DeviceVariant productId="SIM-SENSOR"><Name textId="sensor"/></DeviceVariant></DeviceVariantCollection></DeviceIdentity>
+    <DeviceFunction>
+      <VariableCollection><Variable id="V_SIM_Threshold" index="64" accessRights="ro"><Datatype xsi:type="IntegerT" bitLength="16"><ValueRange lowerValue="-1000" upperValue="1000"/></Datatype><Name textId="threshold"/></Variable></VariableCollection>
+      <ProcessDataCollection><ProcessData id="PD"><ProcessDataIn id="IN" bitLength="16" unitCode="1997"><Datatype xsi:type="UIntegerT" bitLength="16"/></ProcessDataIn></ProcessData></ProcessDataCollection>
+    </DeviceFunction>
+  </ProfileBody>
+  <ExternalTextCollection><PrimaryLanguage xml:lang="en"><Text id="sensor" value="Synthetic checksum sensor µm 🔧"/><Text id="threshold" value="Threshold"/></PrimaryLanguage></ExternalTextCollection>
+  <Stamp crc="2556892730"><Checker name="Workbench synthetic CRC test fixture" version="V0.0.0.1"/></Stamp>
+</IODevice>

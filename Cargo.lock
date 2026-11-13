@@ -1328,6 +1328,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "clap",
+ "crc32fast",
  "crossbeam-queue",
  "csv",
  "ctrlc",

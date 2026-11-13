@@ -84,15 +84,21 @@ pub struct Review {
     pub identity_check: String,
     pub observation: Observation,
     pub decoded: DecodedParameter,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iodd_stamp: Option<crate::iodd::stamp::Report>,
 }
 
 impl Review {
     pub fn text(&self) -> String {
         format!(
-            "Saved parameter snapshot · {}\nProducer {} · decoder {}\n{} · index {}:{}\nMaster {} · firmware {} · port {} · {}\nIdentity {} · vendor {:?} · device {:?} · serial {:?}\nHost read {} · total operation {} µs\n{}",
+            "Saved parameter snapshot · {}\nProducer {} · decoder {}\n{}\n{} · index {}:{}\nMaster {} · firmware {} · port {} · {}\nIdentity {} · vendor {:?} · device {:?} · serial {:?}\nHost read {} · total operation {} µs\n{}",
             self.observation.route,
             self.workbench_version,
             self.decoder_version,
+            self.iodd_stamp
+                .as_ref()
+                .map(|report| report.summary())
+                .unwrap_or_else(|| "IODD checksum not checked in this snapshot profile".into()),
             self.name,
             self.index,
             self.subindex,
@@ -226,6 +232,11 @@ impl Snapshot {
                 .into(),
             observation: self.observation.clone(),
             decoded: target.decode(&decode::parse_hex_bounded(&self.raw_hex, 232)?),
+            iodd_stamp: self
+                .profile
+                .iodd
+                .as_ref()
+                .and_then(|iodd| iodd.stamp_validation.clone()),
         })
     }
 

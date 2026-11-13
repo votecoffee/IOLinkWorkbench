@@ -73,6 +73,7 @@ fn embedded_languages_use_primary_fallbacks_and_reject_conflicts() -> Result<()>
             Some("de"),
             Some(&resources::Companion {
                 xml: GERMAN.into(),
+                bytes: GERMAN.as_bytes().to_vec(),
                 source: "explicit.xml".into()
             }),
             &[],

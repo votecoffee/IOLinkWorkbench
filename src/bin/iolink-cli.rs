@@ -45,6 +45,16 @@ enum Command {
         #[arg(long)]
         entry: Option<String>,
     },
+    /// Verify binary CRCs for an IODD main XML and any selected external language.
+    CheckStamp {
+        path: PathBuf,
+        #[arg(long)]
+        entry: Option<String>,
+        #[arg(long)]
+        language: Option<String>,
+        #[arg(long, requires = "language")]
+        language_file: Option<PathBuf>,
+    },
     /// Decode a hexadecimal process input without a gateway.
     Decode { profile: PathBuf, payload: String },
     /// List imported IODD parameters without contacting a gateway.
@@ -158,6 +168,9 @@ enum Command {
 
 #[derive(clap::Args)]
 struct IoddOptions {
+    /// Require matching main and selected external-language CRC stamps.
+    #[arg(long)]
+    require_stamp: bool,
     #[arg(long)]
     entry: Option<String>,
     #[arg(long)]
@@ -181,6 +194,7 @@ struct IoddOptions {
 impl IoddOptions {
     fn load(&self) -> iodd::LoadOptions<'_> {
         iodd::LoadOptions {
+            require_stamp: self.require_stamp,
             entry: self.entry.as_deref(),
             definitions: self.standard_definitions.as_deref(),
             standard_language_file: self.standard_language_file.as_deref(),
@@ -374,6 +388,23 @@ fn main() -> Result<()> {
             let summary = archive::verify(&directory, joined_csv.as_deref())?;
             print!("{}", toml::to_string_pretty(&summary)?);
         }
+        Command::CheckStamp {
+            path,
+            entry,
+            language,
+            language_file,
+        } => {
+            let report = iodd::check_stamps(
+                &path,
+                entry.as_deref(),
+                language.as_deref(),
+                language_file.as_deref(),
+            )?;
+            print!("{}", toml::to_string_pretty(&report)?);
+            if !report.matched() {
+                std::process::exit(1);
+            }
+        }
         Command::CheckIodd { path, xsd, entry } => {
             let report = iodd::check_schema(&path, entry.as_deref(), &xsd)?;
             print!("{}", toml::to_string_pretty(&report)?);
@@ -418,6 +449,7 @@ fn main() -> Result<()> {
                     .collect::<Vec<_>>()
             );
             if let Some(iodd) = &profile.iodd {
+                println!("{}", iodd.stamp_validation.as_ref().map(|report| report.summary()).unwrap_or_else(|| "IODD checksum not checked in this saved profile".into()));
                 if let Some(localization) = &iodd.localization {
                     println!("{}", localization.summary());
                 }

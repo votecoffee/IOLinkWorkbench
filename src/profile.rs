@@ -152,6 +152,8 @@ pub struct Imported {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema_validation: Option<crate::iodd::schema::Report>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stamp_validation: Option<crate::iodd::stamp::Report>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub localization: Option<crate::iodd::Localization>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub events: Vec<crate::iodd::EventDefinition>,
@@ -358,6 +360,16 @@ impl Profile {
             let mut indexes = HashSet::new();
             if let Some(validation) = &imported.schema_validation {
                 validation.validate_receipt()?;
+            }
+            if let Some(validation) = &imported.stamp_validation {
+                validation.validate_receipt()?;
+                validation.enforce(false)?;
+                if let Some(schema) = &imported.schema_validation {
+                    ensure!(
+                        schema.xml_sha256 == validation.main.sha256,
+                        "XSD and stamp receipts describe different main XML bytes"
+                    );
+                }
             }
             for parameter in &imported.parameters {
                 parameter.validate()?;

@@ -16,6 +16,7 @@ import time
 import tomllib
 import uuid
 import zipfile
+import zlib
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -643,6 +644,111 @@ def verify_value_definitions(cli, profile, output, loopback=False):
             Gateway.wide_payload = "FFFFFFFFFFFFFFFF"
 
 
+def verify_stamps(cli, output):
+    output.mkdir()
+    main = ROOT / "samples/sensor-checksum.xml"
+    language = ROOT / "samples/sensor-checksum-de.xml"
+    before = {path: path.read_bytes() for path in (main, language)}
+    report = tomllib.loads(run(cli, "check-stamp", main, "--language", "de"))
+    assert report["main"]["status"] == report["language"]["status"] == "matched"
+    assert report["main"]["declared_crc"] == report["main"]["calculated_crc"] == 2556892730
+    assert report["language"]["main_crc"] == 2556892730
+    for path, key in [(main, "main"), (language, "language")]:
+        assert report[key]["sha256"] == hashlib.sha256(before[path]).hexdigest()
+        assert report[key]["bytes"] == len(before[path])
+    profile = output / "stamped.toml"
+    run(cli, "import", main, profile, "--language", "de", "--require-stamp")
+    saved = tomllib.loads(profile.read_text(encoding="utf-8"))
+    assert saved["iodd"]["stamp_validation"] == report
+    assert saved["iodd"]["parameters"][0]["name"] == "Schwellwert"
+    assert "IODD main checksum matched" in run(cli, "validate", profile)
+    snapshot = output / "parameter.json"
+    run(cli, "read-parameter", profile, "V_SIM_Threshold", "--snapshot", snapshot)
+    original_snapshot = snapshot.read_bytes()
+    saved_stamp = json.loads(original_snapshot)["profile"]["iodd"]["stamp_validation"]
+    assert saved_stamp["main"]["sha256"] == report["main"]["sha256"] and saved_stamp["language"]["main_crc"] == 2556892730
+    requests = Gateway.requests
+    restored = tomllib.loads(run(cli, "review-parameter", snapshot))
+    assert restored["decoded"]["raw_value"] == "500" and restored["iodd_stamp"] == report
+    assert Gateway.requests == requests and snapshot.read_bytes() == original_snapshot
+
+    missing = tomllib.loads(run(cli, "check-stamp", ROOT / "samples/sensor.xml", expected=1))
+    assert missing["main"]["status"] == "missing"
+    destination = output / "preserved.toml"
+    destination.write_bytes(profile.read_bytes())
+    original = destination.read_bytes()
+    run(cli, "import", ROOT / "samples/sensor.xml", destination, "--require-stamp", "--variant", "SIM-SENSOR", expected=1)
+    assert destination.read_bytes() == original
+
+    # Actual bytes, including a BOM, CRLF, UTF-16 and non-BMP text, affect the CRC.
+    xml = main.read_text(encoding="utf-8").replace('crc="2556892730"', 'crc=""')
+    encodings = {
+        "utf8-bom": (b"\xef\xbb\xbf", "utf-8", "utf8"),
+        "utf16-le": (b"\xff\xfe", "utf-16le", "utf16_le"),
+        "utf16-be": (b"\xfe\xff", "utf-16be", "utf16_be"),
+        "crlf": (b"", "utf-8", "utf8"),
+    }
+    for name, (bom, codec, expected_encoding) in encodings.items():
+        text = xml.replace('encoding="UTF-8"', 'encoding="UTF-16"') if codec.startswith("utf-16") else xml
+        if name == "crlf":
+            text = text.replace("\n", "\r\n")
+        empty = bom + text.encode(codec)
+        crc = zlib.crc32(empty)
+        binary = bom + text.replace('crc=""', f'crc="{crc}"').encode(codec)
+        path = output / f"{name}.xml"
+        path.write_bytes(binary)
+        actual = tomllib.loads(run(cli, "check-stamp", path))["main"]
+        assert actual["encoding"] == expected_encoding and actual["calculated_crc"] == crc
+        assert actual["sha256"] == hashlib.sha256(binary).hexdigest() and path.read_bytes() == binary
+        run(cli, "import", path, output / f"{name}.toml", "--require-stamp")
+        language_text = language.read_text(encoding="utf-8").replace('crc="3967000593"', 'crc=""')
+        if codec.startswith("utf-16"):
+            language_text = language_text.replace('encoding="UTF-8"', 'encoding="UTF-16"')
+        if name == "crlf":
+            language_text = language_text.replace("\n", "\r\n")
+        language_crc = zlib.crc32(bom + language_text.encode(codec) + b"2556892730")
+        language_bytes = bom + language_text.replace('crc=""', f'crc="{language_crc}"').encode(codec)
+        language_path = output / f"{name}-de.xml"
+        language_path.write_bytes(language_bytes)
+        actual = tomllib.loads(run(cli, "check-stamp", main, "--language", "de", "--language-file", language_path))["language"]
+        assert actual["calculated_crc"] == language_crc and actual["encoding"] == expected_encoding
+        assert actual["main_crc"] == 2556892730 and language_path.read_bytes() == language_bytes
+
+    bad = output / "changed.xml"
+    bad.write_bytes(before[main].replace(b"Threshold", b"Changed threshold"))
+    bad_report = tomllib.loads(run(cli, "check-stamp", bad, expected=1))
+    assert bad_report["main"]["status"] == "mismatch"
+    run(cli, "import", bad, destination, expected=1)
+    assert destination.read_bytes() == original
+    malformed = output / "malformed.xml"
+    malformed.write_bytes(before[main].replace(b'crc="2556892730"', b'crc="4294967296"'))
+    assert tomllib.loads(run(cli, "check-stamp", malformed, expected=1))["main"]["status"] == "malformed"
+    run(cli, "import", malformed, destination, expected=1)
+    assert destination.read_bytes() == original
+
+    # A correct changed main CRC cannot validate the old external language binding.
+    changed = xml.replace("Threshold", "New threshold")
+    crc = zlib.crc32(changed.encode("utf-8"))
+    bound = output / "bound.xml"
+    bound.write_bytes(changed.replace('crc=""', f'crc="{crc}"').encode("utf-8"))
+    binding = tomllib.loads(run(cli, "check-stamp", bound, "--language", "de", "--language-file", language, expected=1))
+    assert binding["main"]["status"] == "matched" and binding["language"]["status"] == "mismatch"
+    run(cli, "import", bound, destination, "--language", "de", "--language-file", language, expected=1)
+    assert destination.read_bytes() == original
+    unbound = tomllib.loads(run(cli, "check-stamp", ROOT / "samples/sensor.xml", "--language", "de", "--language-file", language, expected=1))
+    assert unbound["language"]["status"] == "unbound"
+
+    bundle = output / "iodd.zip"
+    entry = "fixtures/Workbench-Synthetic-20250101-IODD1.1.xml"
+    with zipfile.ZipFile(bundle, "x") as archive:
+        archive.writestr(entry, before[main])
+        archive.writestr(entry[:-4] + "-de.xml", before[language])
+    zipped = tomllib.loads(run(cli, "check-stamp", bundle, "--language", "de"))
+    assert zipped["main"]["sha256"] == report["main"]["sha256"] and zipped["language"]["sha256"] == report["language"]["sha256"]
+    run(cli, "import", bundle, output / "zip.toml", "--language", "de", "--require-stamp")
+    assert {path: path.read_bytes() for path in before} == before
+
+
 def verify_xsd(cli, scratch):
     folder = scratch / "schema '$ local"
     folder.mkdir()
@@ -712,6 +818,7 @@ def main():
     cli = parser.parse_args().cli
     scratch = ROOT / ".local" / ("verify-" + uuid.uuid4().hex[:8])
     scratch.mkdir(parents=True)
+    verify_stamps(cli, scratch / "stamps")
     verify_xsd(cli, scratch)
     source = ROOT / "samples" / "simulator.toml"
     profile = source.read_text(encoding="utf-8")
@@ -1088,7 +1195,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: binary IODD main/language checksum receipts, ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline reopening, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")

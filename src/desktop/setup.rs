@@ -14,6 +14,7 @@ pub struct Editor {
     standard_definitions: String,
     standard_language_file: String,
     xsd: String,
+    require_stamp: bool,
     language: String,
     language_file: String,
     unit_definitions: String,
@@ -34,6 +35,7 @@ impl Editor {
             standard_definitions: String::new(),
             standard_language_file: String::new(),
             xsd: String::new(),
+            require_stamp: false,
             language: String::new(),
             language_file: String::new(),
             unit_definitions: String::new(),
@@ -121,6 +123,7 @@ impl Editor {
             ui.heading("Effective process input");
             ui.small("Bit 0 is the least significant bit. Big endian counts from the last byte, little endian from the first.");
             if let Some(import) = &profile.iodd {
+                ui.small(import.stamp_validation.as_ref().map(|report| report.summary()).unwrap_or_else(|| "IODD checksum not checked in this saved profile".into()));
                 if let Some(localization) = &import.localization { ui.small(localization.summary()); }
                 ui.small(import.schema_validation.as_ref().map(|report| report.summary()).unwrap_or_else(|| "Parser checks only; XSD validation not performed".into()));
                 ui.label(format!("{} · product {} · layout {} · {} imported bytes",
@@ -203,11 +206,17 @@ impl Editor {
             self.standard_definitions.clone(),
             self.standard_language_file.clone(),
             self.xsd.clone(),
+            self.require_stamp,
             self.language.clone(),
             self.language_file.clone(),
             self.unit_definitions.clone(),
         );
         ui.heading("IODD import");
+        ui.checkbox(
+            &mut self.require_stamp,
+            "Require matching main and selected-language checksums",
+        );
+        ui.small("Present mismatched or malformed stamps reject import. Missing stamps remain visible unless matching checksums are required.");
         ui.add(
             egui::TextEdit::singleline(&mut self.language)
                 .hint_text("Language tag (blank uses primary language)"),
@@ -251,6 +260,7 @@ impl Editor {
                     self.standard_definitions.clone(),
                     self.standard_language_file.clone(),
                     self.xsd.clone(),
+                    self.require_stamp,
                     self.language.clone(),
                     self.language_file.clone(),
                     self.unit_definitions.clone(),
@@ -279,11 +289,13 @@ impl Editor {
                 let unit_definitions = self.unit_definitions.trim();
                 let unit_definitions =
                     (!unit_definitions.is_empty()).then(|| PathBuf::from(unit_definitions));
+                let require_stamp = self.require_stamp;
                 self.catalog = None;
                 match background("iodd-inspection", move || {
                     iodd::load_with_options(
                         &path,
                         &iodd::LoadOptions {
+                            require_stamp,
                             entry: entry.as_deref(),
                             definitions: definitions.as_deref(),
                             standard_language_file: standard_language_file.as_deref(),
@@ -303,6 +315,10 @@ impl Editor {
             }
         });
         if let Some(catalog) = &self.catalog {
+            if let Some(report) = &catalog.stamp_validation {
+                ui.small(report.summary());
+                ui.small("Checksum consistency does not authenticate the vendor or rerun the IODD Checker.");
+            }
             if let Some(localization) = &catalog.localization {
                 ui.small(localization.summary());
                 ui.small(format!(
