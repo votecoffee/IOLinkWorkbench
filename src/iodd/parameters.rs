@@ -19,7 +19,7 @@ pub use assessment::{AssessmentStatus, ValueAssessment};
 pub use display::{Display, DisplayValue, NumberFormat};
 pub use record::{Record, RecordItem};
 pub(super) use standard::load as load_standard;
-pub use time::TimeValue;
+pub use time::{DefaultConversion as TimeDefaultConversion, TimeValue};
 pub use value::{DecodedParameter, RecordValue};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -23,6 +23,7 @@
         <Variable id="V_DEFAULT_Time" index="96" accessRights="ro" defaultValue="-PT2S"><Datatype xsi:type="TimeSpanT"/><Name textId="time"/></Variable>
         <Variable id="V_DEFAULT_Command" index="97" accessRights="wo" defaultValue="128"><Datatype xsi:type="UIntegerT" bitLength="8"/><Name textId="command"/></Variable>
         <Variable id="V_DEFAULT_Absent" index="98" accessRights="ro"><Datatype xsi:type="UIntegerT" bitLength="8"/><Name textId="absent"/></Variable>
+        <Variable id="V_DEFAULT_NaN" index="99" accessRights="ro" defaultValue="NaN"><Datatype xsi:type="Float32T"/><Name textId="nan"/></Variable>
       </VariableCollection>
       <ProcessDataCollection><ProcessData id="PD"><ProcessDataIn id="IN" bitLength="16" unitCode="1997"><Datatype xsi:type="UIntegerT" bitLength="16"/></ProcessDataIn></ProcessData></ProcessDataCollection>
       <UserInterface><MenuCollection><Menu id="M_DEFAULTS"><VariableRef variableId="V_DEFAULT_Float" displayFormat="Dec.1" gradient="10"/></Menu></MenuCollection></UserInterface>
@@ -32,6 +33,6 @@
     <Text id="sensor" value="Synthetic default metadata sensor"/><Text id="off" value="Off"/><Text id="on" value="On"/><Text id="boolean" value="Boolean default"/><Text id="wide" value="Wide unsigned default"/>
     <Text id="signed" value="Signed default"/><Text id="float" value="Float default"/><Text id="text" value="Text default"/><Text id="octets" value="Octet default"/><Text id="band" value="Declared band"/>
     <Text id="array" value="Array element defaults"/><Text id="record" value="Record member defaults"/><Text id="invalid" value="Deliberate out-of-domain default"/><Text id="outside" value="Deliberate outside-choice default"/>
-    <Text id="time" value="Unsupported temporal default"/><Text id="command" value="Write-only metadata default"/><Text id="absent" value="No default declared"/>
+    <Text id="time" value="Duration default"/><Text id="command" value="Write-only metadata default"/><Text id="absent" value="No default declared"/><Text id="nan" value="Unsupported NaN default"/>
   </PrimaryLanguage></ExternalTextCollection>
 </IODevice>

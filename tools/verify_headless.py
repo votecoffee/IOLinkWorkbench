@@ -535,6 +535,12 @@ def verify_time_parameters(cli, profile, output):
         assert reading["raw_value"] == reading["time_value"]["raw_ticks"]
         assert reading["time_value"]["bits"] == 64 and reading["time_value"]["byte_order"] == "big_endian"
         assert restored["decoder_version"] == run(cli, "--version").strip().split()[-1]
+        default = tomllib.loads(run(cli, "defaults", profile, variable, "--subindex", subindex))["entries"][0]["value"]
+        assert restored["declared_default"] == default and default["status"] == "decoded"
+        if variable == "V_SIM_TimeRecord":
+            expected_default = "1984-01-01 00:00:00.001 UTC" if subindex == 1 else "-00:00:00.001"
+            assert default["decoded"]["time_value"]["value"] == expected_default
+            assert not default["temporal_conversion"]["exact"]
     for variable, key in [("V_SIM_TimeRecord", "record_items"), ("V_SIM_Times", "array_items"), ("V_SIM_TimeSpans", "array_items")]:
         whole = tomllib.loads(run(cli, "read-parameter", profile, variable))
         offline = tomllib.loads(run(cli, "decode-parameter", profile, variable, whole["raw_hex"]))
@@ -651,7 +657,7 @@ def verify_defaults(cli, output):
     saved = profile.read_bytes()
     requests = Gateway.requests
     report = tomllib.loads(run(cli, "defaults", profile, expected=1))
-    assert (report["decoded"], report["not_declared"], report["needs_review"], report["unsupported"]) == (11, 2, 2, 1)
+    assert (report["decoded"], report["not_declared"], report["needs_review"], report["unsupported"]) == (12, 2, 2, 1)
     entries = {(entry["parameter_id"], entry["subindex"]): entry for entry in report["entries"]}
     for variable, raw, value in [
         ("V_DEFAULT_Bool", "01", "true"), ("V_DEFAULT_Wide", "FFFFFFFFFFFFFFFF", "18446744073709551615"),
@@ -674,7 +680,8 @@ def verify_defaults(cli, output):
     assert invalid["declared"] == "256" and "representation_hex" not in invalid
     outside = entries[("V_DEFAULT_Outside", 0)]["value"]
     assert outside["decoded"]["value_assessment"]["status"] == "outside_definition"
-    assert entries[("V_DEFAULT_Time", 0)]["value"]["status"] == "unsupported"
+    assert entries[("V_DEFAULT_Time", 0)]["value"]["representation_hex"] == "FFFFFFFE00000000"
+    assert entries[("V_DEFAULT_NaN", 0)]["value"]["status"] == "unsupported"
     command = tomllib.loads(run(cli, "defaults", profile, "V_DEFAULT_Command"))
     assert command["entries"][0]["access"] == "wo" and command["entries"][0]["value"]["representation_hex"] == "80"
     run(cli, "read-parameter", profile, "V_DEFAULT_Command", expected=1)
@@ -707,6 +714,40 @@ def verify_defaults(cli, output):
     different = tomllib.loads(run(cli, "review-parameter", distinct_snapshot))
     assert different["decoded"]["raw_value"] == "42"
     assert different["declared_default"]["decoded"]["raw_value"] == "41"
+
+
+def verify_temporal_defaults(cli, output):
+    output.mkdir()
+    profile = output / "time-defaults.toml"
+    run(cli, "import", ROOT / "samples/sensor-time.xml", profile)
+    saved = profile.read_bytes()
+    requests = Gateway.requests
+    report = tomllib.loads(run(cli, "defaults", profile))
+    assert (report["decoded"], report["not_declared"], report["needs_review"], report["unsupported"]) == (6, 0, 0, 0)
+    entries = {(entry["parameter_id"], entry["subindex"]): entry["value"] for entry in report["entries"]}
+    assert entries[("V_SIM_Time", 0)]["representation_hex"] == "9DFF440080000000"
+    assert entries[("V_SIM_TimeSpan", 0)]["representation_hex"] == "FFFFFFFD40000000"
+    assert entries[("V_SIM_TimeRecord", 1)]["representation_hex"] == "9DFF440000418938"
+    assert entries[("V_SIM_TimeRecord", 2)]["representation_hex"] == "FFFFFFFFFFBE76C8"
+    assert not entries[("V_SIM_TimeRecord", 1)]["temporal_conversion"]["exact"]
+    assert entries[("V_SIM_Times", 0)]["array_elements"] == 2
+    assert entries[("V_SIM_Times", 0)]["representation_hex"] == "0000000000000000"
+    assert entries[("V_SIM_TimeSpans", 0)]["array_elements"] == 2
+    for variable, old, cases in [
+        ("V_SIM_Time", b'1984-01-01T00:00:00.5', ["1900-01-01", "2120-02-07T06:28:16", "2000-02-30", "2000-01-01T00:00:00Z"]),
+        ("V_SIM_TimeSpan", b'-PT2.75S', ["P1D", "PT1H", "PT0.0001S", "-PT2147483648.001S"])]:
+        assert saved.count(old) >= 1
+        for i, invalid in enumerate(cases):
+            bad = output / f"bad-{variable}-{i}.toml"
+            bad.write_bytes(saved.replace(b'default_value = "' + old + b'"', b'default_value = "' + invalid.encode('ascii') + b'"'))
+            value = tomllib.loads(run(cli, "defaults", bad, variable, expected=1))["entries"][0]["value"]
+            assert value["status"] == "needs_review" and value["declared"] == invalid and "representation_hex" not in value
+    unreachable = output / "unreachable.toml"
+    unreachable.write_bytes(saved.replace(b'gateway = "simulator"', b'gateway = "ifm_al1350"').replace(b'endpoint = ""', b'endpoint = "http://127.0.0.1:9"'))
+    assert tomllib.loads(run(cli, "defaults", unreachable)) == report
+    assert Gateway.requests == requests and profile.read_bytes() == saved
+    verify_time_parameters(cli, profile, output / "observations")
+    capture(cli, profile, output / "capture", "--seconds", .25)
 
 
 def verify_range_reads(cli, profile, output, band="Operating band", measurement="Measurement range", commands="Vendor commands (offline metadata only)"):
@@ -1006,6 +1047,7 @@ def main():
     communication_profile = verify_communication(cli, scratch / "communication")
     standard_range_profile = verify_standard_ranges(cli, scratch / "standard-ranges")
     verify_defaults(cli, scratch / "defaults")
+    verify_temporal_defaults(cli, scratch / "temporal-defaults")
     verify_xsd(cli, scratch)
     source = ROOT / "samples" / "simulator.toml"
     profile = source.read_text(encoding="utf-8")
@@ -1394,7 +1436,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline reopening, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")

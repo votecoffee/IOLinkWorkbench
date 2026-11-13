@@ -17,12 +17,12 @@
           <Datatype xsi:type="RecordT" bitLength="128" subindexAccessSupported="true">
             <RecordItem subindex="1" bitOffset="64"><SimpleDatatype xsi:type="TimeT"/><Name textId="time"/></RecordItem>
             <RecordItem subindex="2" bitOffset="0"><SimpleDatatype xsi:type="TimeSpanT"/><Name textId="span"/></RecordItem>
-          </Datatype><Name textId="record"/>
+          </Datatype><RecordItemInfo subindex="1" defaultValue="1984-01-01T00:00:00.001"/><RecordItemInfo subindex="2" defaultValue="-PT0.001S"/><Name textId="record"/>
         </Variable>
-        <Variable id="V_SIM_Times" index="74" accessRights="ro">
+        <Variable id="V_SIM_Times" index="74" accessRights="ro" defaultValue="2036-02-07T06:28:16">
           <Datatype xsi:type="ArrayT" count="2" subindexAccessSupported="true"><SimpleDatatype xsi:type="TimeT"/></Datatype><Name textId="times"/>
         </Variable>
-        <Variable id="V_SIM_TimeSpans" index="75" accessRights="ro">
+        <Variable id="V_SIM_TimeSpans" index="75" accessRights="ro" defaultValue="-PT2.75S">
           <Datatype xsi:type="ArrayT" count="2" subindexAccessSupported="true"><SimpleDatatype xsi:type="TimeSpanT"/></Datatype><Name textId="spans"/>
         </Variable>
       </VariableCollection>

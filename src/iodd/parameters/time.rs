@@ -6,6 +6,10 @@ const TICKS_PER_SECOND: u64 = 1 << 32;
 const ERA_THRESHOLD: u32 = 0x9DFF_4400;
 const UNIX_OFFSET: i64 = 2_208_988_800;
 
+mod defaults;
+pub use defaults::DefaultConversion;
+pub(super) use defaults::encode as encode_default;
+
 #[derive(Debug, Serialize)]
 pub struct TimeValue {
     pub datatype: &'static str,

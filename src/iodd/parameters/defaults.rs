@@ -21,6 +21,8 @@ pub struct Value {
     pub representation_scope: &'static str,
     pub array_elements: Option<u8>,
     pub representation_hex: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temporal_conversion: Option<super::TimeDefaultConversion>,
     pub decoded: Option<DecodedParameter>,
     pub review: Vec<String>,
 }
@@ -41,6 +43,15 @@ impl Value {
         if let Some(bytes) = &self.representation_hex {
             text.push_str(&format!("\nGenerated local representation {bytes}"));
         }
+        if let Some(conversion) = &self.temporal_conversion {
+            text.push_str(&format!(
+                "\nExact temporal conversion {} · {}",
+                conversion.exact, conversion.policy
+            ));
+            if let Some(basis) = conversion.calendar_basis {
+                text.push_str(&format!("\n{basis}"));
+            }
+        }
         if let Some(decoded) = &self.decoded {
             text.push_str(&format!("\n{}", decoded.text()));
         }
@@ -54,8 +65,15 @@ impl Value {
     }
 }
 
-fn representation(parameter: &Parameter, declared: &str) -> Result<Vec<u8>> {
-    match parameter.datatype.as_str() {
+fn representation(
+    parameter: &Parameter,
+    declared: &str,
+) -> Result<(Vec<u8>, Option<super::TimeDefaultConversion>)> {
+    let bytes = match parameter.datatype.as_str() {
+        "TimeT" | "TimeSpanT" => {
+            return super::time::encode_default(&parameter.datatype, declared)
+                .map(|(bytes, conversion)| (bytes, Some(conversion)));
+        }
         "IntegerT" | "UIntegerT" | "BooleanT" | "Float32T" => {
             assessment::default_numeric_bytes(parameter, declared)
         }
@@ -113,7 +131,8 @@ fn representation(parameter: &Parameter, declared: &str) -> Result<Vec<u8>> {
             }
         }
         _ => anyhow::bail!("default representation is unsupported"),
-    }
+    }?;
+    Ok((bytes, None))
 }
 
 fn inspect(parameter: &Parameter, declared: Option<&str>) -> Value {
@@ -124,6 +143,7 @@ fn inspect(parameter: &Parameter, declared: Option<&str>) -> Value {
         representation_scope: "one singular value; generated locally",
         array_elements: None,
         representation_hex: None,
+        temporal_conversion: None,
         decoded: None,
         review: Vec::new(),
     };
@@ -132,10 +152,17 @@ fn inspect(parameter: &Parameter, declared: Option<&str>) -> Value {
     };
     if !matches!(
         parameter.datatype.as_str(),
-        "IntegerT" | "UIntegerT" | "BooleanT" | "Float32T" | "StringT" | "OctetStringT"
+        "IntegerT"
+            | "UIntegerT"
+            | "BooleanT"
+            | "Float32T"
+            | "StringT"
+            | "OctetStringT"
+            | "TimeT"
+            | "TimeSpanT"
     ) {
         result.status = Status::Unsupported;
-        result.review.push("Declared default retained; temporal, whole-record and unresolved complex representations require manual interpretation".into());
+        result.review.push("Declared default retained; whole-record and unresolved complex representations require manual interpretation".into());
         return result;
     }
     if parameter.datatype == "Float32T" && declared.trim() == "NaN" {
@@ -146,8 +173,9 @@ fn inspect(parameter: &Parameter, declared: Option<&str>) -> Value {
         return result;
     }
     match representation(parameter, declared) {
-        Ok(bytes) => {
+        Ok((bytes, conversion)) => {
             result.representation_hex = Some(hex(&bytes));
+            result.temporal_conversion = conversion;
             let decoded = parameter.decode(&bytes);
             if decoded.needs_review() {
                 result
@@ -194,7 +222,7 @@ impl Parameter {
             if let Some(element) = &array.element.default_value {
                 let consistent = self.default_value.as_deref().is_some_and(|parent| {
                     parent == element || assessment::equivalent(&array.element, parent, element)
-                        || matches!((representation(&array.element, parent), representation(&array.element, element)), (Ok(a), Ok(b)) if a == b)
+                        || matches!((representation(&array.element, parent), representation(&array.element, element)), (Ok((a, _)), Ok((b, _))) if a == b)
                 });
                 if !consistent {
                     value.review.push(format!("Array parent and saved element default differ or the parent is missing; saved element default {element:?}"));

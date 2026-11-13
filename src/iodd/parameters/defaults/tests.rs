@@ -19,6 +19,66 @@ fn profile() -> Result<Profile> {
 }
 
 #[test]
+fn temporal_defaults_share_scalar_member_array_and_snapshot_views() -> Result<()> {
+    let catalog = iodd::parse(
+        include_str!("../../../../samples/sensor-time.xml"),
+        "synthetic temporal defaults".into(),
+    )?;
+    let (expected_identity, imported) = catalog.select(None, None)?;
+    let profile = Profile {
+        expected_identity,
+        iodd: Some(imported),
+        ..Default::default()
+    };
+    let before = toml::to_string_pretty(&profile)?;
+    let all = inspect_profile(&profile, None, None)?;
+    assert_eq!(
+        (
+            all.decoded,
+            all.not_declared,
+            all.needs_review,
+            all.unsupported
+        ),
+        (6, 0, 0, 0)
+    );
+    let array = profile.parameter("V_SIM_Times")?;
+    let value = array.inspect_default(0)?;
+    assert_eq!(value.array_elements, Some(2));
+    assert_eq!(
+        value.representation_hex.as_deref(),
+        Some("0000000000000000")
+    );
+    let member = array.inspect_default(2)?;
+    assert!(member.array_elements.is_none());
+    assert_eq!(member.representation_hex, value.representation_hex);
+    let (snapshot, _) = parameter_snapshot::read(&profile, "V_SIM_TimeRecord", 1)?;
+    let review = snapshot.review()?;
+    assert_eq!(
+        review.decoded.time_value.unwrap().value,
+        "1984-01-01 00:00:00.500 UTC"
+    );
+    assert_eq!(
+        review
+            .declared_default
+            .decoded
+            .unwrap()
+            .time_value
+            .unwrap()
+            .value,
+        "1984-01-01 00:00:00.001 UTC"
+    );
+    assert!(!review.declared_default.temporal_conversion.unwrap().exact);
+    let mut invalid = profile.parameter("V_SIM_Time")?.clone();
+    invalid.default_value = Some("1900-01-01".into());
+    let value = invalid.inspect_default(0)?;
+    assert_eq!(value.status, Status::NeedsReview);
+    assert!(value.representation_hex.is_none());
+    assert_eq!(value.declared.as_deref(), Some("1900-01-01"));
+    assert_eq!(toml::to_string_pretty(&profile)?, before);
+    Ok(())
+}
+
+#[test]
 fn numeric_defaults_preserve_exact_values_and_use_the_existing_display_decoder() -> Result<()> {
     let profile = profile()?;
     for (id, bytes, raw) in [
@@ -89,9 +149,16 @@ fn invalid_outside_unsupported_and_absent_defaults_keep_distinct_outcomes() -> R
         AssessmentStatus::OutsideDefinition
     );
     let time = profile.parameter("V_DEFAULT_Time")?.inspect_default(0)?;
-    assert_eq!(time.status, Status::Unsupported);
+    assert_eq!(time.status, Status::Decoded);
     assert_eq!(time.declared.as_deref(), Some("-PT2S"));
-    assert!(time.representation_hex.is_none());
+    assert_eq!(time.representation_hex.as_deref(), Some("FFFFFFFE00000000"));
+    assert_eq!(
+        profile
+            .parameter("V_DEFAULT_NaN")?
+            .inspect_default(0)?
+            .status,
+        Status::Unsupported
+    );
     assert_eq!(
         profile
             .parameter("V_DEFAULT_Absent")?
@@ -175,7 +242,7 @@ fn catalog_selection_and_write_only_inspection_are_metadata_only() -> Result<()>
             report.needs_review,
             report.unsupported
         ),
-        (16, 11, 2, 2, 1)
+        (17, 12, 2, 2, 1)
     );
     let command = inspect_profile(&profile, Some("V_DEFAULT_Command"), None)?;
     assert_eq!(command.entries[0].access, Access::WriteOnly);
