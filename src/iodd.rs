@@ -18,6 +18,7 @@ const XSI: &str = "http://www.w3.org/2001/XMLSchema-instance";
 
 mod array;
 mod parameters;
+pub mod schema;
 pub use parameters::{
     Access, Array, Choice, DecodedParameter, Display, DisplayValue, Parameter, Record, RecordItem,
     RecordValue, ValueRange,
@@ -47,6 +48,7 @@ pub struct Catalog {
     pub layouts: Vec<Layout>,
     pub parameters: Vec<Parameter>,
     pub standard_parameter_refs: Vec<String>,
+    pub schema_validation: Option<schema::Report>,
 }
 
 impl Catalog {
@@ -98,6 +100,7 @@ impl Catalog {
                 fields: layout.fields.clone(),
                 parameters: self.parameters.clone(),
                 standard_parameter_refs: self.standard_parameter_refs.clone(),
+                schema_validation: self.schema_validation.clone(),
             },
         ))
     }
@@ -113,10 +116,36 @@ pub fn load_with_definitions(
     entry: Option<&str>,
     definitions: Option<&Path>,
 ) -> Result<Catalog> {
+    load_checked(path, entry, definitions, None)
+}
+
+pub fn load_checked(
+    path: &Path,
+    entry: Option<&str>,
+    definitions: Option<&Path>,
+    xsd: Option<&Path>,
+) -> Result<Catalog> {
     let definitions = definitions
         .map(parameters::load_standard)
         .transpose()?
         .unwrap_or_default();
+    let (bytes, source) = source_bytes(path, entry)?;
+    let validation = xsd.map(|xsd| schema::validate(&bytes, xsd)).transpose()?;
+    if let Some(report) = &validation {
+        ensure!(report.passed, "{}", report.summary());
+    }
+    let mut catalog = parse_with_definitions(&decode_xml(bytes)?, source, &definitions)?;
+    catalog.schema_validation = validation;
+    Ok(catalog)
+}
+
+/// Check only the selected main XML against the supplied local XSD closure.
+pub fn check_schema(path: &Path, entry: Option<&str>, xsd: &Path) -> Result<schema::Report> {
+    let (bytes, _) = source_bytes(path, entry)?;
+    schema::validate(&bytes, xsd)
+}
+
+fn source_bytes(path: &Path, entry: Option<&str>) -> Result<(Vec<u8>, String)> {
     let name = path
         .file_name()
         .context("missing file name")?
@@ -151,8 +180,8 @@ pub fn load_with_definitions(
         file.take(XML_LIMIT + 1).read_to_end(&mut bytes)?;
         name.into_owned()
     };
-    let xml = decode_xml(bytes)?;
-    parse_with_definitions(&xml, source, &definitions)
+    ensure!(bytes.len() as u64 <= XML_LIMIT, "IODD XML exceeds 8 MiB");
+    Ok((bytes, source))
 }
 
 fn read_xml(path: &Path) -> Result<String> {
@@ -532,6 +561,7 @@ fn parse_with_definitions(xml: &str, source: String, definitions: &[Parameter]) 
         layouts,
         parameters,
         standard_parameter_refs,
+        schema_validation: None,
     })
 }
 

@@ -178,6 +178,7 @@ impl App {
 
     fn update_workers(&mut self, ctx: &Context) {
         self.saved_capture.update(ctx);
+        self.setup.update(ctx, &mut self.message);
         if let Some(live) = self.queue.pop() {
             self.live = live;
             if self.live.connected {
@@ -230,7 +231,7 @@ impl App {
     fn monitor(&mut self, ui: &mut Ui) {
         ui.heading("Process input and capture");
         let running = self.worker.is_some();
-        let available = !running && !self.closing && !self.setup.pending;
+        let available = !running && !self.closing && !self.setup.pending && !self.setup.busy();
         ui.add_enabled_ui(available, |ui| {
             ui.horizontal_wrapped(|ui| {
                 path_entry(ui, &mut self.capture_path, "New capture folder");
@@ -472,7 +473,7 @@ impl App {
             &self.profile,
             &mut self.selected_parameter,
             &mut self.selected_subindex,
-            self.isdu_worker.is_none() && !self.setup.pending,
+            self.isdu_worker.is_none() && !self.setup.pending && !self.setup.busy(),
         ) {
             let profile = self.profile.clone();
             match background("acyclic-iodd-parameter", move || {
@@ -523,7 +524,7 @@ impl App {
             ui.horizontal_wrapped(|ui| {
                 ui.add(egui::DragValue::new(&mut self.isdu_index).prefix("Index "));
                 ui.add(egui::DragValue::new(&mut self.isdu_subindex).prefix("Subindex "));
-                if ui.add_enabled(self.isdu_worker.is_none() && !self.setup.pending, egui::Button::new("Read parameter")).clicked() {
+                if ui.add_enabled(self.isdu_worker.is_none() && !self.setup.pending && !self.setup.busy(), egui::Button::new("Read parameter")).clicked() {
                     let (profile, index, subindex) = (self.profile.clone(), self.isdu_index, self.isdu_subindex);
                     match background("acyclic-isdu", move || { let bytes = transport::read_isdu(&profile, index, subindex)?;
                         let hex = decode::hex(&bytes);
@@ -536,7 +537,7 @@ impl App {
                         Err(error) => self.isdu_result = error.to_string(),
                     }
                 }
-                let can_verify = self.isdu_worker.is_none() && !self.setup.pending
+                let can_verify = self.isdu_worker.is_none() && !self.setup.pending && !self.setup.busy()
                     && self.profile.expected_identity.product_id.is_some();
                 if ui.add_enabled(can_verify, egui::Button::new("Verify Product ID")).clicked() {
                     let profile = self.profile.clone();
@@ -620,7 +621,9 @@ impl eframe::App for App {
                     ui.add_space(5.0);
                     match self.tab {
                         Tab::Setup => {
-                            let editable = self.worker.is_none() && self.isdu_worker.is_none();
+                            let editable = self.worker.is_none()
+                                && self.isdu_worker.is_none()
+                                && !self.setup.busy();
                             if self
                                 .setup
                                 .show(ui, &mut self.profile, &mut self.message, editable)

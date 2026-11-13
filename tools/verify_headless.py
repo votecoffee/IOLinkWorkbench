@@ -2,6 +2,7 @@
 
 import argparse
 import csv
+import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -180,12 +181,76 @@ def parallel_parameter_read(cli, fixture, output):
             process.communicate(timeout=5)
 
 
+def verify_xsd(cli, scratch):
+    folder = scratch / "schema '$ local"
+    folder.mkdir()
+    namespace = "http://www.io-link.com/IODD/2010/10"
+    root = folder / "fixture.xsd"
+    types = folder / "types.xsd"
+    root_text = (f'<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:i="{namespace}" targetNamespace="{namespace}" elementFormDefault="qualified">'
+                 '<xs:include schemaLocation="types.xsd"/><xs:element name="IODevice" type="i:DeviceT"/></xs:schema>')
+    types_text = (f'<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="{namespace}" elementFormDefault="qualified">'
+                  '<xs:complexType name="DeviceT"><xs:sequence><xs:any minOccurs="0" maxOccurs="unbounded" processContents="skip"/></xs:sequence>'
+                  '<xs:attribute name="validation_marker" type="xs:integer" use="required"/><xs:anyAttribute processContents="skip"/></xs:complexType></xs:schema>')
+    root.write_text(root_text, encoding="utf-8")
+    types.write_text(types_text, encoding="utf-8")
+    xml = (ROOT / "samples/sensor.xml").read_text(encoding="utf-8").replace("<IODevice ", '<IODevice validation_marker="7" ', 1)
+    source = folder / "sensor.xml"
+    source.write_text(xml, encoding="utf-8")
+    archive = folder / "checked.zip"
+    entry = "bundle/Checked-IODD1.1.xml"
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as bundle:
+        bundle.write(source, entry)
+    report = tomllib.loads(run(cli, "check-iodd", archive, "--entry", entry, "--xsd", root))
+    assert report["passed"] and report["xml_sha256"] == hashlib.sha256(source.read_bytes()).hexdigest()
+    assert {item["name"]: item["sha256"] for item in report["schemas"]} == {
+        path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in (root, types)}
+    profile = folder / "checked.toml"
+    run(cli, "import", archive, profile, "--variant", "SIM-SENSOR", "--xsd", root)
+    restored = tomllib.loads(profile.read_text(encoding="utf-8"))
+    assert restored["iodd"]["schema_validation"]["xml_sha256"] == report["xml_sha256"]
+    assert "Main XML XSD passed" in run(cli, "validate", profile)
+    before = profile.read_bytes()
+    source.write_text(xml.replace('validation_marker="7"', 'validation_marker="bad"'), encoding="utf-8")
+    failure = tomllib.loads(run(cli, "check-iodd", source, "--xsd", root, expected=1))
+    assert not failure["passed"] and failure["diagnostics"][0]["line"] > 0
+    run(cli, "import", source, profile, "--variant", "SIM-SENSOR", "--xsd", root, expected=1)
+    assert profile.read_bytes() == before
+    source.write_text(xml, encoding="utf-8")
+    requests = []
+
+    class ExternalSchema(BaseHTTPRequestHandler):
+        def log_message(self, *_args):
+            pass
+
+        def do_GET(self):
+            requests.append(self.path)
+            self.send_response(404)
+            self.end_headers()
+
+    with ThreadingHTTPServer(("127.0.0.1", 0), ExternalSchema) as server:
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            url = f"http://127.0.0.1:{server.server_port}/never.xsd"
+            hinted = xml.replace('validation_marker="7"', f'validation_marker="7" xsi:schemaLocation="{namespace} {url}"')
+            source.write_text(hinted, encoding="utf-8")
+            assert tomllib.loads(run(cli, "check-iodd", source, "--xsd", root))["passed"]
+            root.write_text(root_text.replace("types.xsd", url), encoding="utf-8")
+            assert not tomllib.loads(run(cli, "check-iodd", source, "--xsd", root, expected=1))["passed"]
+            assert not requests
+        finally:
+            server.shutdown()
+            thread.join()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("cli", type=lambda p: Path(p).resolve())
     cli = parser.parse_args().cli
     scratch = ROOT / ".local" / ("verify-" + uuid.uuid4().hex[:8])
     scratch.mkdir(parents=True)
+    verify_xsd(cli, scratch)
     source = ROOT / "samples" / "simulator.toml"
     profile = source.read_text(encoding="utf-8")
 
@@ -359,7 +424,7 @@ def main():
 
     print("PASS: ZIP and variant selection, offline decoding, equal updates, on-change, rotation, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, CSV joining, "
-          "named scalar/record/array reads, array CSV fields, offline ISDU decoding, subindex restrictions, parallel polling, and read-only AL1350 loopback")
+          "named scalar/record/array reads, array CSV fields, offline ISDU decoding, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 
 

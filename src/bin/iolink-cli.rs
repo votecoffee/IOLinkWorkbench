@@ -26,6 +26,9 @@ enum Command {
         /// Local IODD-StandardDefinitions1.1.xml supplied by the user.
         #[arg(long)]
         standard_definitions: Option<PathBuf>,
+        /// Require XSD validation against this local root schema before inspection.
+        #[arg(long)]
+        xsd: Option<PathBuf>,
     },
     /// Save an offline simulator profile from an IODD variant and input layout.
     Import {
@@ -36,12 +39,22 @@ enum Command {
         #[arg(long)]
         standard_definitions: Option<PathBuf>,
         #[arg(long)]
+        xsd: Option<PathBuf>,
+        #[arg(long)]
         variant: Option<String>,
         #[arg(long)]
         layout: Option<String>,
     },
     /// Check a profile and list its effective fields.
     Validate { profile: PathBuf },
+    /// Validate selected XML or ZIP member against a supplied local XSD closure.
+    CheckIodd {
+        path: PathBuf,
+        #[arg(long)]
+        xsd: PathBuf,
+        #[arg(long)]
+        entry: Option<String>,
+    },
     /// Decode a hexadecimal process input without a gateway.
     Decode { profile: PathBuf, payload: String },
     /// List imported IODD parameters without contacting a gateway.
@@ -155,16 +168,26 @@ fn main() -> Result<()> {
             let summary = archive::verify(&directory, joined_csv.as_deref())?;
             print!("{}", toml::to_string_pretty(&summary)?);
         }
+        Command::CheckIodd { path, xsd, entry } => {
+            let report = iodd::check_schema(&path, entry.as_deref(), &xsd)?;
+            print!("{}", toml::to_string_pretty(&report)?);
+            ensure!(
+                report.passed,
+                "XSD validation failed; diagnostics are printed above"
+            );
+        }
         Command::Iodd {
             path,
             entry,
             standard_definitions,
+            xsd,
         } => print!(
             "{}",
-            toml::to_string_pretty(&iodd::load_with_definitions(
+            toml::to_string_pretty(&iodd::load_checked(
                 &path,
                 entry.as_deref(),
-                standard_definitions.as_deref()
+                standard_definitions.as_deref(),
+                xsd.as_deref(),
             )?)?
         ),
         Command::Import {
@@ -172,13 +195,15 @@ fn main() -> Result<()> {
             profile,
             entry,
             standard_definitions,
+            xsd,
             variant,
             layout,
         } => {
-            let catalog = iodd::load_with_definitions(
+            let catalog = iodd::load_checked(
                 &path,
                 entry.as_deref(),
                 standard_definitions.as_deref(),
+                xsd.as_deref(),
             )?;
             let (expected_identity, imported) =
                 catalog.select(variant.as_deref(), layout.as_deref())?;
@@ -196,6 +221,15 @@ fn main() -> Result<()> {
             let profile = Profile::load(&profile)?;
             println!("{} ({} bytes)", profile.name, profile.input_bytes);
             if let Some(iodd) = &profile.iodd {
+                println!(
+                    "{}",
+                    iodd.schema_validation
+                        .as_ref()
+                        .map(|report| report.summary())
+                        .unwrap_or_else(
+                            || "Parser checks only; XSD validation not performed".into()
+                        )
+                );
                 for item in &iodd.needs_input {
                     println!("Review: {item}");
                 }

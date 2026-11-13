@@ -135,6 +135,8 @@ pub struct Imported {
     pub parameters: Vec<crate::iodd::Parameter>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub standard_parameter_refs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema_validation: Option<crate::iodd::schema::Report>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -269,6 +271,9 @@ impl Profile {
         let mut names = HashSet::new();
         if let Some(imported) = &self.iodd {
             let mut indexes = HashSet::new();
+            if let Some(validation) = &imported.schema_validation {
+                validation.validate_receipt()?;
+            }
             for parameter in &imported.parameters {
                 parameter.validate()?;
                 ensure!(

@@ -1,7 +1,10 @@
-use super::{WARNING, iodd, path_entry};
+use super::{WARNING, Worker, background, completed, iodd, path_entry};
 use eframe::egui::{self, Ui};
 use iolink_workbench::{decode::Field, iodd::Catalog, profile::Profile};
-use std::path::Path;
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 pub struct Editor {
     path: String,
@@ -9,6 +12,8 @@ pub struct Editor {
     pub pending: bool,
     iodd_path: String,
     standard_definitions: String,
+    xsd: String,
+    inspect_worker: Option<Worker<Catalog>>,
     entry: String,
     catalog: Option<Catalog>,
     variant: Option<String>,
@@ -23,6 +28,8 @@ impl Editor {
             pending: false,
             iodd_path: String::new(),
             standard_definitions: String::new(),
+            xsd: String::new(),
+            inspect_worker: None,
             entry: String::new(),
             catalog: None,
             variant: None,
@@ -33,6 +40,39 @@ impl Editor {
     pub fn sync(&mut self, profile: &Profile) {
         self.toml = serialize(profile);
         self.pending = false;
+    }
+
+    pub fn busy(&self) -> bool {
+        self.inspect_worker.is_some()
+    }
+
+    pub fn update(&mut self, ctx: &egui::Context, message: &mut String) {
+        if let Some(result) = completed(&mut self.inspect_worker) {
+            match result {
+                Ok(catalog) => {
+                    self.variant = (catalog.variants.len() == 1)
+                        .then(|| catalog.variants[0].product_id.clone());
+                    self.layout = (catalog.layouts.len() == 1
+                        && catalog.layouts[0].condition.is_none())
+                    .then(|| catalog.layouts[0].id.clone());
+                    *message = catalog
+                        .schema_validation
+                        .as_ref()
+                        .map(|report| report.summary())
+                        .unwrap_or_else(|| {
+                            "Parser checks only; XSD validation not performed".into()
+                        });
+                    self.catalog = Some(catalog);
+                }
+                Err(error) => {
+                    self.catalog = None;
+                    *message = format!("{error:#}");
+                }
+            }
+        }
+        if self.busy() {
+            ctx.request_repaint_after(Duration::from_millis(80));
+        }
     }
 
     pub fn show(
@@ -73,6 +113,7 @@ impl Editor {
             ui.heading("Effective process input");
             ui.small("Bit 0 is the least significant bit. Big endian counts from the last byte, little endian from the first.");
             if let Some(import) = &profile.iodd {
+                ui.small(import.schema_validation.as_ref().map(|report| report.summary()).unwrap_or_else(|| "Parser checks only; XSD validation not performed".into()));
                 ui.label(format!("{} · product {} · layout {} · {} imported bytes",
                     import.source, import.variant, import.layout, import.input_bytes));
                 for item in &import.needs_input { ui.colored_label(WARNING, item); }
@@ -150,6 +191,11 @@ impl Editor {
         ui.heading("IODD import");
         path_entry(
             ui,
+            &mut self.xsd,
+            "Optional local root XSD (require validation)",
+        );
+        path_entry(
+            ui,
             &mut self.standard_definitions,
             "Optional standard definitions XML",
         );
@@ -161,30 +207,38 @@ impl Editor {
                     .desired_width(170.0),
             );
             if ui.button("Inspect IODD").clicked() {
+                let path = PathBuf::from(self.iodd_path.trim());
                 let entry = self.entry.trim();
-                match iodd::load_with_definitions(
-                    Path::new(self.iodd_path.trim()),
-                    (!entry.is_empty()).then_some(entry),
-                    (!self.standard_definitions.trim().is_empty())
-                        .then(|| Path::new(self.standard_definitions.trim())),
-                ) {
-                    Ok(catalog) => {
-                        self.variant = (catalog.variants.len() == 1)
-                            .then(|| catalog.variants[0].product_id.clone());
-                        self.layout = (catalog.layouts.len() == 1
-                            && catalog.layouts[0].condition.is_none())
-                        .then(|| catalog.layouts[0].id.clone());
-                        self.catalog = Some(catalog);
-                        message.clear();
+                let entry = (!entry.is_empty()).then(|| entry.to_owned());
+                let definitions = self.standard_definitions.trim();
+                let definitions = (!definitions.is_empty()).then(|| PathBuf::from(definitions));
+                let xsd = self.xsd.trim();
+                let xsd = (!xsd.is_empty()).then(|| PathBuf::from(xsd));
+                self.catalog = None;
+                match background("iodd-inspection", move || {
+                    iodd::load_checked(
+                        &path,
+                        entry.as_deref(),
+                        definitions.as_deref(),
+                        xsd.as_deref(),
+                    )
+                }) {
+                    Ok(worker) => {
+                        self.inspect_worker = Some(worker);
+                        *message = "Inspecting IODD…".into();
                     }
-                    Err(error) => {
-                        self.catalog = None;
-                        *message = format!("{error:#}");
-                    }
+                    Err(error) => *message = error.to_string(),
                 }
             }
         });
         if let Some(catalog) = &self.catalog {
+            ui.small(
+                catalog
+                    .schema_validation
+                    .as_ref()
+                    .map(|report| report.summary())
+                    .unwrap_or_else(|| "Parser checks only; XSD validation not performed".into()),
+            );
             ui.horizontal_wrapped(|ui| {
                 ui.label(format!(
                     "Vendor {} · Device {}",
