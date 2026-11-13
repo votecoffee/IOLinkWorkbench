@@ -44,7 +44,7 @@ impl Record {
                 "record member index differs from parent"
             );
             ensure!(
-                item.parameter.record.is_none(),
+                item.parameter.record.is_none() && item.parameter.array.is_none(),
                 "nested parameter records are unsupported"
             );
             restrict(parent.access, Some(item.parameter.access))?;
@@ -70,28 +70,16 @@ impl Record {
 
 impl RecordItem {
     pub fn width(&self) -> Option<u16> {
-        match self.parameter.datatype.as_str() {
-            "StringT" | "OctetStringT" => self.parameter.fixed_length?.checked_mul(8),
-            _ => self.parameter.bits,
-        }
+        self.parameter.width()
     }
 
     /// Right-justify the member, preserving IO-Link's big-endian bit numbering.
     pub(super) fn extract(&self, payload: &[u8]) -> Result<Vec<u8>> {
-        let width = usize::from(self.width().context("record member width is unavailable")?);
-        let offset = usize::from(self.bit_offset);
-        ensure!(
-            width > 0 && offset + width <= payload.len() * 8,
-            "record member exceeds response width"
-        );
-        let mut bytes = vec![0; width.div_ceil(8)];
-        let length = bytes.len();
-        for bit in 0..width {
-            let absolute = offset + bit;
-            let value = (payload[payload.len() - 1 - absolute / 8] >> (absolute % 8)) & 1;
-            bytes[length - 1 - bit / 8] |= value << (bit % 8);
-        }
-        Ok(bytes)
+        crate::decode::extract_bits(
+            payload,
+            self.bit_offset,
+            self.width().context("record member width is unavailable")?,
+        )
     }
 }
 

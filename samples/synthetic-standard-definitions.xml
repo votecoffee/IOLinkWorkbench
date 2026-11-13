@@ -8,6 +8,10 @@
     </Datatype>
   </DatatypeCollection>
   <VariableCollection>
+    <Variable id="V_DetailedDeviceStatus" index="37" accessRights="ro">
+      <Datatype xsi:type="ArrayT" count="4"><SimpleDatatype xsi:type="OctetStringT" fixedLength="3"/></Datatype>
+      <Name textId="status"/>
+    </Variable>
     <Variable id="V_DirectParameters_1" index="0" accessRights="rw">
       <Datatype xsi:type="RecordT" bitLength="16">
         <RecordItem subindex="1" bitOffset="8" accessRightRestriction="ro">
@@ -45,6 +49,7 @@
       <Text id="zero" value="Synthetic zero"/>
       <Text id="offset" value="Synthetic offset time"/>
       <Text id="record" value="Synthetic direct parameter record"/>
+      <Text id="status" value="Synthetic detailed status"/>
     </PrimaryLanguage>
   </ExternalTextCollection>
 </IODDStandardDefinitions>

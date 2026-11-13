@@ -165,6 +165,7 @@ pub struct ParameterReading {
     pub choice_name: Option<String>,
     pub decode_error: Option<String>,
     pub record_items: Vec<crate::iodd::RecordValue>,
+    pub array_items: Vec<crate::iodd::RecordValue>,
 }
 
 /// Read one explicit IODD variable at subindex zero on the independent acyclic path.
@@ -175,11 +176,7 @@ pub fn read_parameter(profile: &Profile, id: &str) -> Result<ParameterReading> {
 pub fn read_parameter_at(profile: &Profile, id: &str, subindex: u8) -> Result<ParameterReading> {
     let parent = profile.parameter(id)?;
     ensure!(
-        subindex == 0
-            || parent
-                .record
-                .as_ref()
-                .is_some_and(|record| record.subindex_access),
+        subindex == 0 || parent.subindex_access(),
         "IODD does not permit individual subindex reads for {id}"
     );
     let parameter = parent.target(subindex)?;
@@ -195,7 +192,11 @@ pub fn read_parameter_at(profile: &Profile, id: &str, subindex: u8) -> Result<Pa
     let decoded = parameter.decode(&bytes);
     Ok(ParameterReading {
         parameter_id: parent.id.clone(),
-        name: parameter.name.clone(),
+        name: if parent.array.is_some() && subindex > 0 {
+            format!("{} [{subindex}]", parent.name)
+        } else {
+            parameter.name.clone()
+        },
         index: parameter.index,
         subindex,
         host_read_utc,
@@ -206,5 +207,6 @@ pub fn read_parameter_at(profile: &Profile, id: &str, subindex: u8) -> Result<Pa
         choice_name: decoded.choice_name,
         decode_error: decoded.decode_error,
         record_items: decoded.record_items,
+        array_items: decoded.array_items,
     })
 }

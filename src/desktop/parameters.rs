@@ -73,6 +73,33 @@ fn picker<'a>(
                 }
             }
         });
+    } else if let Some(array) = &parent.array {
+        ui.label(format!(
+            "Array · {} elements · {:?} bits each · {} · individual subindex access {}",
+            array.count,
+            array.element.width(),
+            array.element.datatype,
+            array.subindex_access
+        ));
+        egui::ComboBox::from_id_salt((salt, "subindex"))
+            .selected_text(format!("Subindex {subindex}"))
+            .show_ui(ui, |ui| {
+                ui.selectable_value(subindex, 0, "0 · whole array");
+                for element in 1..=array.count {
+                    ui.selectable_value(subindex, element, format!("Element {element}"));
+                }
+            });
+        for note in &array.element.needs_input {
+            ui.colored_label(WARNING, note);
+        }
+        if *subindex == 0 {
+            for display in &array.element.displays {
+                ui.label(format!(
+                    "Each element · ×{} + {} {}",
+                    display.field.scale, display.field.offset, display.field.unit
+                ));
+            }
+        }
     } else {
         *subindex = 0;
     }
@@ -135,7 +162,7 @@ pub fn show(
         ui.add_enabled_ui(available, |ui| {
             if let Some((parent, target)) = picker(ui, profile, selected, subindex, "iodd-read-parameter") {
                 let allowed = parent.access != Access::WriteOnly && target.access != Access::WriteOnly
-                    && (*subindex == 0 || parent.record.as_ref().is_some_and(|record| record.subindex_access));
+                    && (*subindex == 0 || parent.subindex_access());
                 if ui.add_enabled(allowed, egui::Button::new("Read named parameter")).clicked() {
                     requested = Some((parent.id.clone(), *subindex));
                 }

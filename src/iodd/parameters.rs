@@ -5,10 +5,12 @@ use roxmltree::Node;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
+mod array;
 mod display;
 mod record;
 mod standard;
 mod value;
+pub use array::Array;
 pub use display::{Display, DisplayValue};
 pub use record::{Record, RecordItem};
 pub(super) use standard::load as load_standard;
@@ -64,6 +66,8 @@ pub struct Parameter {
     pub origin: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub record: Option<Record>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub array: Option<Array>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub displays: Vec<Display>,
     #[serde(default)]
@@ -87,6 +91,9 @@ impl Parameter {
         );
         if let Some(record) = &self.record {
             record.validate(self)?;
+        }
+        if let Some(array) = &self.array {
+            array.validate(self)?;
         }
         let mut ids = HashSet::new();
         for display in &self.displays {
@@ -112,11 +119,36 @@ impl Parameter {
         if subindex == 0 {
             return Ok(self);
         }
+        if let Some(array) = &self.array {
+            ensure!(
+                subindex <= array.count,
+                "parameter {} has no declared subindex {subindex}",
+                self.id
+            );
+            return Ok(&array.element);
+        }
         self.record
             .as_ref()
             .and_then(|record| record.items.iter().find(|item| item.subindex == subindex))
             .map(|item| &item.parameter)
             .with_context(|| format!("parameter {} has no declared subindex {subindex}", self.id))
+    }
+
+    pub fn width(&self) -> Option<u16> {
+        match self.datatype.as_str() {
+            "StringT" | "OctetStringT" => self.fixed_length?.checked_mul(8),
+            _ => self.bits,
+        }
+    }
+
+    pub fn subindex_access(&self) -> bool {
+        self.record
+            .as_ref()
+            .is_some_and(|record| record.subindex_access)
+            || self
+                .array
+                .as_ref()
+                .is_some_and(|array| array.subindex_access)
     }
 
     fn scalar_field(&self) -> Result<Field> {
@@ -258,7 +290,7 @@ fn parse_parameter<'a, 'i>(
     access: Access,
     types: &HashMap<&str, Node<'a, 'i>>,
     texts: &HashMap<&str, &str>,
-    allow_record: bool,
+    allow_complex: bool,
 ) -> Result<Parameter> {
     let mut parameter = Parameter {
         id: id.into(),
@@ -272,6 +304,7 @@ fn parse_parameter<'a, 'i>(
         default_value: variable.attribute("defaultValue").map(str::to_owned),
         origin: None,
         record: None,
+        array: None,
         displays: Vec::new(),
         choices: Vec::new(),
         ranges: Vec::new(),
@@ -334,17 +367,39 @@ fn parse_parameter<'a, 'i>(
                     });
                 }
             }
-            if parameter.datatype == "RecordT" && allow_record {
+            if parameter.datatype == "RecordT" && allow_complex {
                 parameter.record = Some(record::parse(variable, dt, &parameter, types, texts)?);
             }
-            if parameter.datatype == "RecordT" && !allow_record {
+            if parameter.datatype == "ArrayT" && allow_complex {
+                match array::parse(dt, &parameter, types, texts) {
+                    Ok(array) => {
+                        parameter.bits = Some(array.geometry()?.bits() as u16);
+                        parameter.array = Some(array);
+                    }
+                    Err(error) => parameter
+                        .needs_input
+                        .push(format!("Array requires manual interpretation: {error}")),
+                }
+            }
+            if parameter.datatype == "RecordT" && !allow_complex {
                 parameter
                     .needs_input
                     .push("Nested record datatypes require manual interpretation".into());
             }
+            if parameter.datatype == "ArrayT" && !allow_complex {
+                parameter
+                    .needs_input
+                    .push("Nested array datatypes require manual interpretation".into());
+            }
             if !matches!(
                 parameter.datatype.as_str(),
-                "IntegerT" | "UIntegerT" | "BooleanT" | "Float32T" | "StringT" | "RecordT"
+                "IntegerT"
+                    | "UIntegerT"
+                    | "BooleanT"
+                    | "Float32T"
+                    | "StringT"
+                    | "RecordT"
+                    | "ArrayT"
             ) {
                 parameter.needs_input.push(format!(
                     "{} is available as raw hexadecimal",

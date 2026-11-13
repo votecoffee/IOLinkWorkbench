@@ -66,6 +66,13 @@ pub(super) fn apply(function: Node<'_, '_>, parameters: &mut [Parameter]) {
                     continue;
                 };
                 &mut item.parameter
+            } else if parameter.array.is_some() {
+                parameter
+                    .array
+                    .as_mut()
+                    .expect("checked array")
+                    .element
+                    .as_mut()
             } else {
                 parameter
             };
@@ -115,6 +122,9 @@ pub(super) fn apply(function: Node<'_, '_>, parameters: &mut [Parameter]) {
             for item in &mut record.items {
                 mark_multiple(&mut item.parameter);
             }
+        }
+        if let Some(array) = &mut parameter.array {
+            mark_multiple(&mut array.element);
         }
     }
 }

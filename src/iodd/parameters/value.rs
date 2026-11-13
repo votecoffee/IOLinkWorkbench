@@ -10,6 +10,7 @@ pub struct DecodedParameter {
     pub choice_name: Option<String>,
     pub decode_error: Option<String>,
     pub record_items: Vec<RecordValue>,
+    pub array_items: Vec<RecordValue>,
 }
 
 #[derive(Debug, Serialize)]
@@ -29,6 +30,7 @@ impl DecodedParameter {
             choice_name: None,
             decode_error: Some(error.to_string()),
             record_items: Vec::new(),
+            array_items: Vec::new(),
         }
     }
 
@@ -49,7 +51,7 @@ impl DecodedParameter {
         if let Some(error) = &self.decode_error {
             text.push_str(&format!("\nDecode review · {error}"));
         }
-        for item in &self.record_items {
+        for item in self.record_items.iter().chain(&self.array_items) {
             text.push_str(&format!(
                 "\n\n{} · subindex {} · bit {}\n{}",
                 item.name,
@@ -79,6 +81,7 @@ impl Parameter {
             choice_name: None,
             decode_error: None,
             record_items: Vec::new(),
+            array_items: Vec::new(),
         };
         value.choice_name = value
             .raw_value
@@ -111,6 +114,32 @@ impl Parameter {
                     subindex: item.subindex,
                     name: item.parameter.name.clone(),
                     bit_offset: item.bit_offset,
+                    value: decoded,
+                });
+            }
+        }
+        if let Some(array) = &self.array {
+            let geometry = match array.geometry() {
+                Ok(layout) => layout,
+                Err(error) => return DecodedParameter::error(payload, error),
+            };
+            if geometry.bits().div_ceil(8) as usize != payload.len() {
+                return DecodedParameter::error(
+                    payload,
+                    "array response width differs from the IODD",
+                );
+            }
+            for subindex in 1..=array.count {
+                let bit_offset = geometry.offset(subindex);
+                let decoded = match crate::decode::extract_bits(payload, bit_offset, geometry.width)
+                {
+                    Ok(bytes) => array.element.decode(&bytes),
+                    Err(error) => DecodedParameter::error(&[], error),
+                };
+                value.array_items.push(RecordValue {
+                    subindex,
+                    name: format!("{} [{subindex}]", self.name),
+                    bit_offset,
                     value: decoded,
                 });
             }

@@ -143,6 +143,7 @@ fn main() -> Result<()> {
                     && decoded
                         .record_items
                         .iter()
+                        .chain(&decoded.array_items)
                         .all(|item| item.value.decode_error.is_none()),
                 "parameter payload needs decoding review; raw bytes retained above"
             );

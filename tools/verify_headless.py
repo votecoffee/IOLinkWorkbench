@@ -25,6 +25,7 @@ class Gateway(BaseHTTPRequestHandler):
     device_id = 1
     inject_faults = True
     block_parameter = False
+    payload = "03C9"
     parameter_entered = threading.Event()
     parameter_release = threading.Event()
     port = "/iolinkmaster/port[1]"
@@ -61,7 +62,7 @@ class Gateway(BaseHTTPRequestHandler):
                     code = {4: 530, 7: 503}.get(self.polls, 200) if self.inject_faults else 200
                     result = {"code": code}
                     if code == 200:
-                        result["data"] = "03C9"
+                        result["data"] = self.payload
                 elif path == self.device + "/deviceid":
                     result = {"code": 200, "data": self.device_id}
                 elif path in self.data:
@@ -73,7 +74,8 @@ class Gateway(BaseHTTPRequestHandler):
                 response["data"][path if self.polls % 2 else path.lstrip("/")] = result
         elif address == self.device + "/iolreadacyclic" and request["data"] in (
                 {"index": 19, "subindex": 0}, {"index": 64, "subindex": 0}, {"index": 65, "subindex": 0},
-                *({"index": 66, "subindex": subindex} for subindex in range(5))):
+                *({"index": 66, "subindex": subindex} for subindex in range(5)),
+                *({"index": 67, "subindex": subindex} for subindex in range(8))):
             type(self).isdu_reads += 1
             index = request["data"]["index"]
             if index == 64 and self.block_parameter:
@@ -83,6 +85,7 @@ class Gateway(BaseHTTPRequestHandler):
             response["data"] = {"value": {
                 (19, 0): "53494D2D53454E534F52", (64, 0): "01F4", (65, 0): "666978747572652073656E736F72",
                 (66, 0): "FFEC010A54455354", (66, 1): "FFEC", (66, 2): "01", (66, 3): "0A", (66, 4): "54455354",
+                (67, 0): "02C495F0", (67, 1): "02", (67, 2): "FC", (67, 3): "04", (67, 4): "F9", (67, 5): "05", (67, 6): "FF", (67, 7): "00",
             }[(index, request["data"]["subindex"])]}
         else:
             self.violations.append(request)
@@ -230,6 +233,15 @@ def main():
     offline_only.write_text(record_profile.read_text(encoding="utf-8").replace('gateway = "simulator"',
         'gateway = "ifm_al1350"').replace('endpoint = ""', 'endpoint = "unreachable offline endpoint"'), encoding="utf-8")
     run(cli, "decode-parameter", offline_only, "V_SIM_Record", "FFEC", "--subindex", 1)
+    array_profile = scratch / "array.toml"
+    run(cli, "import", ROOT / "samples" / "sensor-array.xml", array_profile)
+    array = tomllib.loads(run(cli, "decode-parameter", array_profile, "V_SIM_History", "02C495F0"))
+    expected = ["2", "-4", "4", "-7", "5", "-1", "0"]
+    assert [item["value"]["raw_value"] for item in array["array_items"]] == expected
+    assert array["array_items"][1]["value"]["displays"][0]["value"] == "-1.0"
+    for subindex, value in enumerate(expected, 1):
+        assert tomllib.loads(run(cli, "read-parameter", array_profile, "V_SIM_History", "--subindex", subindex))["raw_value"] == value
+    capture(cli, array_profile, scratch / "sim-array", "--seconds", 0.25)
 
     clean, rows = capture(cli, source, scratch / "sim-every", "--seconds", 1)
     assert clean["last_status"]["route"] == "synthetic simulator"
@@ -309,6 +321,24 @@ def main():
             before = Gateway.isdu_reads
             run(cli, "read-parameter", parameter_fixture, "V_SIM_Command", expected=1)
             assert Gateway.isdu_reads == before and not Gateway.violations
+            array_fixture = scratch / "array-fixture.toml"
+            text = array_profile.read_text(encoding="utf-8").replace('gateway = "simulator"', 'gateway = "ifm_al1350"')
+            text = text.replace('endpoint = ""', f'endpoint = "http://127.0.0.1:{server.server_port}"')
+            text = text.replace('port = 1', 'port = 1\nifm_mode = 3').replace('poll_us = 1000', 'poll_us = 10000')
+            array_fixture.write_text(text, encoding="utf-8")
+            Gateway.payload = "02C495F0"
+            array_report, array_rows = capture(cli, array_fixture, scratch / "ifm-array", "--seconds", 0.25)
+            assert array_report["source_update_loss"] == "unknown" and array_rows
+            assert all(row["value.Temperature [2] [°C]"] == "-1.0" for row in array_rows)
+            for subindex in range(1, 8):
+                member = tomllib.loads(run(cli, "read-parameter", array_fixture, "V_SIM_History", "--subindex", subindex))
+                assert member["raw_value"] == expected[subindex - 1]
+            before = Gateway.isdu_reads
+            disabled_array = scratch / "array-disabled.toml"
+            disabled_array.write_text(text.replace('subindex_access = true', 'subindex_access = false'), encoding="utf-8")
+            run(cli, "read-parameter", disabled_array, "V_SIM_History", "--subindex", 1, expected=1)
+            assert Gateway.isdu_reads == before and not Gateway.violations
+            Gateway.payload = "03C9"
             record_fixture = scratch / "record-fixture.toml"
             text = record_profile.read_text(encoding="utf-8").replace('gateway = "simulator"', 'gateway = "ifm_al1350"')
             text = text.replace('endpoint = ""', f'endpoint = "http://127.0.0.1:{server.server_port}"')
@@ -329,7 +359,7 @@ def main():
 
     print("PASS: ZIP and variant selection, offline decoding, equal updates, on-change, rotation, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, CSV joining, "
-          "named scalar and record reads, offline ISDU decoding, subindex restrictions, parallel polling, and read-only AL1350 loopback")
+          "named scalar/record/array reads, array CSV fields, offline ISDU decoding, subindex restrictions, parallel polling, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 
 

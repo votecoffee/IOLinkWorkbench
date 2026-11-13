@@ -496,7 +496,7 @@ impl App {
                         display.id, display.value, display.unit
                     ));
                 }
-                for item in &reading.record_items {
+                for item in reading.record_items.iter().chain(&reading.array_items) {
                     text.push_str(&format!(
                         "\n\n{} · subindex {} · bit {}\n{}",
                         item.name,

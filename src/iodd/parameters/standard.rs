@@ -59,6 +59,9 @@ pub(super) fn parse(xml: &str, source: &str) -> Result<Vec<Parameter>> {
                 item.parameter.origin = parameter.origin.clone();
             }
         }
+        if let Some(array) = &mut parameter.array {
+            array.element.origin = parameter.origin.clone();
+        }
     }
     Ok(parameters)
 }
@@ -71,6 +74,9 @@ pub(super) fn resolve(
     let mut parameter = definition.clone();
     if let Some(value) = reference.attribute("defaultValue") {
         parameter.default_value = Some(value.into());
+        if let Some(array) = &mut parameter.array {
+            array.element.default_value = Some(value.into());
+        }
     }
     if let Some(length) = reference.attribute("fixedLengthRestriction") {
         let length: u16 = length.parse()?;
@@ -87,6 +93,8 @@ pub(super) fn resolve(
                 "application tag restriction must be at least 16"
             );
             parameter.fixed_length = Some(length);
+        } else if let Some(array) = &mut parameter.array {
+            parameter.bits = Some(array.restrict_count(u8::try_from(length)?)?);
         } else {
             parameter
                 .needs_input

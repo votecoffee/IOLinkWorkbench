@@ -186,6 +186,23 @@ pub fn hex(bytes: &[u8]) -> String {
     output
 }
 
+pub(crate) fn extract_bits(payload: &[u8], bit_offset: u16, width: u16) -> Result<Vec<u8>> {
+    let width = usize::from(width);
+    let offset = usize::from(bit_offset);
+    ensure!(
+        width > 0 && offset + width <= payload.len() * 8,
+        "member exceeds response width"
+    );
+    let mut bytes = vec![0; width.div_ceil(8)];
+    let length = bytes.len();
+    for bit in 0..width {
+        let absolute = offset + bit;
+        let value = (payload[payload.len() - 1 - absolute / 8] >> (absolute % 8)) & 1;
+        bytes[length - 1 - bit / 8] |= value << (bit % 8);
+    }
+    Ok(bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

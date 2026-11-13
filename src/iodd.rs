@@ -16,9 +16,10 @@ const XML_LIMIT: u64 = 8 * 1024 * 1024;
 const IODD_NAMESPACE: &str = "http://www.io-link.com/IODD/2010/10";
 const XSI: &str = "http://www.w3.org/2001/XMLSchema-instance";
 
+mod array;
 mod parameters;
 pub use parameters::{
-    Access, Choice, DecodedParameter, Display, DisplayValue, Parameter, Record, RecordItem,
+    Access, Array, Choice, DecodedParameter, Display, DisplayValue, Parameter, Record, RecordItem,
     RecordValue, ValueRange,
 };
 
@@ -475,6 +476,39 @@ fn parse_with_definitions(xml: &str, source: String, definitions: &[Parameter]) 
                     })(),
                 )?;
             }
+        } else if dt.as_ref().is_ok_and(|dt| {
+            dt.attribute((XSI, "type"))
+                .is_some_and(|kind| kind.rsplit(':').next() == Some("ArrayT"))
+        }) {
+            let name = label(input, &texts, id);
+            let info = display
+                .and_then(|reference| child(reference, "ProcessDataInfo"))
+                .unwrap_or(input);
+            let expanded = (|| -> Result<_> {
+                let dt = dt?;
+                let (template, unit_defined) = field(datatype(dt, &types)?, info, name.clone(), 0)?;
+                let count = dt
+                    .attribute("count")
+                    .context("array has no count")?
+                    .parse()?;
+                let geometry = array::Geometry::new(u16::from(template.bits), count)?;
+                ensure!(
+                    geometry.bits() as usize <= bits,
+                    "array extends beyond declared input width"
+                );
+                Ok((template, unit_defined, geometry))
+            })();
+            match expanded {
+                Ok((template, unit_defined, geometry)) => {
+                    for subindex in 1..=geometry.count {
+                        let mut field = template.clone();
+                        field.name = format!("{name} [{subindex}]");
+                        field.bit_offset = geometry.offset(subindex);
+                        add(field.name.clone(), Ok((field, unit_defined)))?;
+                    }
+                }
+                Err(error) => add(name, Err(error))?,
+            }
         } else {
             let name = label(input, &texts, id);
             let info = display
@@ -506,3 +540,6 @@ mod tests;
 
 #[cfg(test)]
 mod record_tests;
+
+#[cfg(test)]
+mod array_tests;

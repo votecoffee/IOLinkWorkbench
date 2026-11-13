@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<IODevice xmlns="http://www.io-link.com/IODD/2010/10" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <!-- Original synthetic fixture. Payload 02C495F0 holds seven signed four-bit values. -->
+  <ProfileBody>
+    <DeviceIdentity vendorId="65535" deviceId="1">
+      <DeviceVariantCollection>
+        <DeviceVariant productId="SIM-SENSOR"><Name textId="sensor"/></DeviceVariant>
+      </DeviceVariantCollection>
+    </DeviceIdentity>
+    <DeviceFunction>
+      <DatatypeCollection>
+        <Datatype id="ELEMENT" xsi:type="IntegerT" bitLength="4">
+          <ValueRange lowerValue="-8" upperValue="7"/>
+        </Datatype>
+      </DatatypeCollection>
+      <VariableCollection>
+        <Variable id="V_SIM_History" index="67" accessRights="ro" defaultValue="0">
+          <Datatype xsi:type="ArrayT" count="7" subindexAccessSupported="true"><DatatypeRef datatypeId="ELEMENT"/></Datatype>
+          <Name textId="history"/>
+        </Variable>
+      </VariableCollection>
+      <ProcessDataCollection>
+        <ProcessData id="PD">
+          <ProcessDataIn id="IN" bitLength="28">
+            <Datatype xsi:type="ArrayT" count="7"><DatatypeRef datatypeId="ELEMENT"/></Datatype>
+            <Name textId="temperature"/>
+          </ProcessDataIn>
+        </ProcessData>
+      </ProcessDataCollection>
+      <UserInterface>
+        <ProcessDataRefCollection>
+          <ProcessDataRef processDataId="IN"><ProcessDataInfo gradient="0.5" offset="1" unitCode="1001" displayFormat="Dec.1"/></ProcessDataRef>
+        </ProcessDataRefCollection>
+        <MenuCollection>
+          <Menu id="M_SIM_History"><VariableRef variableId="V_SIM_History" gradient="0.5" offset="1" unitCode="1001" displayFormat="Dec.1"/></Menu>
+        </MenuCollection>
+      </UserInterface>
+    </DeviceFunction>
+  </ProfileBody>
+  <ExternalTextCollection>
+    <PrimaryLanguage xml:lang="en">
+      <Text id="sensor" value="Synthetic array sensor"/>
+      <Text id="history" value="Synthetic history"/>
+      <Text id="temperature" value="Temperature"/>
+    </PrimaryLanguage>
+  </ExternalTextCollection>
+</IODevice>

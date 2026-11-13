@@ -112,9 +112,13 @@ pub fn read_isdu(index: u16, subindex: u8) -> Result<Vec<u8>> {
         (66, 2) => Ok(vec![1]),
         (66, 3) => Ok(vec![10]),
         (66, 4) => Ok(b"TEST".to_vec()),
+        (67, 0) => Ok(vec![0x02, 0xC4, 0x95, 0xF0]),
+        (67, 1..=7) => Ok(vec![
+            [2i8, -4, 4, -7, 5, -1, 0][usize::from(subindex - 1)] as u8,
+        ]),
         _ => {
             bail!(
-                "simulator defines identity (18:0, 19:0, 21:0), threshold (64:0), label (65:0), and record (66:0 through 66:4)"
+                "simulator defines identity (18:0, 19:0, 21:0), threshold (64:0), label (65:0), record (66:0 through 66:4), and array (67:0 through 67:7)"
             )
         }
     }
