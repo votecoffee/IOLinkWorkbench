@@ -10,11 +10,14 @@ Read [AGENTS.md](../AGENTS.md) and the [operations guide](OPERATIONS.md) before 
 | `src/iodd*`, `src/decode*` | Bounded local description import, declared metadata and pure raw/typed decoding |
 | `src/profile*` | Saved host configuration, imported/manual precedence, validated candidates, identity pins, preferences and offline capture plans |
 | `src/capture*` | Cyclic acquisition, receive timestamps, selection, bounded queue, writer, finalized reports and timing/loss accounting |
+| `src/local_api*` | Optional read-only loopback server, independent queue/ingest/history, request bounds, typed rendering, session cursors and API loss accounting |
 | `src/archive*` | Offline capture verification, bounded review and re-decode exports |
 | `src/parameter_snapshot*`, diagnostics | Explicit acyclic results and offline reopening with embedded context |
 | `src/bin/iolink-cli*`, `src/desktop*` | Shared core operations exposed through CLI and GUI; pending GUI drafts guard acquisition |
 
 An applied profile selects a transport and effective mapping. The cyclic worker reads, timestamps and validates an input, accounts for freshness/selection and submits a bounded preallocated queue entry. The independent writer batches CSV, rotates, flushes/syncs and drains on stop. Queue saturation is counted rather than blocking sampling indefinitely. An explicit acyclic query creates its own client/worker. Decoding and offline plans must not open transports. Any future integration gets its own bounded handoff and loss accounting; see [interface criteria](INTERFACES.md).
+
+The [local API](LOCAL_API.md) is optional per acquisition. The sampler offers fixed input frames; separate ingest/HTTP workers own history and serialization. API responses include input duplicates/late replies independently of CSV filtering. Export queue drops, history replacement, source gaps and logger overruns have distinct counters. API report fields are optional so old captures remain readable; archive verification validates recorded API accounting when supplied. The local API suite uses simulator/loopback clients and measures no physical acceptance.
 
 Capture plans describe saved configuration, never observed transport capabilities. Selected field positions are one-based value order; `csv_columns` contains the actual full header including metadata. Rotation follows receive elapsed timestamps, not writer wall time. Preserve raw payloads and the distinction between source gaps, host polls, intentional filtering, reconnect uncertainty and logger drops. Do not infer sensor freshness from equal/different payloads.
 
@@ -29,6 +32,7 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo check --locked --no-default-features --bin iolink-cli
 cargo build --locked --release --target x86_64-pc-windows-msvc --bins
 python tools/verify_headless.py target/x86_64-pc-windows-msvc/release/iolink-cli.exe
+python tools/verify_local_api.py target/x86_64-pc-windows-msvc/release/iolink-cli.exe
 python tools/verify_gui.py target/x86_64-pc-windows-msvc/release/iolink-workbench.exe --output .local/gui-check-NEW.json
 ```
 

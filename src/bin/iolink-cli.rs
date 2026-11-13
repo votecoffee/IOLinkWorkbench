@@ -13,6 +13,8 @@ use std::{path::PathBuf, time::Duration};
 mod connection;
 #[path = "iolink-cli/identity.rs"]
 mod identity;
+#[path = "iolink-cli/local_api.rs"]
+mod local_api;
 #[path = "iolink-cli/logging.rs"]
 mod logging;
 #[path = "iolink-cli/mapping.rs"]
@@ -222,6 +224,8 @@ enum Command {
         /// Exact mapped field name; repeat to choose CSV value order.
         #[arg(long = "field", value_name = "NAME", conflicts_with_all = ["raw_only", "all_fields"])]
         fields: Vec<String>,
+        #[command(flatten)]
+        api: local_api::Arguments,
     },
 }
 
@@ -677,6 +681,7 @@ fn main() -> Result<()> {
             raw_only,
             all_fields,
             fields,
+            api,
         } => {
             ensure!(
                 seconds.is_finite() && (0.01..=86400.0).contains(&seconds),
@@ -703,6 +708,7 @@ fn main() -> Result<()> {
                     duration: Some(Duration::from_secs_f64(seconds)),
                     simulate_faults,
                     simulated_writer_delay: Duration::from_millis(simulate_writer_delay_ms),
+                    local_api: api.config(),
                 },
                 &stop,
                 None,
@@ -710,7 +716,7 @@ fn main() -> Result<()> {
             print!("{}", toml::to_string_pretty(&report)?);
             ensure!(
                 report.success(),
-                "capture ended with a transport or writer error; see the report"
+                "capture ended with a transport, writer or local API worker error; see the report"
             );
             if report.stopped_by_request {
                 std::process::exit(130);

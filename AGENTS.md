@@ -16,5 +16,5 @@ Start with the repository skill at [.agents/skills/iolink-workbench/SKILL.md](.a
 - Check status, branch, remote and applicable instructions before editing; preserve unrelated changes and read-only references.
 - Keep vendor IODDs/SDKs, private profiles, raw captures and local receipts under ignored `.local/`. Commit only original synthetic or explicitly cleared fixtures. Check ignore behavior before storing private material.
 - Distinguish declared port cycle, gateway update rate, source timestamps/counters, host poll/receive spacing and logger timing. Snapshot rows are host polls; absent freshness metadata means source loss is unknown. Keep simulator, loopback, offscreen GUI and physical results separate.
-- Future consumers must use bounded buffers and independent loss/age accounting. HTTP, MQTT, shared memory and C FFI are roadmap items here; do not advertise them as implemented.
+- The opt-in loopback HTTP API uses independent bounded ingest/history and API loss counters; see [its contract](docs/LOCAL_API.md). Keep it separate from CSV and acyclic reads. MQTT, shared memory and C FFI remain roadmap items.
 - Update public command/profile/schema documentation and the skill when behavior changes. Follow [development](docs/DEVELOPMENT.md) for meaningful local checks and clean-commit packaging. Do not add automatic GitHub Actions spending.

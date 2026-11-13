@@ -3,6 +3,7 @@ pub mod capture;
 pub mod decode;
 pub mod diagnostics;
 pub mod iodd;
+pub mod local_api;
 pub mod parameter_snapshot;
 pub mod profile;
 pub mod timing;

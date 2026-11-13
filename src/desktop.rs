@@ -95,6 +95,8 @@ struct App {
     capture_path: String,
     duration: u32,
     simulate_faults: bool,
+    api_enabled: bool,
+    api_port: u16,
     worker: Option<Worker<Report>>,
     isdu_worker: Option<Worker<String>>,
     isdu_index: u16,
@@ -128,6 +130,8 @@ impl App {
             capture_path: default_capture_path(),
             duration: 10,
             simulate_faults: false,
+            api_enabled: false,
+            api_port: 8765,
             worker: None,
             isdu_worker: None,
             isdu_index: 19,
@@ -176,6 +180,16 @@ impl App {
                 .then(|| Duration::from_secs(u64::from(self.duration))),
             simulate_faults: profile.connection.gateway == Gateway::Simulator
                 && self.simulate_faults,
+            local_api: self
+                .api_enabled
+                .then(|| iolink_workbench::local_api::Config {
+                    listen: std::net::SocketAddrV4::new(
+                        std::net::Ipv4Addr::LOCALHOST,
+                        self.api_port,
+                    )
+                    .into(),
+                    ..Default::default()
+                }),
             ..Options::default()
         };
         self.stop = Stop::default();
@@ -253,6 +267,16 @@ impl App {
         let available = !running && !self.closing && !self.setup.pending() && !self.setup.busy();
         ui.add_enabled_ui(available, |ui| {
             ui.horizontal_wrapped(|ui| {
+                ui.checkbox(&mut self.api_enabled, "Read-only local API");
+                ui.add_enabled(
+                    self.api_enabled,
+                    egui::DragValue::new(&mut self.api_port)
+                        .range(1..=65535)
+                        .prefix("127.0.0.1:"),
+                );
+                ui.small("Opt-in per session · status, schema, bounded history");
+            });
+            ui.horizontal_wrapped(|ui| {
                 path_entry(ui, &mut self.capture_path, "New capture folder");
                 if ui.small_button("New folder name").clicked() {
                     self.capture_path = default_capture_path();
@@ -313,6 +337,16 @@ impl App {
         });
         if self.setup.pending() {
             ui.colored_label(WARNING, "Apply or discard pending profile edits in Setup.");
+        }
+        if running && self.api_enabled {
+            ui.label(format!("Local API requested at http://127.0.0.1:{}/v1/status · API drops are separate from CSV/source loss", self.api_port));
+        }
+        if let Some(api) = self
+            .report
+            .as_ref()
+            .and_then(|report| report.local_api.as_ref())
+        {
+            ui.label(format!("Local API stopped · {} events ingested · {} queue drops · {} history evictions · worker failed: {}", api.events_ingested, api.queue_dropped, api.history_evicted, api.worker_failed));
         }
         ui.horizontal(|ui| {
             if ui

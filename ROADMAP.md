@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Opt-in read-only loopback HTTP API in GUI/CLI with independent preallocated handoff and bounded history. Schema/status/history preserve raw/typed inputs, response classifications, identity generations, session clocks/cursors and separate API/CSV/source accounting. Request/response size and time limits isolate slow clients; finalized reports retain verified queue/history counts. Rust and synthetic loopback checks cover queue saturation, size pagination, stale/invalid/duplicate/equal values, reconnects, on-change filtering, CSV backpressure, malformed requests and shutdown. Physical timing and visible GUI interaction remain pending.
+
 - Saved logging edits and offline capture plans share validated candidates across GUI/CLI. Plans expose configured freshness meaning, ordered typed mappings/origins and exact CSV headers without transport access. Headless checks cover scalar/selection preservation, row/time rotation, source/destination preservation, unreachable endpoints and clearing selections before manual-field removal. Operator/developer guides, repository instructions and a discoverable Codex skill accompany the portable package.
 
 - GUI cyclic-field editing and offline CLI set-field/remove-field share complete-profile validation. Controls expose bit layout, type, byte order, engineering conversion and decimal precision, with a full-payload offline preview. Imported fields remain intact beneath overrides; removal restores them and rejects dangling CSV selections. New profiles preserve source bytes and all other settings. Tests cover bounds/invalid types, exact wide values, endian/sign/scaling, order/selection preservation, snapshots and CSV capture. Native offscreen Setup cases include the active field editor. No transport or device configuration path is added.
@@ -48,7 +50,6 @@
 
 ## Follow-on work
 
-- Add a read-only local API with bounded history, explicit eviction/cursors, status/schema and clock semantics. No consumer may block acquisition; test slow/disconnected clients and independent loss/freshness counters.
 - Add optional MQTT publishing with documented QoS/retention/reconnect semantics, bounded independent buffering and visible drops/age. Latest-value delivery must declare skipped updates; source loss remains separate.
 - Add a versioned Windows shared-memory latest raw snapshot with coherent status/identity/timing, sequence and reader-consistency/lifecycle contracts. Account for overwritten observations independently of source and logger loss.
 - Evaluate optional C-compatible FFI for C# embedding, including whether the C# host must own the hardware connection. Define ABI lifetime/thread/error/cancellation/panic boundaries before implementation. FFI is discussed future work, not implemented here or in the EthernetIPWorkbench reference when this item was added.

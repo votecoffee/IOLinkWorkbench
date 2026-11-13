@@ -71,6 +71,7 @@ struct Manifest {
     host_new_update_spacing: Option<crate::capture::Spacing>,
     gateway_update_spacing: Option<crate::capture::Spacing>,
     logger_metrics: Option<crate::capture::LoggerMetrics>,
+    local_api: Option<crate::local_api::Summary>,
 }
 
 fn legacy_format() -> u32 {
@@ -369,6 +370,9 @@ fn check_manifest(manifest: &Manifest, profile: &Profile) -> Result<()> {
             manifest.csv_parts,
             manifest.writer_error.is_some(),
         )?;
+    }
+    if let Some(api) = &manifest.local_api {
+        api.validate()?;
     }
     Ok(())
 }

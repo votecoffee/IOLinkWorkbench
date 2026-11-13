@@ -71,4 +71,4 @@ Captures retain UTC start, monotonic host elapsed times, sample indexes, reconne
 
 ## Integrations and support evidence
 
-Current integration is CLI, saved TOML, parameter JSON and finalized CSV bundles. HTTP, MQTT, Windows shared memory and C FFI are [future work](INTERFACES.md). Keep simulation/loopback reports apart from physical results. For a bench issue, retain firmware, identity, profile, capture report and raw bytes in private storage; publish only sanitized reproductions.
+Integration includes CLI, saved TOML/JSON/CSV and an opt-in [read-only local HTTP API](LOCAL_API.md). Enable it per acquisition in Monitor & CSV or use capture `--api-listen 127.0.0.1:8765`; it stops with acquisition. MQTT, Windows shared memory and C FFI remain [future work](INTERFACES.md). Keep simulation/loopback reports apart from physical results. For a bench issue, retain firmware, identity, profile, capture report and raw bytes in private storage; publish only sanitized reproductions.

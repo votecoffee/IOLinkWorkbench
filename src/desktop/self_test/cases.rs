@@ -89,6 +89,8 @@ pub(super) fn render(
                 app.setup.edit_field((*field).clone(), *origin != "IODD");
             }
             app.tab = tab;
+            // Render enabled API controls without starting acquisition or a listener.
+            app.api_enabled = tab == Tab::Monitor;
             let before = app.profile.clone();
             let mut case = Case {
                 profile: name,

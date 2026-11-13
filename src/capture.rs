@@ -72,6 +72,7 @@ pub struct Options {
     pub duration: Option<Duration>,
     pub simulate_faults: bool,
     pub simulated_writer_delay: Duration,
+    pub local_api: Option<crate::local_api::Config>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize)]
@@ -185,6 +186,8 @@ pub struct Report {
     pub csv_rows_unconfirmed: u64,
     pub csv_parts: u64,
     pub logger_metrics: Option<LoggerMetrics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub local_api: Option<crate::local_api::Summary>,
     pub counts: Counts,
     pub host_timer: &'static str,
     pub host_poll_start_spacing: Option<Spacing>,
@@ -196,7 +199,9 @@ pub struct Report {
 
 impl Report {
     pub fn success(&self) -> bool {
-        self.terminal_error.is_none() && self.writer_error.is_none()
+        self.terminal_error.is_none()
+            && self.writer_error.is_none()
+            && self.local_api.as_ref().is_none_or(|api| !api.worker_failed)
     }
 }
 
@@ -324,6 +329,11 @@ fn run_with_transport(
 ) -> Result<Report> {
     let start = Instant::now();
     let utc_start = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
+    let local_api = options
+        .local_api
+        .as_ref()
+        .map(|config| crate::local_api::Service::start(config, profile, start, &utc_start))
+        .transpose()?;
     let deadline = options
         .duration
         .and_then(|duration| start.checked_add(duration));
@@ -408,6 +418,9 @@ fn run_with_transport(
                     }
                     state.generation += 1;
                     state.connected = true;
+                    if let Some(api) = &local_api {
+                        api.connected(state.generation, &status);
+                    }
                     state.message.clear();
                     state.message.push_str("Connected read-only");
                     route_pin = Some(status);
@@ -453,6 +466,9 @@ fn run_with_transport(
                 state.input = None;
                 state.last_new_at = None;
                 state.stale = None;
+                if let Some(api) = &local_api {
+                    api.disconnected(state.generation);
+                }
                 if let Some(live) = live {
                     live.force_push(state.clone());
                 }
@@ -529,6 +545,8 @@ fn run_with_transport(
             state.last_new_at = freshness_state.last_new;
             state.stale = stale;
         }
+        let mut csv_sample_index = None;
+        let mut csv_enqueued = None;
         if eligible && let Some(writer) = &writer {
             let key = (input.payload, input.validity, stale, input.diagnostic_code);
             if profile.logging.mode == LogMode::OnChange && previous_key == Some(key) {
@@ -543,12 +561,36 @@ fn run_with_transport(
                     freshness,
                     stale,
                 };
-                if !writer.enqueue(row) {
+                csv_sample_index = Some(row.sample_index);
+                let enqueued = writer.enqueue(row);
+                csv_enqueued = Some(enqueued);
+                if !enqueued {
                     state.counts.logger_overruns += 1;
                 } else {
                     previous_key = Some(key);
                 }
             }
+        }
+        if let Some(api) = &local_api {
+            api.sample(
+                state.generation,
+                crate::local_api::Sample {
+                    input,
+                    freshness,
+                    stale,
+                    classification: match update {
+                        Update::First => "first",
+                        Update::Forward(_) => "forward",
+                        Update::Same => "duplicate",
+                        Update::Backward => "out_of_order",
+                        Update::Snapshot => "host_poll",
+                    },
+                    csv_sample_index,
+                    csv_enqueued,
+                    counts: state.counts,
+                    source_gaps: (freshness == Freshness::Counter32).then_some(gaps),
+                },
+            );
         }
         if stamp.saturating_duration_since(last_ui) >= Duration::from_millis(80) {
             if let Some(live) = live {
@@ -576,6 +618,10 @@ fn run_with_transport(
     }
     let end = Instant::now();
     let summary = writer.map(writer::Writer::finish).unwrap_or_default();
+    let local_api = local_api.map(|api| {
+        api.ended(state.generation);
+        api.finish()
+    });
     let freshness = state.status.as_ref().map(|status| status.freshness);
     let report = Report {
         format_version: 1,
@@ -612,6 +658,7 @@ fn run_with_transport(
             .saturating_sub(summary.rows),
         csv_parts: summary.parts,
         logger_metrics: summary.metrics,
+        local_api,
         counts: state.counts,
         host_timer: timer.label(),
         host_poll_start_spacing: poll_start.summarize(),
