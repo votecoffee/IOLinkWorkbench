@@ -6,7 +6,7 @@ use anyhow::{Context, Result, ensure};
 use chrono::{SecondsFormat, Utc};
 use crossbeam_queue::ArrayQueue;
 use hdrhistogram::Histogram;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, OpenOptions},
     io::Write,
@@ -92,7 +92,7 @@ pub struct Counts {
     pub logger_overruns: u64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Spacing {
     pub count: u64,
     pub p50_us: u64,

@@ -81,6 +81,15 @@ enum Command {
         #[arg(long)]
         joined_csv: Option<PathBuf>,
     },
+    /// Verify a saved capture and review one logged field without opening a gateway.
+    ReviewCapture {
+        directory: PathBuf,
+        /// Exact saved field name; omitted selects the first logged field.
+        #[arg(long)]
+        field: Option<String>,
+        #[arg(long, default_value_t = 128, value_parser = clap::value_parser!(u16).range(1..=4096))]
+        buckets: u16,
+    },
     /// Read master, firmware, port, and connected identity.
     Status {
         profile: PathBuf,
@@ -143,6 +152,20 @@ impl IoddOptions {
 
 fn main() -> Result<()> {
     match Cli::parse().command {
+        Command::ReviewCapture {
+            directory,
+            field,
+            buckets,
+        } => {
+            print!(
+                "{}",
+                toml::to_string_pretty(&archive::review(
+                    &directory,
+                    field.as_deref(),
+                    usize::from(buckets)
+                )?)?
+            );
+        }
         Command::Events { profile } => {
             let profile = Profile::load(&profile)?;
             let imported = profile

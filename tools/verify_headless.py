@@ -5,6 +5,8 @@ import csv
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import math
+import statistics
 import os
 from pathlib import Path
 import subprocess
@@ -117,6 +119,39 @@ def run(cli, *args, expected=0):
     return result.stdout
 
 
+def review_capture(cli, path, rows, report):
+    before = {file: hashlib.sha256(file.read_bytes()).hexdigest() for file in path.iterdir() if file.is_file()}
+    polls = Gateway.polls
+    review = tomllib.loads(run(cli, "review-capture", path, "--buckets", 7))
+    assert Gateway.polls == polls, "offline review contacted the gateway fixture"
+    assert review["capture"]["rows_checked"] == len(rows)
+    signal = review["signal"]
+    field = signal["field"]
+    header = "value." + field["name"] + (" [" + field["unit"] + "]" if field["unit"] else "")
+    cells = [row[header] for row in rows]
+    numbers = [float({"false": "0", "true": "1"}.get(cell, cell)) for cell in cells if cell]
+    finite = [value for value in numbers if math.isfinite(value)]
+    numeric = signal["numeric"]
+    assert numeric["finite_values"] == len(finite)
+    assert numeric["blank_values"] == cells.count("")
+    assert numeric["non_finite_values"] == len(numbers) - len(finite)
+    if finite:
+        assert numeric["minimum"] == min(finite) and numeric["maximum"] == max(finite)
+        assert math.isclose(numeric["mean"], statistics.fmean(finite), rel_tol=1e-12, abs_tol=1e-12)
+    assert len(signal["buckets"]) == signal["buckets_requested"] == 7
+    assert sum(bucket["rows"] for bucket in signal["buckets"]) == len(rows)
+    assert sum(bucket["finite_values"] for bucket in signal["buckets"]) == len(finite)
+    assert signal["recorded_logger_overruns"] == report["counts"]["logger_overruns"]
+    assert review["capture"]["recorded_source_update_loss"] == report["source_update_loss"]
+    for key in ("host_poll_start_spacing", "host_receive_spacing", "host_new_update_spacing", "gateway_update_spacing"):
+        assert signal["recorded_timing"].get(key) == report.get(key)
+    explicit = tomllib.loads(run(cli, "review-capture", path, "--field", field["name"], "--buckets", 1))
+    assert explicit["signal"]["numeric"] == numeric
+    assert not run(cli, "review-capture", path, "--field", "no such saved field", expected=1)
+    assert not run(cli, "review-capture", path, "--buckets", 0, expected=2)
+    assert {file: hashlib.sha256(file.read_bytes()).hexdigest() for file in before} == before
+
+
 def capture(cli, profile, path, *args):
     text = run(cli, "capture", profile, path, *args)
     report = tomllib.loads((path / "capture.toml").read_text(encoding="utf-8"))
@@ -139,6 +174,7 @@ def capture(cli, profile, path, *args):
     for earlier, later in zip(rows, rows[1:]):
         assert int(earlier["sample_index"]) < int(later["sample_index"])
         assert int(earlier["host_elapsed_us"]) <= int(later["host_elapsed_us"])
+    review_capture(cli, path, rows, report)
     return report, rows
 
 
@@ -481,7 +517,7 @@ def main():
             thread.join()
 
     print("PASS: ZIP and variant selection, offline decoding, equal updates, on-change, rotation, "
-          "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, CSV joining, "
+          "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, CSV joining, "
           "named scalar/record/array reads, array and localized CSV fields, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 

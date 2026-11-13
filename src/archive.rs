@@ -13,6 +13,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod review;
+pub use review::{Bucket, NumericSummary, RecordedTiming, Review, SignalReview};
+
 #[derive(Debug, Serialize)]
 pub struct Summary {
     pub profile: String,
@@ -54,6 +57,13 @@ struct Manifest {
     stale_threshold_us: u64,
     terminal_error: Option<String>,
     writer_error: Option<String>,
+    requested_poll_us: Option<u64>,
+    simulation_faults: Option<bool>,
+    simulated_writer_delay_ms: Option<u64>,
+    host_poll_start_spacing: Option<crate::capture::Spacing>,
+    host_receive_spacing: Option<crate::capture::Spacing>,
+    host_new_update_spacing: Option<crate::capture::Spacing>,
+    gateway_update_spacing: Option<crate::capture::Spacing>,
 }
 
 fn legacy_format() -> u32 {
@@ -63,6 +73,9 @@ fn legacy_format() -> u32 {
 #[derive(Deserialize)]
 struct ArchivedStatus {
     freshness: Freshness,
+    route: Option<String>,
+    port_cycle_raw: Option<String>,
+    port_cycle_us: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -225,6 +238,27 @@ fn validate_row(row: &Row<'_>, previous: Option<&Row<'_>>, manifest: &Manifest) 
 /// Check a finalized capture using its saved profile and optionally publish a joined CSV.
 /// All rows are checked while streaming. The joined file becomes visible only after success.
 pub fn verify(directory: &Path, joined_csv: Option<&Path>) -> Result<Summary> {
+    Ok(inspect(directory, joined_csv, None)?.0)
+}
+
+/// Review one saved logged field while verifying all capture rows in the same pass.
+/// Omitting the field selects the first field in the saved logging order.
+pub fn review(directory: &Path, field: Option<&str>, buckets: usize) -> Result<Review> {
+    ensure!(
+        (1..=4096).contains(&buckets),
+        "trend buckets must be 1–4096"
+    );
+    let (summary, collector) = inspect(directory, None, Some((field, buckets)))?;
+    Ok(collector
+        .expect("requested review collector")
+        .finish(summary))
+}
+
+fn inspect(
+    directory: &Path,
+    joined_csv: Option<&Path>,
+    request: Option<(Option<&str>, usize)>,
+) -> Result<(Summary, Option<review::Collector>)> {
     let directory = directory
         .canonicalize()
         .with_context(|| directory.display().to_string())?;
@@ -255,6 +289,9 @@ pub fn verify(directory: &Path, joined_csv: Option<&Path>) -> Result<Summary> {
     let header = csv_header(&profile);
     let header_record = csv::StringRecord::from(header.clone());
     let fields = profile.log_fields();
+    let mut collector = request
+        .map(|(field, buckets)| review::Collector::new(&profile, &manifest, field, buckets))
+        .transpose()?;
     let mut temporary = if let Some(path) = joined_csv {
         ensure!(
             !path.exists(),
@@ -350,6 +387,9 @@ pub fn verify(directory: &Path, joined_csv: Option<&Path>) -> Result<Summary> {
                         field.name
                     );
                 }
+                if let Some(collector) = &mut collector {
+                    collector.add(&row, &record);
+                }
                 if let Some(writer) = &mut writer {
                     writer.write_record(&record)?;
                 }
@@ -390,7 +430,7 @@ pub fn verify(directory: &Path, joined_csv: Option<&Path>) -> Result<Summary> {
         file.as_file().sync_all()?;
         file.persist_noclobber(joined_csv.expect("joined output path"))?;
     }
-    Ok(summary)
+    Ok((summary, collector))
 }
 
 #[cfg(test)]
