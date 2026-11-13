@@ -18,6 +18,7 @@ mod logger_metrics;
 mod logging_fields;
 mod parameters;
 mod saved_capture;
+pub mod self_test;
 mod setup;
 
 const ACCENT: Color32 = Color32::from_rgb(111, 219, 202);
@@ -34,16 +35,20 @@ pub fn run() -> eframe::Result {
         "IO-Link Workbench",
         options,
         Box::new(|cc| {
-            cc.egui_ctx.set_theme(egui::Theme::Dark);
-            let mut style = (*cc.egui_ctx.style_of(egui::Theme::Dark)).clone();
-            style.spacing.item_spacing = egui::vec2(10.0, 8.0);
-            style.visuals = egui::Visuals::dark();
-            style.visuals.panel_fill = Color32::from_rgb(22, 28, 35);
-            style.visuals.selection.bg_fill = Color32::from_rgb(43, 89, 88);
-            cc.egui_ctx.set_style_of(egui::Theme::Dark, style);
+            configure_context(&cc.egui_ctx);
             Ok(Box::new(App::new()))
         }),
     )
+}
+
+fn configure_context(ctx: &Context) {
+    ctx.set_theme(egui::Theme::Dark);
+    let mut style = (*ctx.style_of(egui::Theme::Dark)).clone();
+    style.spacing.item_spacing = egui::vec2(10.0, 8.0);
+    style.visuals = egui::Visuals::dark();
+    style.visuals.panel_fill = Color32::from_rgb(22, 28, 35);
+    style.visuals.selection.bg_fill = Color32::from_rgb(43, 89, 88);
+    ctx.set_style_of(egui::Theme::Dark, style);
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -59,6 +64,11 @@ fn background<T: Send + 'static>(
     name: &str,
     job: impl FnOnce() -> anyhow::Result<T> + Send + 'static,
 ) -> io::Result<Worker<T>> {
+    if self_test::block_background() {
+        return Err(io::Error::other(
+            "background workers are disabled during the GUI self-test",
+        ));
+    }
     let (sender, receiver) = mpsc::channel();
     thread::Builder::new().name(name.into()).spawn(move || {
         let _ = sender.send(job());
@@ -696,8 +706,8 @@ impl App {
     }
 }
 
-impl eframe::App for App {
-    fn update(&mut self, ctx: &Context, _: &mut eframe::Frame) {
+impl App {
+    fn render(&mut self, ctx: &Context) {
         self.update_workers(ctx);
         egui::TopBottomPanel::top("navigation").show(ctx, |ui| {
             ui.add_space(6.0);
@@ -757,6 +767,12 @@ impl eframe::App for App {
                     }
                 });
         });
+    }
+}
+
+impl eframe::App for App {
+    fn update(&mut self, ctx: &Context, _: &mut eframe::Frame) {
+        self.render(ctx);
     }
 }
 

@@ -1334,6 +1334,7 @@ dependencies = [
  "ctrlc",
  "eframe",
  "hdrhistogram",
+ "raw-window-handle",
  "reqwest",
  "roxmltree",
  "serde",
