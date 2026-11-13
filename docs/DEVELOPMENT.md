@@ -31,6 +31,8 @@ Capture plans describe saved configuration, never observed transport capabilitie
 
 `archive::accounting::validate` checks recorded lifecycle and input-selection populations in the common manifest path. Its constant-memory `Rows` accumulator runs after row/value validation in both original inspection and local re-decoded bundle verification. It only compares counter-gap sums when source mode, every-update selection, zero CSV overruns and matching new-update/selected populations establish complete observed coverage. Never compare across generation boundaries or normalize filtered gaps into source loss. Run `python tools/verify_accounting.py CLI COMPLETE_COUNTER ON_CHANGE DROPPED_ROWS SNAPSHOTS` on explicit saved synthetic fixtures; the first needs typed fields and complete coverage.
 
+`archive::quality` validates optional received-input quality/classification counters and the captured source stale threshold. Its constant-memory row accumulator is composed into `accounting::Rows`, so original inspection and local export verification share subset/equality rules. Never add validity and staleness together: they overlap. Equality requires zero logger overruns and recorded received count equal to selected count. Apply source age/threshold checks using the saved source profile, not revised mapping preferences. Run `python tools/verify_quality.py CLI FAULT_CAPTURE FILTERED DROPPED SNAPSHOTS`; the first needs typed fields, invalid rows and an explicitly aged valid/not-stale row.
+
 ## Local validation
 
 Use a stable x64 MSVC Rust toolchain with Visual Studio C++ Build Tools and Windows SDK. The repository pins dependency resolution through Cargo.lock and static CRT through `.cargo/config.toml`. Run from the checkout root:

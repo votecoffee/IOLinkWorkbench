@@ -27,6 +27,7 @@ mod identity;
 mod timing_validation;
 use identity::RecordedStatus as ArchivedStatus;
 mod accounting;
+mod quality;
 pub use identity::{IdentityReview, RecordedStatus};
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
@@ -94,6 +95,12 @@ fn legacy_format() -> u32 {
 
 #[derive(Deserialize)]
 struct ArchivedCounts {
+    invalid: Option<u64>,
+    validity_unknown: Option<u64>,
+    stale: Option<u64>,
+    freshness_unknown: Option<u64>,
+    duplicate: Option<u64>,
+    out_of_order: Option<u64>,
     unchanged: Option<u64>,
     poll_attempts: Option<u64>,
     new_updates_observed: Option<u64>,
@@ -204,6 +211,14 @@ fn validate_row(row: &Row<'_>, previous: Option<&Row<'_>>, manifest: &Manifest) 
         ensure!(
             row.stale == Some(true),
             "source age exceeds the stale threshold without a stale flag"
+        );
+    }
+    // Selected rows are snapshots or newly observed updates. An explicit gateway age
+    // cannot be overridden by an older host-observed age in these populations.
+    if let (Some(age), Some(stale)) = (row.source_age_us, row.stale) {
+        ensure!(
+            stale == (age > manifest.stale_threshold_us),
+            "selected-row stale flag contradicts recorded source age"
         );
     }
     if freshness == Freshness::Counter32 {
@@ -366,6 +381,7 @@ fn check_manifest(manifest: &Manifest, profile: &Profile) -> Result<()> {
     timing_validation::validate(manifest)?;
     identity::validate(manifest, profile)?;
     accounting::validate(manifest, profile)?;
+    quality::validate(manifest, profile)?;
     ensure!(
         manifest.csv_rows_unconfirmed == 0,
         "report has {} unconfirmed CSV rows; this capture cannot be verified as complete",

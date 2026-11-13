@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Saved-quality validation checks available validity/staleness/source-classification populations, source-profile stale thresholds, and selected-row age/flag consistency. Streamed category counts use subset bounds unless recorded complete receive coverage supports equality. Validity and staleness remain independent overlapping domains; missing older metrics stay unknown. Tests cover unknown flags, invalid/stale overlap, filtered/dropped rows, bounds, rehashed export corruption and source-policy preservation during re-decoding. Review/capture/CSV formats are unchanged.
+
 - Shared saved-capture accounting now checks available reconnect/end-state, poll/receive and eligible/selected/unchanged populations. Complete, unfiltered counter CSVs crosscheck recorded within-generation source gaps; filtered/dropped/legacy populations do not imply complete coverage. Tests include counter wrap, equal payloads, empty generations, snapshot uncertainty, header-only contradictions, safe arithmetic, non-published failed outputs and rehashed export corruption. Existing valid formats and review output shapes are unchanged.
 
 - Saved identity review retains configured pins, accepted/rejected master/device observations, producer check text and a separate offline recheck in GUI/CLI. Common verification rejects known accepted-pin contradictions and out-of-range accepted device IDs. Comparison includes observed master/firmware/port and device fields, suppressing deltas on differences or unavailable required observations. Missing legacy fields stay unknown; no per-generation identity history, authentication or live query is inferred.

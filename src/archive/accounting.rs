@@ -107,11 +107,13 @@ pub(super) fn validate(m: &Manifest, profile: &Profile) -> Result<()> {
 #[derive(Default)]
 pub(super) struct Rows {
     counter_gaps: u128,
+    quality: super::quality::Rows,
 }
 
 impl Rows {
     // Call only after validate_row; counter order and half-range bounds are checked there.
     pub(super) fn observe(&mut self, row: &Row<'_>, previous: Option<&Row<'_>>) {
+        self.quality.observe(row);
         if let Some(previous) = previous
             && row.generation == previous.generation
             && let (Some(now), Some(before)) = (row.source_counter, previous.source_counter)
@@ -121,6 +123,7 @@ impl Rows {
     }
 
     pub(super) fn finish(&self, m: &Manifest, profile: &Profile) -> Result<()> {
+        self.quality.finish(m)?;
         // Only a complete, unfiltered population can reproduce observed source gaps.
         // Counter jumps in selected/dropped rows otherwise mix several loss domains.
         if profile.logging.mode == LogMode::EveryUpdate
