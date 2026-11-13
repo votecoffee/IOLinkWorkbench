@@ -4,6 +4,29 @@ use std::{fs, path::Path};
 
 const XML: &str = include_str!("../../../../samples/sensor-formats.xml");
 
+#[test]
+fn explicit_default_numeric_and_boolean_views_follow_their_distinct_semantics() -> Result<()> {
+    let xml = XML.replace("displayFormat=\"Dec\"", "displayFormat=\"default\"");
+    let profile = profile(&xml)?;
+    let scalar = profile
+        .parameter("V_SIM_Threshold")?
+        .decode(&500i16.to_be_bytes());
+    assert_eq!(scalar.displays[0].value, "500");
+    assert!(
+        profile
+            .parameter("V_SIM_Threshold")?
+            .needs_input
+            .iter()
+            .all(|note| !note.contains("requires manual"))
+    );
+    let boolean = profile.parameter("V_SIM_Record")?.target(2)?;
+    assert!(boolean.needs_input.is_empty());
+    assert_eq!(boolean.displays[0].format_label(), "Default (false/true)");
+    assert_eq!(boolean.decode(&[1]).displays[0].value, "true");
+    assert_eq!(boolean.decode(&[0]).displays[0].value, "false");
+    Ok(())
+}
+
 fn profile(xml: &str) -> Result<Profile> {
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("formats.xml");

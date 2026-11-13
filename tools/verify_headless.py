@@ -35,6 +35,8 @@ class Gateway(BaseHTTPRequestHandler):
     change_serial_after_status = False
     payload = "03C9"
     threshold_payload = "01F4"
+    octet_payload = "0080FF2C"
+    text_payload = "C2B56D0000000000"
     parameter_entered = threading.Event()
     parameter_release = threading.Event()
     port = "/iolinkmaster/port[1]"
@@ -87,7 +89,10 @@ class Gateway(BaseHTTPRequestHandler):
                 *({"index": 66, "subindex": subindex} for subindex in range(5)),
                 *({"index": 67, "subindex": subindex} for subindex in range(8)),
                 {"index": 71, "subindex": 0}, {"index": 72, "subindex": 0},
-                *({"index": index, "subindex": subindex} for index in (73, 74, 75) for subindex in range(3))):
+                *({"index": index, "subindex": subindex} for index in (73, 74, 75) for subindex in range(3)),
+                {"index": 76, "subindex": 0}, {"index": 77, "subindex": 0},
+                *({"index": 78, "subindex": subindex} for subindex in range(4)),
+                *({"index": index, "subindex": subindex} for index in (79, 80) for subindex in range(3))):
             type(self).isdu_reads += 1
             index = request["data"]["index"]
             if index == self.block_index and self.block_parameter:
@@ -103,6 +108,10 @@ class Gateway(BaseHTTPRequestHandler):
                 (73, 0): "9DFF440080000000FFFFFFFD40000000", (73, 1): "9DFF440080000000", (73, 2): "FFFFFFFD40000000",
                 (74, 0): "9DFF4400800000000000000000000000", (74, 1): "9DFF440080000000", (74, 2): "0000000000000000",
                 (75, 0): "00000001800000008000000000000000", (75, 1): "0000000180000000", (75, 2): "8000000000000000",
+                (76, 0): self.octet_payload, (77, 0): self.text_payload,
+                (78, 0): "0080FF2CC2B56D00000000004F4B0000", (78, 1): "0080FF2C", (78, 2): "C2B56D0000000000", (78, 3): "4F4B0000",
+                (79, 0): "0080FF2C10200000", (79, 1): "0080FF2C", (79, 2): "10200000",
+                (80, 0): "C3A900004F4B0000", (80, 1): "C3A9", (80, 2): "4F4B0000",
             }[(index, request["data"]["subindex"])]}
             if index == 37 and self.fail_detailed:
                 response["code"] = 500
@@ -532,6 +541,52 @@ def verify_time_parameters(cli, profile, output):
     assert maximum["raw_value"] == "18446744073709551615" and maximum["time_value"]["sub_millisecond_truncated"]
 
 
+def verify_string_parameters(cli, profile, output, loopback=False):
+    output.mkdir()
+    for variable, subindex, payload, value in [
+        ("V_SIM_Octets", 0, "0080FF2C", "0x00,0x80,0xFF,0x2C"),
+        ("V_SIM_Text", 0, "C2B56D0000000000", "µm"),
+        ("V_SIM_BlobRecord", 1, "0080FF2C", "0x00,0x80,0xFF,0x2C"),
+        ("V_SIM_BlobRecord", 2, "C2B56D0000000000", "µm"),
+        ("V_SIM_BlobRecord", 3, "4F4B0000", "OK"),
+        ("V_SIM_BlobArray", 2, "10200000", "0x10,0x20,0x00,0x00"),
+        ("V_SIM_TextArray", 1, "C3A9", "é")]:
+        snapshot = output / f"{variable}-{subindex}.json"
+        reading = tomllib.loads(run(cli, "read-parameter", profile, variable, "--subindex", subindex, "--snapshot", snapshot))
+        before = Gateway.requests
+        offline = tomllib.loads(run(cli, "decode-parameter", profile, variable, payload, "--subindex", subindex))
+        restored = tomllib.loads(run(cli, "review-parameter", snapshot))
+        assert Gateway.requests == before
+        assert reading["raw_value"] == offline["raw_value"] == restored["decoded"]["raw_value"] == value
+        assert reading["raw_hex"] == offline["raw_hex"] == payload
+        assert "decode_error" not in reading
+    for variable, key in [("V_SIM_BlobRecord", "record_items"), ("V_SIM_BlobArray", "array_items"), ("V_SIM_TextArray", "array_items")]:
+        whole = tomllib.loads(run(cli, "read-parameter", profile, variable))
+        offline = tomllib.loads(run(cli, "decode-parameter", profile, variable, whole["raw_hex"]))
+        assert whole[key] == offline[key] and all("raw_value" in item["value"] for item in whole[key])
+    for variable, payload in [("V_SIM_Text", "410042"), ("V_SIM_Text", "C2"), ("V_SIM_Octets", "0080FF")]:
+        bad = tomllib.loads(run(cli, "decode-parameter", profile, variable, payload, expected=1))
+        assert bad["raw_hex"] == payload and bad["decode_error"] and "raw_value" not in bad
+    bad_member = tomllib.loads(run(cli, "decode-parameter", profile, "V_SIM_BlobRecord", "0080FF2C41004200000000004F4B0000", expected=1))
+    assert bad_member["record_items"][0]["value"]["raw_value"] == "0x00,0x80,0xFF,0x2C"
+    assert "padding" in bad_member["record_items"][1]["value"]["decode_error"]
+    assert bad_member["record_items"][2]["value"]["raw_value"] == "OK"
+    if loopback:
+        Gateway.octet_payload = "0080FF"
+        Gateway.text_payload = "4100420000000000"
+        try:
+            for variable in ("V_SIM_Octets", "V_SIM_Text"):
+                path = output / f"malformed-{variable}.json"
+                reading = tomllib.loads(run(cli, "read-parameter", profile, variable, "--snapshot", path))
+                assert reading["decode_error"] and "raw_value" not in reading
+                before = Gateway.requests
+                restored = tomllib.loads(run(cli, "review-parameter", path, expected=1))
+                assert restored["decoded"]["raw_hex"] == reading["raw_hex"] and Gateway.requests == before
+        finally:
+            Gateway.octet_payload = "0080FF2C"
+            Gateway.text_payload = "C2B56D0000000000"
+
+
 def verify_xsd(cli, scratch):
     folder = scratch / "schema '$ local"
     folder.mkdir()
@@ -697,6 +752,12 @@ def main():
 
     formats_profile = scratch / "formats.toml"
     run(cli, "import", ROOT / "samples/sensor-formats.xml", formats_profile)
+    default_xml = scratch / "default-formats.xml"
+    default_xml.write_text((ROOT / "samples/sensor-formats.xml").read_text(encoding="utf-8").replace('displayFormat="Dec"', 'displayFormat="default"'), encoding="utf-8")
+    default_profile = scratch / "default-formats.toml"
+    run(cli, "import", default_xml, default_profile)
+    assert tomllib.loads(run(cli, "read-parameter", default_profile, "V_SIM_Threshold"))["displays"][0]["value"] == "500"
+    assert tomllib.loads(run(cli, "read-parameter", default_profile, "V_SIM_Record", "--subindex", 2))["displays"][0]["value"] == "true"
     views = tomllib.loads(run(cli, "read-parameter", formats_profile, "V_SIM_Threshold"))
     assert views["raw_value"] == "500"
     assert [display["value"] for display in views["displays"]] == ["500", "01F4h", "0000 0001 1111 0100b"]
@@ -715,6 +776,9 @@ def main():
     time_profile = scratch / "time.toml"
     run(cli, "import", ROOT / "samples/sensor-time.xml", time_profile)
     verify_time_parameters(cli, time_profile, scratch / "sim-time")
+    strings_profile = scratch / "strings.toml"
+    run(cli, "import", ROOT / "samples/sensor-strings.xml", strings_profile)
+    verify_string_parameters(cli, strings_profile, scratch / "sim-strings")
 
     clean, rows = capture(cli, source, scratch / "sim-every", "--seconds", 1)
     assert clean["last_status"]["route"] == "synthetic simulator"
@@ -870,6 +934,12 @@ kind = "bool"
             text = text.replace('port = 1', 'port = 1\nifm_mode = 3\nifm_cycle_unit = "microseconds"')
             parameter_fixture.write_text(text.replace('poll_us = 1000', 'poll_us = 10000'), encoding="utf-8")
             Gateway.device_id = 1
+            strings_fixture = scratch / "strings-fixture.toml"
+            strings_text = strings_profile.read_text(encoding="utf-8").replace('gateway = "simulator"', 'gateway = "ifm_al1350"')
+            strings_text = strings_text.replace('endpoint = ""', f'endpoint = "http://127.0.0.1:{server.server_port}"')
+            strings_text = strings_text.replace('ifm_firmware = ""', 'ifm_firmware = "3.1.42"').replace('port = 1', 'port = 1\nifm_mode = 3')
+            strings_fixture.write_text(strings_text, encoding="utf-8")
+            verify_string_parameters(cli, strings_fixture, scratch / "ifm-strings", loopback=True)
             time_fixture = scratch / "time-fixture.toml"
             time_text = time_profile.read_text(encoding="utf-8").replace('gateway = "simulator"', 'gateway = "ifm_al1350"')
             time_text = time_text.replace('endpoint = ""', f'endpoint = "http://127.0.0.1:{server.server_port}"')
@@ -952,7 +1022,7 @@ kind = "bool"
 
     print("PASS: ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
-          "named scalar/record/array reads, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline reopening, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
+          "named scalar/record/array reads, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline reopening, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 
 

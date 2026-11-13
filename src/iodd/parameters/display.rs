@@ -49,6 +49,14 @@ pub struct DisplayValue {
 }
 
 impl Display {
+    pub fn format_label(&self) -> &'static str {
+        if self.format == NumberFormat::Decimal && self.field.kind == Kind::Bool {
+            "Default (false/true)"
+        } else {
+            self.format.label()
+        }
+    }
+
     pub(super) fn validate_format(&self) -> Result<()> {
         if self.format != NumberFormat::Decimal {
             if self.format == NumberFormat::BooleanDecimal {
@@ -182,7 +190,10 @@ pub(super) fn apply(
                 continue;
             }
             let id = format!("{menu_id}/{}", ordinal + 1);
-            if matches!(parameter.datatype.as_str(), "TimeT" | "TimeSpanT") {
+            if matches!(
+                parameter.datatype.as_str(),
+                "TimeT" | "TimeSpanT" | "StringT" | "OctetStringT"
+            ) {
                 if reference
                     .attribute("displayFormat")
                     .is_none_or(|format| format == "default")
@@ -192,7 +203,7 @@ pub(super) fn apply(
                 {
                     continue;
                 }
-                parameter.needs_input.push(format!("Display {id}: time types support only the default view without gradient, offset or unitCode"));
+                parameter.needs_input.push(format!("Display {id}: {} supports only the default view without gradient, offset or unitCode", parameter.datatype));
                 continue;
             }
             let display = (|| -> Result<Display> {
@@ -201,7 +212,7 @@ pub(super) fn apply(
                 let mut format = match raw_format {
                     Some("Hex") => NumberFormat::Hexadecimal,
                     Some("Bin") => NumberFormat::Binary,
-                    None | Some("Dec") => NumberFormat::Decimal,
+                    None | Some("Dec") | Some("default") => NumberFormat::Decimal,
                     Some(value) if value.starts_with("Dec.") => {
                         field.decimals = Some(value[4..].parse()?);
                         NumberFormat::Decimal
@@ -219,10 +230,12 @@ pub(super) fn apply(
                 }
                 if field.kind == Kind::Bool {
                     ensure!(
-                        raw_format == Some("Dec") && !scaled && unit.is_none(),
-                        "Boolean menu displays support plain Dec without gradient, offset, or unitCode"
+                        matches!(raw_format, Some("Dec" | "default")) && !scaled && unit.is_none(),
+                        "Boolean menu displays support default or plain Dec without gradient, offset, or unitCode"
                     );
-                    format = NumberFormat::BooleanDecimal;
+                    if raw_format == Some("Dec") {
+                        format = NumberFormat::BooleanDecimal;
+                    }
                 }
                 field.scale = reference.attribute("gradient").unwrap_or("1").parse()?;
                 ensure!(field.scale != 0.0, "IODD display gradient must not be zero");

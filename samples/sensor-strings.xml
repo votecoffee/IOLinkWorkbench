@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<IODevice xmlns="http://www.io-link.com/IODD/2010/10" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <!-- Original synthetic text/octet fixture; no physical sensor is associated with it. -->
+  <ProfileBody>
+    <DeviceIdentity vendorId="65535" deviceId="1"><DeviceVariantCollection><DeviceVariant productId="SIM-SENSOR"><Name textId="sensor"/></DeviceVariant></DeviceVariantCollection></DeviceIdentity>
+    <DeviceFunction>
+      <VariableCollection>
+        <Variable id="V_SIM_Octets" index="76" accessRights="ro"><Datatype xsi:type="OctetStringT" fixedLength="4"/><Name textId="octets"/></Variable>
+        <Variable id="V_SIM_Text" index="77" accessRights="ro"><Datatype xsi:type="StringT" fixedLength="8" encoding="UTF-8"/><Name textId="text"/></Variable>
+        <Variable id="V_SIM_BlobRecord" index="78" accessRights="ro">
+          <Datatype xsi:type="RecordT" bitLength="128" subindexAccessSupported="true">
+            <RecordItem subindex="1" bitOffset="96"><SimpleDatatype xsi:type="OctetStringT" fixedLength="4"/><Name textId="octets"/></RecordItem>
+            <RecordItem subindex="2" bitOffset="32"><SimpleDatatype xsi:type="StringT" fixedLength="8" encoding="UTF-8"/><Name textId="text"/></RecordItem>
+            <RecordItem subindex="3" bitOffset="0"><SimpleDatatype xsi:type="StringT" fixedLength="4" encoding="US-ASCII"/><Name textId="ascii"/></RecordItem>
+          </Datatype><Name textId="record"/>
+        </Variable>
+        <Variable id="V_SIM_BlobArray" index="79" accessRights="ro"><Datatype xsi:type="ArrayT" count="2" subindexAccessSupported="true"><SimpleDatatype xsi:type="OctetStringT" fixedLength="4"/></Datatype><Name textId="blobs"/></Variable>
+        <Variable id="V_SIM_TextArray" index="80" accessRights="ro"><Datatype xsi:type="ArrayT" count="2" subindexAccessSupported="true"><SimpleDatatype xsi:type="StringT" fixedLength="4" encoding="UTF-8"/></Datatype><Name textId="texts"/></Variable>
+      </VariableCollection>
+      <ProcessDataCollection><ProcessData id="PD"><ProcessDataIn id="IN" bitLength="16" unitCode="1997"><Datatype xsi:type="UIntegerT" bitLength="16"/></ProcessDataIn></ProcessData></ProcessDataCollection>
+      <UserInterface><MenuCollection><Menu id="M_STRING">
+        <VariableRef variableId="V_SIM_Octets" displayFormat="default"/>
+        <VariableRef variableId="V_SIM_Text" displayFormat="default"/>
+        <RecordItemRef variableId="V_SIM_BlobRecord" subindex="2" displayFormat="default"/>
+        <VariableRef variableId="V_SIM_BlobArray" displayFormat="default"/>
+        <VariableRef variableId="V_SIM_TextArray" displayFormat="default"/>
+      </Menu></MenuCollection></UserInterface>
+    </DeviceFunction>
+  </ProfileBody>
+  <ExternalTextCollection><PrimaryLanguage xml:lang="en">
+    <Text id="sensor" value="Synthetic text/octet sensor"/><Text id="octets" value="Ordered octets"/><Text id="text" value="UTF-8 label"/>
+    <Text id="ascii" value="ASCII label"/><Text id="record" value="Text/octet record"/><Text id="blobs" value="Octet strings"/><Text id="texts" value="Text labels"/>
+  </PrimaryLanguage></ExternalTextCollection>
+</IODevice>

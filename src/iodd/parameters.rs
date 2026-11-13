@@ -9,6 +9,7 @@ mod array;
 mod display;
 mod record;
 mod standard;
+mod text;
 mod time;
 mod value;
 pub use array::Array;
@@ -226,32 +227,13 @@ impl Parameter {
         if matches!(self.datatype.as_str(), "TimeT" | "TimeSpanT") {
             return Ok(Some(time::raw_ticks(&self.datatype, payload)?));
         }
-        if self.datatype == "StringT" {
-            let length = usize::from(
-                self.fixed_length
-                    .context("IODD text length is unavailable")?,
-            );
-            ensure!(
-                payload.len() <= length,
-                "parameter response exceeds the IODD text length"
-            );
-            let encoding = self
-                .encoding
-                .as_deref()
-                .context("IODD text encoding is unavailable")?;
-            ensure!(
-                matches!(encoding, "UTF-8" | "US-ASCII"),
-                "unsupported parameter text encoding {encoding}"
-            );
-            ensure!(
-                encoding != "US-ASCII" || payload.is_ascii(),
-                "parameter response is not US-ASCII"
-            );
-            return Ok(Some(
-                std::str::from_utf8(payload)?
-                    .trim_end_matches('\0')
-                    .to_owned(),
-            ));
+        if matches!(self.datatype.as_str(), "StringT" | "OctetStringT") {
+            return Ok(Some(text::decode(
+                &self.datatype,
+                self.fixed_length,
+                self.encoding.as_deref(),
+                payload,
+            )?));
         }
         if !matches!(
             self.datatype.as_str(),
@@ -379,7 +361,9 @@ fn parse_parameter<'a, 'i>(
                     .push("Numeric width requires manual interpretation of raw bytes".into());
             }
             if parameter.datatype == "StringT"
-                && (parameter.fixed_length.is_none()
+                && (!parameter
+                    .fixed_length
+                    .is_some_and(|length| (1..=232).contains(&length))
                     || !parameter
                         .encoding
                         .as_deref()
@@ -388,6 +372,15 @@ fn parse_parameter<'a, 'i>(
                 parameter.needs_input.push(
                     "Text length or encoding requires manual interpretation of raw bytes".into(),
                 );
+            }
+            if parameter.datatype == "OctetStringT"
+                && !parameter
+                    .fixed_length
+                    .is_some_and(|length| (1..=232).contains(&length))
+            {
+                parameter
+                    .needs_input
+                    .push("Octet string length requires manual interpretation of raw bytes".into());
             }
             for value in dt.children() {
                 if value.has_tag_name((IODD_NAMESPACE, "SingleValue")) {
@@ -443,6 +436,7 @@ fn parse_parameter<'a, 'i>(
                     | "BooleanT"
                     | "Float32T"
                     | "StringT"
+                    | "OctetStringT"
                     | "RecordT"
                     | "ArrayT"
                     | "TimeT"

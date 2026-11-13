@@ -97,7 +97,7 @@ fn picker<'a>(
                 ui.label(format!(
                     "Each element · {} · {} · ×{} + {} {}",
                     display.id,
-                    display.format.label(),
+                    display.format_label(),
                     display.field.scale,
                     display.field.offset,
                     display.field.unit
@@ -125,6 +125,14 @@ fn picker<'a>(
     if let Some(length) = target.fixed_length {
         ui.label(format!("Declared length · {length} bytes"));
     }
+    if target.datatype == "OctetStringT" {
+        ui.small(
+            "Ordered octets · exact declared length · zeros are data · default 0xNN sequence view",
+        );
+    }
+    if target.datatype == "StringT" {
+        ui.small("Text length counts octets · condensed responses or NUL-only padding · raw bytes retained");
+    }
     if let Some(encoding) = &target.encoding {
         ui.label(format!("Encoding · {encoding}"));
     }
@@ -139,7 +147,7 @@ fn picker<'a>(
         ui.label(format!(
             "Display {} · {} · ×{} + {} {} · decimals {:?}",
             display.id,
-            display.format.label(),
+            display.format_label(),
             field.scale,
             field.offset,
             field.unit,
@@ -201,7 +209,7 @@ fn preference(
                         format!(
                             "{} · {} · {}",
                             display.id,
-                            display.format.label(),
+                            display.format_label(),
                             display.field.unit
                         ),
                     );

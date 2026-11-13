@@ -124,7 +124,10 @@ fn standard_array_length_restrictions_update_the_saved_layout() -> Result<()> {
     let decoded = parameter.decode(&[1, 2, 3, 4, 5, 6, 7, 8, 9]);
     assert_eq!(decoded.decode_error, None);
     assert_eq!(decoded.array_items[1].value.raw_hex, "040506");
-    assert_eq!(decoded.array_items[1].value.raw_value, None);
+    assert_eq!(
+        decoded.array_items[1].value.raw_value.as_deref(),
+        Some("0x04,0x05,0x06")
+    );
     assert!(
         parse_with_definitions(
             &xml.replace(
