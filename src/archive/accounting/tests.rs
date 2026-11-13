@@ -321,3 +321,26 @@ fn counter_arithmetic_does_not_overflow_or_invent_a_missing_end_state() -> Resul
     validate(&m, &Profile::default())?;
     Ok(())
 }
+
+#[test]
+fn missing_filter_counts_do_not_override_known_mode_or_freshness_contracts() -> Result<()> {
+    let (_scratch, path) = saved()?;
+    let mut m: Manifest = toml::from_str(&fs::read_to_string(path.join("capture.toml"))?)?;
+    m.counts.unchanged = None;
+    m.counts.new_updates_observed = Some(6);
+    m.counts.received = Some(6);
+    m.counts.poll_attempts = Some(7);
+    assert!(
+        format!("{:#}", validate(&m, &Profile::default()).unwrap_err())
+            .contains("every-update selection")
+    );
+    m.counts.new_updates_observed = Some(1);
+    m.row_kind = Some("host_poll".into());
+    m.last_status.as_mut().unwrap().freshness = Freshness::Snapshots;
+    m.source_gaps_observed = None;
+    assert!(
+        format!("{:#}", validate(&m, &Profile::default()).unwrap_err())
+            .contains("snapshot freshness")
+    );
+    Ok(())
+}

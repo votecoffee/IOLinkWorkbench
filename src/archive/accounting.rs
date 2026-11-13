@@ -53,6 +53,12 @@ pub(super) fn validate(m: &Manifest, profile: &Profile) -> Result<()> {
         );
     }
     if let Some(status) = &m.last_status {
+        if status.freshness == Freshness::Snapshots {
+            ensure!(
+                c.new_updates_observed.is_none_or(|v| v == 0),
+                "snapshot freshness cannot claim verifiably new source updates"
+            );
+        }
         ensure!(
             m.row_kind
                 .as_deref()
@@ -68,6 +74,12 @@ pub(super) fn validate(m: &Manifest, profile: &Profile) -> Result<()> {
                 c.selected <= eligible,
                 "selected rows exceed the freshness contract's eligible inputs"
             );
+            if profile.logging.mode == LogMode::EveryUpdate {
+                ensure!(
+                    c.selected == eligible,
+                    "every-update selection differs from eligible input count"
+                );
+            }
             if let Some(unchanged) = c.unchanged {
                 ensure!(
                     u128::from(c.selected) + u128::from(unchanged) == u128::from(eligible),
