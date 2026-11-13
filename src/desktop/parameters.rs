@@ -348,7 +348,16 @@ impl Saved {
         }
         ui.heading("Saved parameter snapshot");
         ui.small("Reopen a JSON snapshot using its embedded profile. This checks local consistency; the file does not prove acquisition origin or physical bench acceptance.");
-        ui.add(egui::TextEdit::singleline(&mut self.path).hint_text("Snapshot JSON path"));
+        if ui
+            .add_enabled(
+                self.worker.is_none(),
+                egui::TextEdit::singleline(&mut self.path).hint_text("Snapshot JSON path"),
+            )
+            .changed()
+        {
+            self.result = None;
+            self.error.clear();
+        }
         if ui
             .add_enabled(
                 self.worker.is_none() && !self.path.trim().is_empty(),
