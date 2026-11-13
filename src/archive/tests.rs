@@ -19,7 +19,8 @@ fn fixture(snapshots: bool, backpressure: bool) -> Result<(tempfile::TempDir, Pa
         &profile,
         &Options {
             output: Some(path.clone()),
-            duration: Some(Duration::from_millis(100)),
+            // Allow startup IO under parallel Windows tests; timing behavior has separate capture tests.
+            duration: Some(Duration::from_millis(500)),
             simulated_writer_delay: if backpressure {
                 Duration::from_millis(6)
             } else {

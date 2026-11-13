@@ -1,0 +1,26 @@
+version = 1
+name = "Offline mapping example"
+input_bytes = 2
+
+[connection]
+gateway = "simulator"
+
+[logging]
+fields = ["demo level", "switch"]
+
+# Demonstration reinterpretation of the synthetic sensor's saved bytes.
+[[fields]]
+name = "demo level"
+bit_offset = 1
+bits = 15
+kind = "signed"
+scale = 0.2
+offset = 1.0
+decimals = 2
+unit = "mm"
+
+[[fields]]
+name = "switch"
+bit_offset = 0
+bits = 1
+kind = "bool"

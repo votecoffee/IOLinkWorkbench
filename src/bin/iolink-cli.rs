@@ -90,6 +90,12 @@ enum Command {
         #[arg(long, default_value_t = 128, value_parser = clap::value_parser!(u16).range(1..=4096))]
         buckets: u16,
     },
+    /// Verify a saved capture and export raw payloads decoded with another profile.
+    RedecodeCapture {
+        directory: PathBuf,
+        mapping_profile: PathBuf,
+        output: PathBuf,
+    },
     /// Read master, firmware, port, and connected identity.
     Status {
         profile: PathBuf,
@@ -152,6 +158,17 @@ impl IoddOptions {
 
 fn main() -> Result<()> {
     match Cli::parse().command {
+        Command::RedecodeCapture {
+            directory,
+            mapping_profile,
+            output,
+        } => {
+            let mapping = Profile::load(&mapping_profile)?;
+            print!(
+                "{}",
+                toml::to_string_pretty(&archive::redecode(&directory, &mapping, &output)?)?
+            );
+        }
         Command::ReviewCapture {
             directory,
             field,

@@ -13,6 +13,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod redecode;
+pub use redecode::{FileDigest, Redecode};
 mod review;
 pub use review::{Bucket, NumericSummary, RecordedTiming, Review, SignalReview};
 
@@ -139,7 +141,7 @@ fn parts(directory: &Path, expected: u64) -> Result<BTreeSet<u64>> {
     Ok(found)
 }
 
-fn open_part(path: &Path) -> Result<csv::Reader<File>> {
+fn open_part(path: &Path, hash: bool) -> Result<csv::Reader<redecode::DigestReader>> {
     let mut file = File::open(path)?;
     ensure!(file.metadata()?.len() != 0, "CSV part is empty");
     file.seek(SeekFrom::End(-1))?;
@@ -147,7 +149,7 @@ fn open_part(path: &Path) -> Result<csv::Reader<File>> {
     file.read_exact(&mut last)?;
     ensure!(last[0] == b'\n', "CSV part has an incomplete final record");
     file.rewind()?;
-    Ok(csv::ReaderBuilder::new().from_reader(file))
+    Ok(csv::ReaderBuilder::new().from_reader(redecode::DigestReader::new(file, hash)))
 }
 
 fn validate_row(row: &Row<'_>, previous: Option<&Row<'_>>, manifest: &Manifest) -> Result<()> {
@@ -238,7 +240,7 @@ fn validate_row(row: &Row<'_>, previous: Option<&Row<'_>>, manifest: &Manifest) 
 /// Check a finalized capture using its saved profile and optionally publish a joined CSV.
 /// All rows are checked while streaming. The joined file becomes visible only after success.
 pub fn verify(directory: &Path, joined_csv: Option<&Path>) -> Result<Summary> {
-    Ok(inspect(directory, joined_csv, None)?.0)
+    Ok(inspect(directory, joined_csv, None, None)?.0)
 }
 
 /// Review one saved logged field while verifying all capture rows in the same pass.
@@ -248,27 +250,38 @@ pub fn review(directory: &Path, field: Option<&str>, buckets: usize) -> Result<R
         (1..=4096).contains(&buckets),
         "trend buckets must be 1–4096"
     );
-    let (summary, collector) = inspect(directory, None, Some((field, buckets)))?;
+    let (summary, collector) = inspect(directory, None, Some((field, buckets)), None)?;
     Ok(collector
         .expect("requested review collector")
         .finish(summary))
+}
+
+/// Export a new interpretation of verified saved payloads, preserving source files.
+pub fn redecode(directory: &Path, mapping: &Profile, output: &Path) -> Result<Redecode> {
+    let mut export = redecode::Exporter::new(directory, mapping, output)?;
+    let (summary, _) = inspect(directory, None, None, Some(&mut export))?;
+    export.finish(summary)
 }
 
 fn inspect(
     directory: &Path,
     joined_csv: Option<&Path>,
     request: Option<(Option<&str>, usize)>,
+    mut export: Option<&mut redecode::Exporter>,
 ) -> Result<(Summary, Option<review::Collector>)> {
     let directory = directory
         .canonicalize()
         .with_context(|| directory.display().to_string())?;
-    let manifest: Manifest = toml::from_str(&fs::read_to_string(directory.join("capture.toml"))?)?;
+    let manifest_bytes = fs::read(directory.join("capture.toml"))?;
+    let manifest: Manifest = toml::from_str(std::str::from_utf8(&manifest_bytes)?)?;
     ensure!(
         manifest.format_version == 1,
         "unsupported capture format {}",
         manifest.format_version
     );
-    let profile = Profile::load(&directory.join("profile.toml"))?;
+    let profile_bytes = fs::read(directory.join("profile.toml"))?;
+    let profile =
+        Profile::parse(std::str::from_utf8(&profile_bytes)?).context("saved capture profile")?;
     ensure!(
         profile.name == manifest.profile,
         "saved profile name differs from the report"
@@ -286,6 +299,9 @@ fn inspect(
         "report's CSV row accounting is inconsistent"
     );
     let parts = parts(&directory, manifest.csv_parts)?;
+    if let Some(export) = &mut export {
+        export.source(&profile, &profile_bytes, &manifest_bytes)?;
+    }
     let header = csv_header(&profile);
     let header_record = csv::StringRecord::from(header.clone());
     let fields = profile.log_fields();
@@ -341,7 +357,8 @@ fn inspect(
     let mut previous_record = None::<csv::StringRecord>;
     for part in parts {
         let path = directory.join(format!("capture-{part:04}.csv"));
-        let mut reader = open_part(&path).with_context(|| path.display().to_string())?;
+        let mut reader =
+            open_part(&path, export.is_some()).with_context(|| path.display().to_string())?;
         ensure!(
             reader
                 .headers()?
@@ -387,6 +404,9 @@ fn inspect(
                         field.name
                     );
                 }
+                if let Some(export) = &mut export {
+                    export.row(&record, &payload, typed)?;
+                }
                 if let Some(collector) = &mut collector {
                     collector.add(&row, &record);
                 }
@@ -412,6 +432,13 @@ fn inspect(
             };
             previous_record = Some(
                 check().with_context(|| format!("{}: data row {}", path.display(), index + 1))?,
+            );
+        }
+        if let Some(export) = &mut export {
+            export.source_part(
+                reader
+                    .get_ref()
+                    .receipt(&format!("capture-{part:04}.csv"))?,
             );
         }
     }

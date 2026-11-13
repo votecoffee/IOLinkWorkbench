@@ -597,7 +597,8 @@ impl App {
         ui.separator();
         self.offline_diagnostics.show(ui, &self.profile);
         ui.separator();
-        self.saved_capture.show(ui);
+        self.saved_capture
+            .show(ui, &self.profile, !self.setup.pending && !self.setup.busy());
     }
 }
 

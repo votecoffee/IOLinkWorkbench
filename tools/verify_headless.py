@@ -7,6 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import math
 import statistics
+import shutil
 import os
 from pathlib import Path
 import subprocess
@@ -152,6 +153,80 @@ def review_capture(cli, path, rows, report):
     assert {file: hashlib.sha256(file.read_bytes()).hexdigest() for file in before} == before
 
 
+def redecode_capture(cli, path, rows, report):
+    before = {file: hashlib.sha256(file.read_bytes()).hexdigest() for file in path.iterdir() if file.is_file()}
+    width = tomllib.loads((path / "profile.toml").read_text(encoding="utf-8"))["input_bytes"]
+    mapping = path.with_name(path.name + "-mapping.toml")
+    mapping_text = f'''name = "Revised offline mapping"
+input_bytes = {width}
+[connection]
+gateway = "ifm_al1350"
+endpoint = "http://127.0.0.1:1"
+ifm_mode = 3
+ifm_firmware = "offline-only"
+[expected_identity]
+vendor_id = 1234
+[logging]
+fields = ["Flag", 'Revised, "µm"']
+[[fields]]
+name = 'Revised, "µm"'
+bits = 16
+kind = "signed"
+byte_order = "little_endian"
+scale = 0.25
+offset = 1.0
+decimals = 3
+unit = "µm"
+[[fields]]
+name = "Flag"
+bits = 1
+kind = "bool"
+byte_order = "little_endian"
+'''
+    mapping.write_text(mapping_text, encoding="utf-8", newline="\n")
+    output = path.with_name(path.name + "-redecoded")
+    polls = Gateway.polls
+    receipt = tomllib.loads(run(cli, "redecode-capture", path, mapping, output))
+    assert Gateway.polls == polls
+    assert receipt == tomllib.loads((output / "receipt.toml").read_text(encoding="utf-8"))
+    assert receipt["kind"] == "offline_redecode" and "not performed" in receipt["identity_verification"]
+    assert receipt["source_capture"]["recorded_source_update_loss"] == report["source_update_loss"]
+    assert receipt["source_capture"]["missing_sample_indexes"] == report["counts"]["logger_overruns"]
+    with (output / "data.csv").open(encoding="utf-8", newline="") as file:
+        reader = csv.DictReader(file)
+        headers = reader.fieldnames
+        derived = list(reader)
+    assert len(derived) == receipt["rows_written"] == len(rows)
+    assert headers[12:] == ["value.Flag", 'value.Revised, "µm" [µm]']
+    eligible = 0
+    for original, exported in zip(rows, derived):
+        assert all(original[key] == exported[key] for key in headers[:12])
+        if original["validity"] == "valid" and original["stale"] != "true":
+            eligible += 1
+            raw = bytes.fromhex(original["raw_hex"])
+            assert exported["value.Flag"] == str(bool(raw[0] & 1)).lower()
+            assert exported['value.Revised, "µm" [µm]'] == f"{int.from_bytes(raw[:2], 'little', signed=True) * 0.25 + 1:.3f}"
+        else:
+            assert not exported["value.Flag"] and not exported['value.Revised, "µm" [µm]']
+    assert receipt["typed_rows"] == eligible and receipt["blank_rows"] == len(rows) - eligible
+    for item in receipt["source_files"]:
+        data = (path / item["name"]).read_bytes()
+        assert item["bytes"] == len(data) and item["sha256"] == hashlib.sha256(data).hexdigest()
+    for item in receipt["exported_files"]:
+        data = (output / item["name"]).read_bytes()
+        assert item["bytes"] == len(data) and item["sha256"] == hashlib.sha256(data).hexdigest()
+    assert (output / "source-profile.toml").read_bytes() == (path / "profile.toml").read_bytes()
+    assert (output / "source-capture.toml").read_bytes() == (path / "capture.toml").read_bytes()
+    assert not (output / "capture.toml").exists()
+    assert not run(cli, "redecode-capture", path, mapping, output, expected=1)
+    wrong = mapping.with_name(mapping.stem + "-wrong.toml")
+    wrong.write_text(mapping_text.replace(f"input_bytes = {width}", f"input_bytes = {width + 1}"), encoding="utf-8")
+    wrong_output = output.with_name(output.name + "-wrong")
+    assert not run(cli, "redecode-capture", path, wrong, wrong_output, expected=1)
+    assert not wrong_output.exists()
+    assert {file: hashlib.sha256(file.read_bytes()).hexdigest() for file in before} == before
+
+
 def capture(cli, profile, path, *args):
     text = run(cli, "capture", profile, path, *args)
     report = tomllib.loads((path / "capture.toml").read_text(encoding="utf-8"))
@@ -175,6 +250,7 @@ def capture(cli, profile, path, *args):
         assert int(earlier["sample_index"]) < int(later["sample_index"])
         assert int(earlier["host_elapsed_us"]) <= int(later["host_elapsed_us"])
     review_capture(cli, path, rows, report)
+    redecode_capture(cli, path, rows, report)
     return report, rows
 
 
@@ -408,6 +484,17 @@ def main():
         assert list(csv.DictReader(csv_file)) == rows
     assert checked["csv_parts"] == change["csv_parts"]
 
+    corrupt = scratch / "corrupt-for-redecode"
+    shutil.copytree(scratch / "sim-change", corrupt)
+    part = corrupt / "capture-0001.csv"
+    with part.open(encoding="utf-8", newline="") as file:
+        csv_rows = list(csv.reader(file))
+    csv_rows[1][12] = "corrupted original value"
+    with part.open("w", encoding="utf-8", newline="") as file:
+        csv.writer(file, lineterminator="\n").writerows(csv_rows)
+    assert not run(cli, "redecode-capture", corrupt, scratch / "sim-change-mapping.toml", scratch / "corrupt-export", expected=1)
+    assert not (scratch / "corrupt-export").exists()
+
     faults, rows = capture(cli, source, scratch / "sim-faults", "--seconds", 2, "--simulate-faults")
     counts = faults["counts"]
     assert counts["duplicate"] > 0 and counts["stale"] > 0 and counts["invalid"] > 0
@@ -517,7 +604,7 @@ def main():
             thread.join()
 
     print("PASS: ZIP and variant selection, offline decoding, equal updates, on-change, rotation, "
-          "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, CSV joining, "
+          "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports and hash receipts, CSV joining, "
           "named scalar/record/array reads, array and localized CSV fields, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 
