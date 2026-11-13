@@ -12,6 +12,7 @@ pub struct Editor {
     pub pending: bool,
     iodd_path: String,
     standard_definitions: String,
+    standard_language_file: String,
     xsd: String,
     language: String,
     language_file: String,
@@ -31,6 +32,7 @@ impl Editor {
             pending: false,
             iodd_path: String::new(),
             standard_definitions: String::new(),
+            standard_language_file: String::new(),
             xsd: String::new(),
             language: String::new(),
             language_file: String::new(),
@@ -199,6 +201,7 @@ impl Editor {
             self.iodd_path.clone(),
             self.entry.clone(),
             self.standard_definitions.clone(),
+            self.standard_language_file.clone(),
             self.xsd.clone(),
             self.language.clone(),
             self.language_file.clone(),
@@ -229,6 +232,11 @@ impl Editor {
             &mut self.standard_definitions,
             "Optional standard definitions XML",
         );
+        path_entry(
+            ui,
+            &mut self.standard_language_file,
+            "Optional standard language XML (requires language tag and definitions)",
+        );
         ui.horizontal_wrapped(|ui| {
             path_entry(ui, &mut self.iodd_path, "IODD XML or ZIP");
             ui.add(
@@ -241,6 +249,7 @@ impl Editor {
                     self.iodd_path.clone(),
                     self.entry.clone(),
                     self.standard_definitions.clone(),
+                    self.standard_language_file.clone(),
                     self.xsd.clone(),
                     self.language.clone(),
                     self.language_file.clone(),
@@ -257,6 +266,9 @@ impl Editor {
                 let entry = (!entry.is_empty()).then(|| entry.to_owned());
                 let definitions = self.standard_definitions.trim();
                 let definitions = (!definitions.is_empty()).then(|| PathBuf::from(definitions));
+                let standard_language_file = self.standard_language_file.trim();
+                let standard_language_file = (!standard_language_file.is_empty())
+                    .then(|| PathBuf::from(standard_language_file));
                 let xsd = self.xsd.trim();
                 let xsd = (!xsd.is_empty()).then(|| PathBuf::from(xsd));
                 let language = self.language.trim();
@@ -274,6 +286,7 @@ impl Editor {
                         &iodd::LoadOptions {
                             entry: entry.as_deref(),
                             definitions: definitions.as_deref(),
+                            standard_language_file: standard_language_file.as_deref(),
                             xsd: xsd.as_deref(),
                             language: language.as_deref(),
                             language_file: language_file.as_deref(),

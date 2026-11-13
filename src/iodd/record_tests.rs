@@ -154,9 +154,12 @@ fn malformed_record_responses_preserve_bytes_and_member_errors_are_independent()
 
 #[test]
 fn standard_record_restrictions_are_merged_without_enabling_commands() -> Result<()> {
-    let definitions =
-        parameters::load_standard(Path::new("samples/synthetic-standard-definitions.xml"))?
-            .parameters;
+    let definitions = parameters::load_standard(
+        Path::new("samples/synthetic-standard-definitions.xml"),
+        None,
+        None,
+    )?
+    .parameters;
     let xml = XML.replace("</VariableCollection>", r#"<StdVariableRef id="V_DirectParameters_1"><StdRecordItemRef subindex="1" defaultValue="7"/><StdRecordItemRef subindex="16"><StdSingleValueRef value="128"/></StdRecordItemRef></StdVariableRef></VariableCollection>"#);
     let catalog = parse_with_definitions(&xml, "standard record fixture".into(), &definitions)?;
     let standard = &catalog.parameters[1];

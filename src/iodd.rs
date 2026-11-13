@@ -26,7 +26,7 @@ pub use parameters::{
     Access, Array, Choice, DecodedParameter, Display, DisplayValue, NumberFormat, Parameter,
     Record, RecordItem, RecordValue, ValueRange,
 };
-pub use resources::Localization;
+pub use resources::{Localization, StandardLocalization};
 
 #[derive(Debug, Serialize)]
 pub struct Variant {
@@ -62,6 +62,7 @@ pub struct Catalog {
 pub(super) struct Definitions {
     pub parameters: Vec<Parameter>,
     pub events: Vec<EventDefinition>,
+    pub localization: Option<StandardLocalization>,
 }
 
 impl Catalog {
@@ -163,6 +164,7 @@ pub struct LoadOptions<'a> {
     pub language: Option<&'a str>,
     pub language_file: Option<&'a Path>,
     pub unit_definitions: Option<&'a Path>,
+    pub standard_language_file: Option<&'a Path>,
 }
 
 pub fn load_with_options(path: &Path, options: &LoadOptions<'_>) -> Result<Catalog> {
@@ -170,11 +172,11 @@ pub fn load_with_options(path: &Path, options: &LoadOptions<'_>) -> Result<Catal
         options.language_file.is_none() || options.language.is_some(),
         "a language file requires an explicit language tag"
     );
-    let definitions = options
-        .definitions
-        .map(parameters::load_standard)
-        .transpose()?
-        .unwrap_or_default();
+    ensure!(
+        options.standard_language_file.is_none()
+            || (options.language.is_some() && options.definitions.is_some()),
+        "a standard language file requires a language tag and standard definitions"
+    );
     let language = options.language.map(resources::language_tag).transpose()?;
     let input = read_source(
         path,
@@ -190,8 +192,26 @@ pub fn load_with_options(path: &Path, options: &LoadOptions<'_>) -> Result<Catal
         ensure!(report.passed, "{}", report.summary());
     }
     let units = resources::Units::load(options.unit_definitions)?;
+    let xml = decode_xml(input.bytes)?;
+    let doc = Document::parse(&xml)?;
+    let primary_language = child(doc.root_element(), "ExternalTextCollection")
+        .and_then(|texts| child(texts, "PrimaryLanguage"))
+        .and_then(|primary| primary.attribute(("http://www.w3.org/XML/1998/namespace", "lang")))
+        .map(resources::language_tag)
+        .transpose()?;
+    let definitions = options
+        .definitions
+        .map(|path| {
+            parameters::load_standard(
+                path,
+                language.as_deref().or(primary_language.as_deref()),
+                options.standard_language_file,
+            )
+        })
+        .transpose()?
+        .unwrap_or_default();
     let mut catalog = parse_resources(
-        &decode_xml(input.bytes)?,
+        &xml,
         input.name,
         &definitions.parameters,
         language.as_deref(),
@@ -200,6 +220,17 @@ pub fn load_with_options(path: &Path, options: &LoadOptions<'_>) -> Result<Catal
         &units,
     )?;
     catalog.schema_validation = validation;
+    if let Some(localization) = &mut catalog.localization {
+        if let Some(standard) = &definitions.localization {
+            localization.review.extend(
+                standard
+                    .review
+                    .iter()
+                    .map(|note| format!("Standard definitions: {note}")),
+            );
+        }
+        localization.standard_definitions = definitions.localization;
+    }
     catalog.standard_event_refs.retain(|code| {
         if let Some(event) = definitions.events.iter().find(|event| event.code == *code) {
             catalog.events.push(event.clone());
@@ -310,34 +341,8 @@ fn read_source(
     } else {
         ensure!(entry.is_none(), "ZIP entry applies only to ZIP files");
         file.take(XML_LIMIT + 1).read_to_end(&mut bytes)?;
-        if language_file.is_none()
-            && let Some(language) = language
-            && let Some(stem) = path.file_stem()
-        {
-            let sidecar = path.with_file_name(format!("{}-{language}.xml", stem.to_string_lossy()));
-            let metadata = match std::fs::symlink_metadata(&sidecar) {
-                Ok(metadata) => Some(metadata),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-                Err(error) => return Err(error.into()),
-            };
-            if let Some(metadata) = metadata {
-                #[cfg(windows)]
-                {
-                    use std::os::windows::fs::MetadataExt;
-                    ensure!(
-                        metadata.file_attributes() & 0x400 == 0,
-                        "automatic language sidecar is a reparse point"
-                    );
-                }
-                ensure!(
-                    !metadata.file_type().is_symlink(),
-                    "automatic language sidecar is a symbolic link"
-                );
-                companion = Some(resources::Companion {
-                    xml: read_xml(&sidecar)?,
-                    source: sidecar.file_name().unwrap().to_string_lossy().into_owned(),
-                });
-            }
+        if language_file.is_none() {
+            companion = resources::local_companion(path, language, None)?;
         }
         name.into_owned()
     };
@@ -782,3 +787,6 @@ mod array_tests;
 
 #[cfg(test)]
 mod resource_tests;
+
+#[cfg(test)]
+mod standard_language_tests;

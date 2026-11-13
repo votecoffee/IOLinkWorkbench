@@ -20,18 +20,44 @@ pub struct Localization {
     pub unit_version: Option<String>,
     pub fallback_text_ids: Vec<String>,
     pub review: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub standard_definitions: Option<StandardLocalization>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StandardLocalization {
+    pub source: String,
+    pub version: String,
+    pub primary_language: Option<String>,
+    pub requested_language: Option<String>,
+    pub selected_language: Option<String>,
+    pub language_source: Option<String>,
+    pub fallback_text_ids: Vec<String>,
+    pub review: Vec<String>,
 }
 
 impl Localization {
     pub fn summary(&self) -> String {
-        format!(
+        let mut summary = format!(
             "Text language {} · {} primary-language fallbacks · units {}",
             self.selected_language.as_deref().unwrap_or("unspecified"),
             self.fallback_text_ids.len(),
             self.unit_source
                 .as_deref()
                 .unwrap_or("built-in common codes")
-        )
+        );
+        if let Some(standard) = &self.standard_definitions {
+            summary.push_str(&format!(
+                " · standard text {} · {} fallbacks",
+                standard
+                    .selected_language
+                    .as_deref()
+                    .unwrap_or("unspecified"),
+                standard.fallback_text_ids.len()
+            ));
+        }
+        summary
     }
 }
 
@@ -57,6 +83,48 @@ pub(super) fn language_tag(value: &str) -> Result<String> {
 pub(super) struct Companion {
     pub xml: String,
     pub source: String,
+}
+
+/// Read a named local override or a bounded adjacent language file. No network resolution.
+pub(super) fn local_companion(
+    path: &Path,
+    language: Option<&str>,
+    explicit: Option<&Path>,
+) -> Result<Option<Companion>> {
+    let automatic = language.and_then(|tag| {
+        path.file_stem()
+            .map(|stem| path.with_file_name(format!("{}-{tag}.xml", stem.to_string_lossy())))
+    });
+    let Some(selected) = explicit.or(automatic.as_deref()) else {
+        return Ok(None);
+    };
+    if explicit.is_none() {
+        let metadata = match std::fs::symlink_metadata(selected) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            ensure!(
+                metadata.file_attributes() & 0x400 == 0,
+                "automatic language sidecar is a reparse point"
+            );
+        }
+        ensure!(
+            !metadata.file_type().is_symlink(),
+            "automatic language sidecar is a symbolic link"
+        );
+    }
+    Ok(Some(Companion {
+        xml: super::read_xml(selected)?,
+        source: selected
+            .file_name()
+            .context("language file has no filename")?
+            .to_string_lossy()
+            .into_owned(),
+    }))
 }
 
 pub(super) struct Texts {
@@ -232,6 +300,7 @@ impl Texts {
                 unit_version: units.version.clone(),
                 fallback_text_ids: fallback,
                 review,
+                standard_definitions: None,
             },
         })
     }

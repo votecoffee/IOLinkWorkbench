@@ -162,6 +162,9 @@ struct IoddOptions {
     entry: Option<String>,
     #[arg(long)]
     standard_definitions: Option<PathBuf>,
+    /// Override the adjacent standard-definition language XML.
+    #[arg(long, requires_all = ["language", "standard_definitions"])]
+    standard_language_file: Option<PathBuf>,
     /// Require a main-XML XSD validation pass against a local root schema.
     #[arg(long)]
     xsd: Option<PathBuf>,
@@ -180,6 +183,7 @@ impl IoddOptions {
         iodd::LoadOptions {
             entry: self.entry.as_deref(),
             definitions: self.standard_definitions.as_deref(),
+            standard_language_file: self.standard_language_file.as_deref(),
             xsd: self.xsd.as_deref(),
             language: self.language.as_deref(),
             language_file: self.language_file.as_deref(),

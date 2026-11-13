@@ -16,7 +16,7 @@ TARGET = "x86_64-pc-windows-msvc"
 EXES = {"iolink-workbench.exe": 2, "iolink-cli.exe": 3}
 DOCS = ["README.md", "ROADMAP.md", "LICENSE", "samples/simulator.toml",
         "samples/ifm-al1350.toml", "samples/raw-only.toml", "samples/redecode.toml", "samples/sensor.xml", "samples/sensor-formats.xml", "samples/sensor-record.xml", "samples/sensor-array.xml",
-        "samples/synthetic-standard-definitions.xml", "samples/sensor-de.xml", "samples/synthetic-unit-definitions.xml"]
+        "samples/synthetic-standard-definitions.xml", "samples/synthetic-standard-definitions-de.xml", "samples/sensor-de.xml", "samples/synthetic-unit-definitions.xml"]
 NOTICE = re.compile(r"(^|[-_.])(licen[cs]e|copying|copyright|notice|ofl|ufl|unlicense)([-_.]|$)", re.I)
 UPSTREAM = {
     **{(name, "0.31.1"): "egui" for name in

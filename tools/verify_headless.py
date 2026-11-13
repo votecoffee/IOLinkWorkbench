@@ -455,6 +455,43 @@ def verify_parameter_snapshots(cli, profile, output, loopback=False):
     assert profile.read_bytes() == original
 
 
+def verify_standard_languages(cli, source, output):
+    output.mkdir()
+    definitions = ROOT / "samples/synthetic-standard-definitions.xml"
+    profile = output / "german.toml"
+    options = ["--variant", "SIM-SENSOR", "--language", "de", "--standard-definitions", definitions]
+    run(cli, "import", source, profile, *options)
+    metadata = tomllib.loads(profile.read_text(encoding="utf-8"))["iodd"]["localization"]
+    standard = metadata["standard_definitions"]
+    assert standard["selected_language"] == standard["requested_language"] == "de"
+    assert standard["language_source"] == "synthetic-standard-definitions-de.xml" and "offset" in standard["fallback_text_ids"]
+    reading = tomllib.loads(run(cli, "read-parameter", profile, "V_ProductID", "--snapshot", output / "product.json"))
+    assert reading["name"] == "Synthetische Produktkennung" and reading["raw_value"] == "SIM-SENSOR"
+    assert tomllib.loads(run(cli, "review-parameter", output / "product.json"))["name"] == reading["name"]
+    assert any(event["name"] == "Synthetischer Standardalarm" for event in tomllib.loads(run(cli, "events", profile))["events"])
+    explicit = output / "custom.xml"
+    explicit.write_bytes((ROOT / "samples/synthetic-standard-definitions-de.xml").read_bytes())
+    override = output / "override.toml"
+    run(cli, "import", source, override, *options, "--standard-language-file", explicit)
+    assert tomllib.loads(override.read_text(encoding="utf-8"))["iodd"]["localization"]["standard_definitions"]["language_source"] == "custom.xml"
+    before = profile.read_bytes()
+    explicit.write_text(explicit.read_text(encoding="utf-8").replace('id="product"', 'id="missing"'), encoding="utf-8")
+    run(cli, "import", source, profile, *options, "--standard-language-file", explicit, expected=1)
+    assert profile.read_bytes() == before
+    run(cli, "import", source, profile, "--standard-language-file", explicit, expected=2)
+    assert profile.read_bytes() == before
+    missing = output / "without-translation.xml"
+    missing.write_bytes(definitions.read_bytes())
+    fallback = output / "fallback.toml"
+    run(cli, "import", source, fallback, "--variant", "SIM-SENSOR", "--language", "de", "--standard-definitions", missing)
+    locale = tomllib.loads(fallback.read_text(encoding="utf-8"))["iodd"]["localization"]
+    assert locale["selected_language"] == "de" and locale["standard_definitions"]["selected_language"] == "en"
+    assert len(locale["standard_definitions"]["fallback_text_ids"]) == 8
+    assert any("Standard definitions:" in note and "unavailable" in note for note in locale["review"])
+    capture(cli, profile, output / "capture", "--seconds", 0.25)
+    return profile
+
+
 def verify_xsd(cli, scratch):
     folder = scratch / "schema '$ local"
     folder.mkdir()
@@ -589,6 +626,7 @@ def main():
     assert not tomllib.loads(run(cli, "events", resolved))["standard_event_refs"]
     product = tomllib.loads(run(cli, "read-parameter", resolved, "V_ProductID"))
     assert product["raw_value"] == "SIM-SENSOR" and product["index"] == 19
+    standard_language_profile = verify_standard_languages(cli, scratch / "iodd.zip", scratch / "standard-languages")
     run(cli, "iodd", ROOT / "samples" / "sensor.xml", "--standard-definitions",
         ROOT / "samples" / "sensor.xml", expected=1)
     record_profile = scratch / "record.toml"
@@ -789,6 +827,13 @@ kind = "bool"
             text = text.replace('port = 1', 'port = 1\nifm_mode = 3\nifm_cycle_unit = "microseconds"')
             parameter_fixture.write_text(text.replace('poll_us = 1000', 'poll_us = 10000'), encoding="utf-8")
             Gateway.device_id = 1
+            language_fixture = scratch / "standard-language-fixture.toml"
+            language_text = standard_language_profile.read_text(encoding="utf-8").replace('gateway = "simulator"', 'gateway = "ifm_al1350"')
+            language_text = language_text.replace('endpoint = ""', f'endpoint = "http://127.0.0.1:{server.server_port}"')
+            language_text = language_text.replace('ifm_firmware = ""', 'ifm_firmware = "3.1.42"').replace('port = 1', 'port = 1\nifm_mode = 3')
+            language_fixture.write_text(language_text, encoding="utf-8")
+            translated_read = tomllib.loads(run(cli, "read-parameter", language_fixture, "V_ProductID"))
+            assert translated_read["name"] == "Synthetische Produktkennung" and translated_read["raw_value"] == "SIM-SENSOR"
             format_fixture = scratch / "format-fixture.toml"
             format_text = formats_profile.read_text(encoding="utf-8").replace('gateway = "simulator"', 'gateway = "ifm_al1350"')
             format_text = format_text.replace('endpoint = ""', f'endpoint = "http://127.0.0.1:{server.server_port}"')
@@ -858,7 +903,7 @@ kind = "bool"
 
     print("PASS: ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
-          "named scalar/record/array reads, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline reopening, array and localized CSV fields, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
+          "named scalar/record/array reads, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline reopening, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 
 

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ExternalTextDocument xmlns="http://www.io-link.com/IODD/2010/10">
+  <!-- Original synthetic, deliberately partial translation; no vendor content. -->
+  <DocumentInfo version="synthetic-1"/>
+  <Language xml:lang="de">
+    <Text id="product" value="Synthetische Produktkennung"/>
+    <Text id="command" value="Synthetischer Systembefehl"/>
+    <Text id="reset" value="Synthetischer Neustart"/>
+    <Text id="record" value="Synthetischer Direktparameter-Datensatz"/>
+    <Text id="standardevent" value="Synthetischer Standardalarm"/>
+  </Language>
+</ExternalTextDocument>

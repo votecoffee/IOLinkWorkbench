@@ -7,18 +7,30 @@ use std::{
     path::Path,
 };
 
-pub(in crate::iodd) fn load(path: &Path) -> Result<crate::iodd::Definitions> {
+pub(in crate::iodd) fn load(
+    path: &Path,
+    language: Option<&str>,
+    language_file: Option<&Path>,
+) -> Result<crate::iodd::Definitions> {
     let xml = crate::iodd::read_xml(path)?;
-    parse(
+    let companion = crate::iodd::resources::local_companion(path, language, language_file)?;
+    parse_localized(
         &xml,
         &path
             .file_name()
             .context("missing definitions filename")?
             .to_string_lossy(),
+        language,
+        companion.as_ref(),
     )
 }
 
-pub(super) fn parse(xml: &str, source: &str) -> Result<crate::iodd::Definitions> {
+fn parse_localized(
+    xml: &str,
+    source: &str,
+    requested: Option<&str>,
+    companion: Option<&crate::iodd::resources::Companion>,
+) -> Result<crate::iodd::Definitions> {
     let doc = Document::parse(xml)?;
     let root = doc.root_element();
     ensure!(
@@ -37,12 +49,54 @@ pub(super) fn parse(xml: &str, source: &str) -> Result<crate::iodd::Definitions>
             "duplicate standard datatype ID {id}"
         );
     }
-    let texts = child(root, "ExternalTextCollection")
-        .and_then(|node| child(node, "PrimaryLanguage"))
-        .into_iter()
-        .flat_map(|node| node.children())
-        .filter(|node| node.has_tag_name((IODD_NAMESPACE, "Text")))
-        .filter_map(|node| Some((node.attribute("id")?, node.attribute("value")?)))
+    let units = crate::iodd::resources::Units::default();
+    let primary = crate::iodd::resources::Texts::load(root, None, None, &[], &units)?;
+    let requested = requested
+        .map(crate::iodd::resources::language_tag)
+        .transpose()?;
+    let available = requested
+        .as_ref()
+        .is_some_and(|tag| primary.metadata.available_languages.contains(tag));
+    let selected_tag = requested
+        .as_deref()
+        .filter(|_| available || companion.is_some());
+    let selected = crate::iodd::resources::Texts::load(root, selected_tag, companion, &[], &units)
+        .context("standard definitions language")?;
+    for id in selected.values.keys() {
+        ensure!(
+            primary.values.contains_key(id),
+            "standard translation contains unknown text ID {id}"
+        );
+    }
+    if let Some(companion) = companion {
+        let external = Document::parse(&companion.xml)?;
+        if let (Some(a), Some(b)) = (
+            child(root, "DocumentInfo").and_then(|node| node.attribute("version")),
+            child(external.root_element(), "DocumentInfo")
+                .and_then(|node| node.attribute("version")),
+        ) {
+            ensure!(a == b, "standard language version differs from definitions");
+        }
+    }
+    let mut review = selected.metadata.review.clone();
+    let mut fallback = selected.metadata.fallback_text_ids.clone();
+    if requested.is_some() && requested != selected.metadata.selected_language {
+        review.push(format!(
+            "requested language {} is unavailable; using primary language {}",
+            requested.as_deref().unwrap(),
+            selected
+                .metadata
+                .primary_language
+                .as_deref()
+                .unwrap_or("unspecified")
+        ));
+        fallback = primary.values.keys().cloned().collect();
+        fallback.sort();
+    }
+    let texts = selected
+        .values
+        .iter()
+        .map(|(id, value)| (id.as_str(), value.as_str()))
         .collect();
     let (mut parameters, unresolved) = super::parse(
         root,
@@ -77,7 +131,20 @@ pub(super) fn parse(xml: &str, source: &str) -> Result<crate::iodd::Definitions>
     for event in &mut events {
         event.origin = Some(format!("{source} · {version}"));
     }
-    Ok(crate::iodd::Definitions { parameters, events })
+    Ok(crate::iodd::Definitions {
+        parameters,
+        events,
+        localization: Some(crate::iodd::StandardLocalization {
+            source: source.into(),
+            version: version.into(),
+            primary_language: selected.metadata.primary_language,
+            requested_language: requested,
+            selected_language: selected.metadata.selected_language,
+            language_source: selected.metadata.language_source,
+            fallback_text_ids: fallback,
+            review,
+        }),
+    })
 }
 
 pub(super) fn resolve(

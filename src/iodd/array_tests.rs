@@ -109,9 +109,12 @@ fn odd_subbyte_widths_do_not_cross_octet_boundaries() -> Result<()> {
 
 #[test]
 fn standard_array_length_restrictions_update_the_saved_layout() -> Result<()> {
-    let definitions =
-        parameters::load_standard(Path::new("samples/synthetic-standard-definitions.xml"))?
-            .parameters;
+    let definitions = parameters::load_standard(
+        Path::new("samples/synthetic-standard-definitions.xml"),
+        None,
+        None,
+    )?
+    .parameters;
     let xml = XML.replace("</VariableCollection>", r#"<StdVariableRef id="V_DetailedDeviceStatus" fixedLengthRestriction="3"/></VariableCollection>"#);
     let catalog = parse_with_definitions(&xml, "standard array fixture".into(), &definitions)?;
     let parameter = &catalog.parameters[1];
