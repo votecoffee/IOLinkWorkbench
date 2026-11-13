@@ -23,6 +23,7 @@ mod interfaces;
 pub use interfaces::{InterfaceContext, InterfaceFinding, InterfaceReview, RecordedInterfaces};
 mod compare;
 pub use compare::{CaptureComparison, ComparisonMetric, ComparisonSetting, compare_captures};
+mod timing_validation;
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -94,6 +95,8 @@ struct ArchivedStatus {
 
 #[derive(Deserialize)]
 struct ArchivedCounts {
+    poll_attempts: Option<u64>,
+    new_updates_observed: Option<u64>,
     received: Option<u64>,
     disconnects: Option<u64>,
     selected: u64,
@@ -360,6 +363,7 @@ fn check_manifest(manifest: &Manifest, profile: &Profile) -> Result<()> {
     );
     chrono::DateTime::parse_from_rfc3339(&manifest.utc_start)
         .context("invalid UTC capture origin")?;
+    timing_validation::validate(manifest)?;
     ensure!(
         manifest.csv_rows_unconfirmed == 0,
         "report has {} unconfirmed CSV rows; this capture cannot be verified as complete",

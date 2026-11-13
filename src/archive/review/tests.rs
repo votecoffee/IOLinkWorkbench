@@ -26,7 +26,8 @@ fn saved(fields: Vec<Field>, width: usize, samples: &[Sample]) -> Result<tempfil
     };
     profile.save(&scratch.path().join("profile.toml"))?;
     let parts = samples.len().max(1).div_ceil(3);
-    let elapsed = samples.last().map_or(0, |sample| sample.at);
+    // Recorded acquisition timing is independent of selected CSV rows, but must fit its window.
+    let elapsed = samples.last().map_or(0, |sample| sample.at).max(900);
     let reconnects = samples.last().map_or(0, |sample| sample.generation - 1);
     fs::write(
         scratch.path().join("capture.toml"),
@@ -57,7 +58,7 @@ p50_us = 123
 p95_us = 456
 p99_us = 789
 longest_us = 900
-mean_hz = 8123.0
+mean_hz = 4000.0
 "#,
             rows = samples.len()
         ),

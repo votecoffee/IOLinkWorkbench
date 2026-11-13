@@ -107,6 +107,38 @@ pub struct Spacing {
     pub mean_hz: f64,
 }
 
+impl Spacing {
+    /// Consistency of recorded aggregates, not a remeasurement or timing guarantee.
+    pub(crate) fn validate(&self) -> Result<()> {
+        ensure!(self.count > 0, "spacing has no observations");
+        ensure!(
+            self.p50_us <= self.p95_us
+                && self.p95_us <= self.p99_us
+                && self.p99_us <= self.longest_us,
+            "spacing quantiles are inconsistent"
+        );
+        ensure!(
+            self.mean_hz.is_finite() && self.mean_hz >= 0.0,
+            "spacing frequency is invalid"
+        );
+        if self.longest_us == 0 {
+            // Distribution uses zero when the sum of measured integer microseconds is zero.
+            ensure!(
+                self.mean_hz == 0.0,
+                "zero-duration spacing has a nonzero frequency"
+            );
+        } else {
+            let lower = 1_000_000.0 / self.longest_us as f64;
+            let upper = self.count as f64 * lower;
+            ensure!(
+                self.mean_hz >= lower * (1.0 - 1e-9) && self.mean_hz <= upper * (1.0 + 1e-9),
+                "spacing frequency is inconsistent with its count and longest interval"
+            );
+        }
+        Ok(())
+    }
+}
+
 struct Distribution {
     histogram: Histogram<u64>,
     longest: u64,

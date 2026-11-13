@@ -169,7 +169,7 @@ fn invalid_spacing_and_recorded_failure_do_not_produce_a_timing_delta() -> Resul
     })?;
     assert!(
         format!("{:#}", compare_captures(&path, &other).unwrap_err())
-            .contains("right capture timing failed")
+            .contains("right capture verification failed")
     );
     fs::copy(path.join("capture.toml"), other.join("capture.toml"))?;
     edit(&other.join("capture.toml"), |v| {

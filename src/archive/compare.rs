@@ -1,6 +1,6 @@
 //! Offline, descriptive comparisons. Never align clocks or infer physical origin.
 use super::{Inspected, InterfaceReview, inspect};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use serde::Serialize;
 use std::path::Path;
 
@@ -197,36 +197,10 @@ fn review(data: Inspected) -> Result<InterfaceReview> {
     )
 }
 
-fn check_timing(data: &Inspected) -> Result<()> {
-    let m = &data.manifest;
-    for spacing in [
-        &m.host_poll_start_spacing,
-        &m.host_receive_spacing,
-        &m.host_new_update_spacing,
-        &m.gateway_update_spacing,
-    ]
-    .into_iter()
-    .flatten()
-    {
-        ensure!(
-            spacing.count > 0
-                && spacing.p50_us <= spacing.p95_us
-                && spacing.p95_us <= spacing.p99_us
-                && spacing.p99_us <= spacing.longest_us
-                && spacing.mean_hz.is_finite()
-                && spacing.mean_hz >= 0.0,
-            "inconsistent recorded spacing statistics"
-        );
-    }
-    Ok(())
-}
-
 /// Each side is verified in its own complete streaming pass. Source files are never written.
 pub fn compare_captures(left: &Path, right: &Path) -> Result<CaptureComparison> {
     let left = inspect(left, None, None, None).context("left capture verification failed")?;
     let right = inspect(right, None, None, None).context("right capture verification failed")?;
-    check_timing(&left).context("left capture timing failed")?;
-    check_timing(&right).context("right capture timing failed")?;
     let settings: Vec<_> = settings(&left)?
         .into_iter()
         .zip(settings(&right)?)
