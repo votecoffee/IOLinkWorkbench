@@ -21,25 +21,15 @@ enum Command {
     /// List device variants, process input layouts, and fields needing review.
     Iodd {
         path: PathBuf,
-        #[arg(long)]
-        entry: Option<String>,
-        /// Local IODD-StandardDefinitions1.1.xml supplied by the user.
-        #[arg(long)]
-        standard_definitions: Option<PathBuf>,
-        /// Require XSD validation against this local root schema before inspection.
-        #[arg(long)]
-        xsd: Option<PathBuf>,
+        #[command(flatten)]
+        options: IoddOptions,
     },
     /// Save an offline simulator profile from an IODD variant and input layout.
     Import {
         path: PathBuf,
         profile: PathBuf,
-        #[arg(long)]
-        entry: Option<String>,
-        #[arg(long)]
-        standard_definitions: Option<PathBuf>,
-        #[arg(long)]
-        xsd: Option<PathBuf>,
+        #[command(flatten)]
+        options: IoddOptions,
         #[arg(long)]
         variant: Option<String>,
         #[arg(long)]
@@ -106,6 +96,38 @@ enum Command {
         #[arg(long)]
         queue_capacity: Option<usize>,
     },
+}
+
+#[derive(clap::Args)]
+struct IoddOptions {
+    #[arg(long)]
+    entry: Option<String>,
+    #[arg(long)]
+    standard_definitions: Option<PathBuf>,
+    /// Require a main-XML XSD validation pass against a local root schema.
+    #[arg(long)]
+    xsd: Option<PathBuf>,
+    /// Select an embedded or companion language by its xml:lang tag.
+    #[arg(long)]
+    language: Option<String>,
+    /// Use an explicit ExternalTextDocument XML instead of an automatic companion.
+    #[arg(long, requires = "language")]
+    language_file: Option<PathBuf>,
+    /// Load abbreviations from a local IODDStandardUnitDefinitions XML.
+    #[arg(long)]
+    unit_definitions: Option<PathBuf>,
+}
+impl IoddOptions {
+    fn load(&self) -> iodd::LoadOptions<'_> {
+        iodd::LoadOptions {
+            entry: self.entry.as_deref(),
+            definitions: self.standard_definitions.as_deref(),
+            xsd: self.xsd.as_deref(),
+            language: self.language.as_deref(),
+            language_file: self.language_file.as_deref(),
+            unit_definitions: self.unit_definitions.as_deref(),
+        }
+    }
 }
 
 fn main() -> Result<()> {
@@ -176,35 +198,18 @@ fn main() -> Result<()> {
                 "XSD validation failed; diagnostics are printed above"
             );
         }
-        Command::Iodd {
-            path,
-            entry,
-            standard_definitions,
-            xsd,
-        } => print!(
+        Command::Iodd { path, options } => print!(
             "{}",
-            toml::to_string_pretty(&iodd::load_checked(
-                &path,
-                entry.as_deref(),
-                standard_definitions.as_deref(),
-                xsd.as_deref(),
-            )?)?
+            toml::to_string_pretty(&iodd::load_with_options(&path, &options.load())?)?
         ),
         Command::Import {
             path,
             profile,
-            entry,
-            standard_definitions,
-            xsd,
+            options,
             variant,
             layout,
         } => {
-            let catalog = iodd::load_checked(
-                &path,
-                entry.as_deref(),
-                standard_definitions.as_deref(),
-                xsd.as_deref(),
-            )?;
+            let catalog = iodd::load_with_options(&path, &options.load())?;
             let (expected_identity, imported) =
                 catalog.select(variant.as_deref(), layout.as_deref())?;
             let profile_data = Profile {
@@ -221,6 +226,9 @@ fn main() -> Result<()> {
             let profile = Profile::load(&profile)?;
             println!("{} ({} bytes)", profile.name, profile.input_bytes);
             if let Some(iodd) = &profile.iodd {
+                if let Some(localization) = &iodd.localization {
+                    println!("{}", localization.summary());
+                }
                 println!(
                     "{}",
                     iodd.schema_validation

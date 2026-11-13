@@ -44,7 +44,13 @@ pub(super) fn parse(xml: &str, source: &str) -> Result<Vec<Parameter>> {
         .filter(|node| node.has_tag_name((IODD_NAMESPACE, "Text")))
         .filter_map(|node| Some((node.attribute("id")?, node.attribute("value")?)))
         .collect();
-    let (mut parameters, unresolved) = super::parse(root, &types, &texts, &[])?;
+    let (mut parameters, unresolved) = super::parse(
+        root,
+        &types,
+        &texts,
+        &[],
+        &crate::iodd::resources::Units::default(),
+    )?;
     ensure!(
         unresolved.is_empty(),
         "standard definitions contain unresolved references"

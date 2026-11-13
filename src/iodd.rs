@@ -18,11 +18,13 @@ const XSI: &str = "http://www.w3.org/2001/XMLSchema-instance";
 
 mod array;
 mod parameters;
+mod resources;
 pub mod schema;
 pub use parameters::{
     Access, Array, Choice, DecodedParameter, Display, DisplayValue, Parameter, Record, RecordItem,
     RecordValue, ValueRange,
 };
+pub use resources::Localization;
 
 #[derive(Debug, Serialize)]
 pub struct Variant {
@@ -49,6 +51,7 @@ pub struct Catalog {
     pub parameters: Vec<Parameter>,
     pub standard_parameter_refs: Vec<String>,
     pub schema_validation: Option<schema::Report>,
+    pub localization: Option<Localization>,
 }
 
 impl Catalog {
@@ -78,6 +81,9 @@ impl Catalog {
             None => bail!("select the input layout and confirm any condition against the device"),
         };
         let mut needs_input = layout.needs_input.clone();
+        if let Some(localization) = &self.localization {
+            needs_input.extend(localization.review.iter().cloned());
+        }
         if let Some(condition) = &layout.condition {
             needs_input.push(format!(
                 "Confirm active layout condition {condition} before capture"
@@ -101,6 +107,7 @@ impl Catalog {
                 parameters: self.parameters.clone(),
                 standard_parameter_refs: self.standard_parameter_refs.clone(),
                 schema_validation: self.schema_validation.clone(),
+                localization: self.localization.clone(),
             },
         ))
     }
@@ -125,16 +132,61 @@ pub fn load_checked(
     definitions: Option<&Path>,
     xsd: Option<&Path>,
 ) -> Result<Catalog> {
-    let definitions = definitions
+    load_with_options(
+        path,
+        &LoadOptions {
+            entry,
+            definitions,
+            xsd,
+            ..Default::default()
+        },
+    )
+}
+
+#[derive(Default)]
+pub struct LoadOptions<'a> {
+    pub entry: Option<&'a str>,
+    pub definitions: Option<&'a Path>,
+    pub xsd: Option<&'a Path>,
+    pub language: Option<&'a str>,
+    pub language_file: Option<&'a Path>,
+    pub unit_definitions: Option<&'a Path>,
+}
+
+pub fn load_with_options(path: &Path, options: &LoadOptions<'_>) -> Result<Catalog> {
+    ensure!(
+        options.language_file.is_none() || options.language.is_some(),
+        "a language file requires an explicit language tag"
+    );
+    let definitions = options
+        .definitions
         .map(parameters::load_standard)
         .transpose()?
         .unwrap_or_default();
-    let (bytes, source) = source_bytes(path, entry)?;
-    let validation = xsd.map(|xsd| schema::validate(&bytes, xsd)).transpose()?;
+    let language = options.language.map(resources::language_tag).transpose()?;
+    let input = read_source(
+        path,
+        options.entry,
+        language.as_deref(),
+        options.language_file,
+    )?;
+    let validation = options
+        .xsd
+        .map(|xsd| schema::validate(&input.bytes, xsd))
+        .transpose()?;
     if let Some(report) = &validation {
         ensure!(report.passed, "{}", report.summary());
     }
-    let mut catalog = parse_with_definitions(&decode_xml(bytes)?, source, &definitions)?;
+    let units = resources::Units::load(options.unit_definitions)?;
+    let mut catalog = parse_resources(
+        &decode_xml(input.bytes)?,
+        input.name,
+        &definitions,
+        language.as_deref(),
+        input.companion.as_ref(),
+        &input.languages,
+        &units,
+    )?;
     catalog.schema_validation = validation;
     Ok(catalog)
 }
@@ -145,43 +197,147 @@ pub fn check_schema(path: &Path, entry: Option<&str>, xsd: &Path) -> Result<sche
     schema::validate(&bytes, xsd)
 }
 
+struct Source {
+    bytes: Vec<u8>,
+    name: String,
+    companion: Option<resources::Companion>,
+    languages: Vec<String>,
+}
+
 fn source_bytes(path: &Path, entry: Option<&str>) -> Result<(Vec<u8>, String)> {
+    let source = read_source(path, entry, None, None)?;
+    Ok((source.bytes, source.name))
+}
+
+fn read_source(
+    path: &Path,
+    entry: Option<&str>,
+    language: Option<&str>,
+    language_file: Option<&Path>,
+) -> Result<Source> {
     let name = path
         .file_name()
         .context("missing file name")?
         .to_string_lossy();
     let file = File::open(path).with_context(|| path.display().to_string())?;
     let mut bytes = Vec::new();
+    let mut companion = None;
+    let mut languages = Vec::new();
     let source = if name.to_ascii_lowercase().ends_with(".zip") {
         let mut zip = zip::ZipArchive::new(file)?;
         ensure!(zip.len() <= 2048, "too many entries in IODD ZIP");
-        let candidates: Vec<_> = zip
-            .file_names()
+        let names: Vec<String> = zip.file_names().map(str::to_owned).collect();
+        let candidates: Vec<_> = names
+            .iter()
             .filter(|name| {
                 let lower = name.to_ascii_lowercase();
                 lower.ends_with("-iodd1.1.xml") || lower.ends_with("-iodd1.0.1.xml")
             })
-            .map(str::to_owned)
             .collect();
         let entry = match entry {
             Some(name) => name,
-            None if candidates.len() == 1 => &candidates[0],
+            None if candidates.len() == 1 => candidates[0],
             None => bail!(
                 "select ZIP entry with --entry or extract the XML; candidates: {}",
-                candidates.join(", ")
+                candidates
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ),
         };
+        ensure!(
+            names.iter().filter(|name| *name == entry).count() == 1,
+            "selected ZIP entry is missing or duplicated"
+        );
         zip.by_name(entry)?
             .take(XML_LIMIT + 1)
             .read_to_end(&mut bytes)?;
+        if entry.to_ascii_lowercase().ends_with(".xml") {
+            let prefix = format!("{}-", &entry[..entry.len() - 4]).to_ascii_lowercase();
+            let mut selected = Vec::new();
+            for candidate in &names {
+                let lower = candidate.to_ascii_lowercase();
+                if let Some(tag) = lower
+                    .strip_prefix(&prefix)
+                    .and_then(|name| name.strip_suffix(".xml"))
+                    && let Ok(tag) = resources::language_tag(tag)
+                {
+                    languages.push(tag.clone());
+                    if language == Some(tag.as_str()) {
+                        selected.push(candidate);
+                    }
+                }
+            }
+            if language_file.is_none() {
+                ensure!(
+                    selected.len() <= 1,
+                    "selected ZIP language companion is ambiguous"
+                );
+                if let Some(name) = selected.first() {
+                    let mut bytes = Vec::new();
+                    zip.by_name(name)?
+                        .take(XML_LIMIT + 1)
+                        .read_to_end(&mut bytes)?;
+                    companion = Some(resources::Companion {
+                        xml: decode_xml(bytes)?,
+                        source: format!("{}#{name}", path.file_name().unwrap().to_string_lossy()),
+                    });
+                }
+            }
+        }
         format!("{name}#{entry}")
     } else {
         ensure!(entry.is_none(), "ZIP entry applies only to ZIP files");
         file.take(XML_LIMIT + 1).read_to_end(&mut bytes)?;
+        if language_file.is_none()
+            && let Some(language) = language
+            && let Some(stem) = path.file_stem()
+        {
+            let sidecar = path.with_file_name(format!("{}-{language}.xml", stem.to_string_lossy()));
+            let metadata = match std::fs::symlink_metadata(&sidecar) {
+                Ok(metadata) => Some(metadata),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) => return Err(error.into()),
+            };
+            if let Some(metadata) = metadata {
+                #[cfg(windows)]
+                {
+                    use std::os::windows::fs::MetadataExt;
+                    ensure!(
+                        metadata.file_attributes() & 0x400 == 0,
+                        "automatic language sidecar is a reparse point"
+                    );
+                }
+                ensure!(
+                    !metadata.file_type().is_symlink(),
+                    "automatic language sidecar is a symbolic link"
+                );
+                companion = Some(resources::Companion {
+                    xml: read_xml(&sidecar)?,
+                    source: sidecar.file_name().unwrap().to_string_lossy().into_owned(),
+                });
+            }
+        }
         name.into_owned()
     };
     ensure!(bytes.len() as u64 <= XML_LIMIT, "IODD XML exceeds 8 MiB");
-    Ok((bytes, source))
+    if let Some(path) = language_file {
+        companion = Some(resources::Companion {
+            xml: read_xml(path)?,
+            source: path
+                .file_name()
+                .context("language file has no filename")?
+                .to_string_lossy()
+                .into_owned(),
+        });
+    }
+    Ok(Source {
+        bytes,
+        name: source,
+        companion,
+        languages,
+    })
 }
 
 fn read_xml(path: &Path) -> Result<String> {
@@ -253,6 +409,7 @@ fn field(
     owner: Node<'_, '_>,
     name: String,
     bit_offset: u16,
+    units: &resources::Units,
 ) -> Result<(Field, bool)> {
     let datatype = dt
         .attribute((XSI, "type"))
@@ -281,7 +438,7 @@ fn field(
         .and_then(|format| format.strip_prefix("Dec."))
         .map(str::parse)
         .transpose()?;
-    let unit = unit(owner.attribute("unitCode"));
+    let unit = units.resolve(owner.attribute("unitCode"));
     Ok((
         Field {
             name,
@@ -339,6 +496,26 @@ pub fn parse(xml: &str, source: String) -> Result<Catalog> {
 }
 
 fn parse_with_definitions(xml: &str, source: String, definitions: &[Parameter]) -> Result<Catalog> {
+    parse_resources(
+        xml,
+        source,
+        definitions,
+        None,
+        None,
+        &[],
+        &resources::Units::default(),
+    )
+}
+
+fn parse_resources(
+    xml: &str,
+    source: String,
+    definitions: &[Parameter],
+    language: Option<&str>,
+    companion: Option<&resources::Companion>,
+    discovered: &[String],
+    units: &resources::Units,
+) -> Result<Catalog> {
     let doc = Document::parse(xml)?;
     let root = doc.root_element();
     ensure!(
@@ -356,13 +533,14 @@ fn parse_with_definitions(xml: &str, source: String, definitions: &[Parameter]) 
         .context("missing deviceId")?
         .parse()?;
     ensure!(device_id <= 0xFF_FFFF, "Device ID exceeds 24 bits");
-    let texts = child(root, "ExternalTextCollection")
-        .and_then(|text| child(text, "PrimaryLanguage"))
-        .into_iter()
-        .flat_map(|node| node.children())
-        .filter(|node| node.has_tag_name((IODD_NAMESPACE, "Text")))
-        .filter_map(|node| Some((node.attribute("id")?, node.attribute("value")?)))
+    let selected = resources::Texts::load(root, language, companion, discovered, units)?;
+    let texts = selected
+        .values
+        .iter()
+        .map(|(id, value)| (id.as_str(), value.as_str()))
         .collect();
+    let mut definitions = definitions.to_vec();
+    selected.redefine_standard_records(&mut definitions);
     let mut product_ids = HashSet::new();
     let variants = child(identity, "DeviceVariantCollection")
         .into_iter()
@@ -400,7 +578,7 @@ fn parse_with_definitions(xml: &str, source: String, definitions: &[Parameter]) 
         .filter_map(|node| Some((node.attribute("processDataId")?, node)))
         .collect::<HashMap<_, _>>();
     let (parameters, standard_parameter_refs) =
-        parameters::parse(function, &types, &texts, definitions)?;
+        parameters::parse(function, &types, &texts, &definitions, units)?;
     let mut layouts = Vec::new();
     for process in child(function, "ProcessDataCollection")
         .into_iter()
@@ -501,7 +679,7 @@ fn parse_with_definitions(xml: &str, source: String, definitions: &[Parameter]) 
                                 })
                             })
                             .unwrap_or(item);
-                        field(datatype(item, &types)?, info, name, bit_offset)
+                        field(datatype(item, &types)?, info, name, bit_offset, units)
                     })(),
                 )?;
             }
@@ -515,7 +693,8 @@ fn parse_with_definitions(xml: &str, source: String, definitions: &[Parameter]) 
                 .unwrap_or(input);
             let expanded = (|| -> Result<_> {
                 let dt = dt?;
-                let (template, unit_defined) = field(datatype(dt, &types)?, info, name.clone(), 0)?;
+                let (template, unit_defined) =
+                    field(datatype(dt, &types)?, info, name.clone(), 0, units)?;
                 let count = dt
                     .attribute("count")
                     .context("array has no count")?
@@ -543,7 +722,10 @@ fn parse_with_definitions(xml: &str, source: String, definitions: &[Parameter]) 
             let info = display
                 .and_then(|reference| child(reference, "ProcessDataInfo"))
                 .unwrap_or(input);
-            add(name.clone(), dt.and_then(|dt| field(dt, info, name, 0)))?;
+            add(
+                name.clone(),
+                dt.and_then(|dt| field(dt, info, name, 0, units)),
+            )?;
         }
         if missing_unit {
             layout.needs_input.push(
@@ -562,6 +744,7 @@ fn parse_with_definitions(xml: &str, source: String, definitions: &[Parameter]) 
         parameters,
         standard_parameter_refs,
         schema_validation: None,
+        localization: Some(selected.metadata),
     })
 }
 
@@ -573,3 +756,6 @@ mod record_tests;
 
 #[cfg(test)]
 mod array_tests;
+
+#[cfg(test)]
+mod resource_tests;

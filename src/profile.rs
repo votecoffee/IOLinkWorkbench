@@ -137,6 +137,8 @@ pub struct Imported {
     pub standard_parameter_refs: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema_validation: Option<crate::iodd::schema::Report>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub localization: Option<crate::iodd::Localization>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

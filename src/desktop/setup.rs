@@ -13,6 +13,9 @@ pub struct Editor {
     iodd_path: String,
     standard_definitions: String,
     xsd: String,
+    language: String,
+    language_file: String,
+    unit_definitions: String,
     inspect_worker: Option<Worker<Catalog>>,
     entry: String,
     catalog: Option<Catalog>,
@@ -29,6 +32,9 @@ impl Editor {
             iodd_path: String::new(),
             standard_definitions: String::new(),
             xsd: String::new(),
+            language: String::new(),
+            language_file: String::new(),
+            unit_definitions: String::new(),
             inspect_worker: None,
             entry: String::new(),
             catalog: None,
@@ -113,6 +119,7 @@ impl Editor {
             ui.heading("Effective process input");
             ui.small("Bit 0 is the least significant bit. Big endian counts from the last byte, little endian from the first.");
             if let Some(import) = &profile.iodd {
+                if let Some(localization) = &import.localization { ui.small(localization.summary()); }
                 ui.small(import.schema_validation.as_ref().map(|report| report.summary()).unwrap_or_else(|| "Parser checks only; XSD validation not performed".into()));
                 ui.label(format!("{} · product {} · layout {} · {} imported bytes",
                     import.source, import.variant, import.layout, import.input_bytes));
@@ -188,7 +195,30 @@ impl Editor {
 
     fn iodd(&mut self, ui: &mut Ui, profile: &mut Profile, message: &mut String) -> bool {
         let mut changed = false;
+        let previous = (
+            self.iodd_path.clone(),
+            self.entry.clone(),
+            self.standard_definitions.clone(),
+            self.xsd.clone(),
+            self.language.clone(),
+            self.language_file.clone(),
+            self.unit_definitions.clone(),
+        );
         ui.heading("IODD import");
+        ui.add(
+            egui::TextEdit::singleline(&mut self.language)
+                .hint_text("Language tag (blank uses primary language)"),
+        );
+        path_entry(
+            ui,
+            &mut self.language_file,
+            "Optional explicit language XML",
+        );
+        path_entry(
+            ui,
+            &mut self.unit_definitions,
+            "Optional standard unit definitions XML",
+        );
         path_entry(
             ui,
             &mut self.xsd,
@@ -206,6 +236,21 @@ impl Editor {
                     .hint_text("ZIP member if ambiguous")
                     .desired_width(170.0),
             );
+            if previous
+                != (
+                    self.iodd_path.clone(),
+                    self.entry.clone(),
+                    self.standard_definitions.clone(),
+                    self.xsd.clone(),
+                    self.language.clone(),
+                    self.language_file.clone(),
+                    self.unit_definitions.clone(),
+                )
+            {
+                self.catalog = None;
+                self.variant = None;
+                self.layout = None;
+            }
             if ui.button("Inspect IODD").clicked() {
                 let path = PathBuf::from(self.iodd_path.trim());
                 let entry = self.entry.trim();
@@ -214,13 +259,26 @@ impl Editor {
                 let definitions = (!definitions.is_empty()).then(|| PathBuf::from(definitions));
                 let xsd = self.xsd.trim();
                 let xsd = (!xsd.is_empty()).then(|| PathBuf::from(xsd));
+                let language = self.language.trim();
+                let language = (!language.is_empty()).then(|| language.to_owned());
+                let language_file = self.language_file.trim();
+                let language_file =
+                    (!language_file.is_empty()).then(|| PathBuf::from(language_file));
+                let unit_definitions = self.unit_definitions.trim();
+                let unit_definitions =
+                    (!unit_definitions.is_empty()).then(|| PathBuf::from(unit_definitions));
                 self.catalog = None;
                 match background("iodd-inspection", move || {
-                    iodd::load_checked(
+                    iodd::load_with_options(
                         &path,
-                        entry.as_deref(),
-                        definitions.as_deref(),
-                        xsd.as_deref(),
+                        &iodd::LoadOptions {
+                            entry: entry.as_deref(),
+                            definitions: definitions.as_deref(),
+                            xsd: xsd.as_deref(),
+                            language: language.as_deref(),
+                            language_file: language_file.as_deref(),
+                            unit_definitions: unit_definitions.as_deref(),
+                        },
                     )
                 }) {
                     Ok(worker) => {
@@ -232,6 +290,16 @@ impl Editor {
             }
         });
         if let Some(catalog) = &self.catalog {
+            if let Some(localization) = &catalog.localization {
+                ui.small(localization.summary());
+                ui.small(format!(
+                    "Available text languages · {}",
+                    localization.available_languages.join(", ")
+                ));
+                for note in &localization.review {
+                    ui.colored_label(WARNING, note);
+                }
+            }
             ui.small(
                 catalog
                     .schema_validation

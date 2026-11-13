@@ -20,7 +20,11 @@ pub struct DisplayValue {
     pub unit: String,
 }
 
-pub(super) fn apply(function: Node<'_, '_>, parameters: &mut [Parameter]) {
+pub(super) fn apply(
+    function: Node<'_, '_>,
+    parameters: &mut [Parameter],
+    units: &crate::iodd::resources::Units,
+) {
     let Some(menus) = child(function, "UserInterface").and_then(|ui| child(ui, "MenuCollection"))
     else {
         return;
@@ -95,7 +99,7 @@ pub(super) fn apply(function: Node<'_, '_>, parameters: &mut [Parameter]) {
                             .parse()?,
                     );
                 }
-                field.unit = crate::iodd::unit(reference.attribute("unitCode"));
+                field.unit = units.resolve(reference.attribute("unitCode"));
                 field.validate(usize::from(field.bits).div_ceil(8))?;
                 Ok(field)
             })();

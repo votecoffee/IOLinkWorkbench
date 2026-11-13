@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ExternalTextDocument xmlns="http://www.io-link.com/IODD/2010/10">
+  <!-- Original partial German translation for sensor.xml. Missing IDs use its primary language. -->
+  <Language xml:lang="de">
+    <Text id="sensor" value="Simulierter Füllstandsensor"/>
+    <Text id="level" value="Füllstand"/>
+    <Text id="switch" value="Schalter"/>
+    <Text id="threshold" value="Grenzwert"/>
+    <Text id="nominal" value="Nennwert"/>
+  </Language>
+</ExternalTextDocument>

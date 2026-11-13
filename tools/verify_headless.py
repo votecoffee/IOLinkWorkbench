@@ -256,6 +256,7 @@ def main():
 
     with zipfile.ZipFile(scratch / "iodd.zip", "w", zipfile.ZIP_DEFLATED) as archive:
         archive.write(ROOT / "samples" / "sensor.xml", "bundle/Synthetic-IODD1.1.xml")
+        archive.write(ROOT / "samples" / "sensor-de.xml", "bundle/Synthetic-IODD1.1-de.xml")
     catalog = tomllib.loads(run(cli, "iodd", scratch / "iodd.zip"))
     assert len(catalog["variants"]) == 2
     assert "select the connected product ID" in subprocess.run(
@@ -266,6 +267,25 @@ def main():
     run(cli, "import", scratch / "iodd.zip", imported, "--variant", "SIM-SENSOR")
     assert "level [1] [IODD]" in run(cli, "decode", imported, "FFF9")
     run(cli, "validate", imported)
+    localized = scratch / "localized.toml"
+    run(cli, "import", scratch / "iodd.zip", localized, "--variant", "SIM-SENSOR", "--language", "de")
+    locale = tomllib.loads(localized.read_text(encoding="utf-8"))["iodd"]["localization"]
+    assert locale["selected_language"] == "de" and locale["fallback_text_ids"]
+    assert "Füllstand [1]" in run(cli, "decode", localized, "FFF9")
+    reading = tomllib.loads(run(cli, "read-parameter", localized, "V_SIM_Threshold"))
+    assert reading["name"] == "Grenzwert" and reading["choice_name"] == "Nennwert" and reading["raw_value"] == "500"
+    _, localized_rows = capture(cli, localized, scratch / "sim-localized", "--seconds", 0.25)
+    assert any("Füllstand [1]" in name for name in localized_rows[0])
+    before = localized.read_bytes()
+    run(cli, "import", scratch / "iodd.zip", localized, "--variant", "SIM-SENSOR", "--language", "fr", expected=1)
+    assert localized.read_bytes() == before
+    custom_units = scratch / "custom-units.xml"
+    custom_units.write_text((ROOT / "samples/sensor.xml").read_text(encoding="utf-8").replace('unitCode="1013"', 'unitCode="1015"'), encoding="utf-8")
+    unit_profile = scratch / "unit-profile.toml"
+    run(cli, "import", custom_units, unit_profile, "--variant", "SIM-SENSOR", "--language", "de",
+        "--language-file", ROOT / "samples/sensor-de.xml", "--unit-definitions", ROOT / "samples/synthetic-unit-definitions.xml")
+    unit_reading = tomllib.loads(run(cli, "read-parameter", unit_profile, "V_SIM_Threshold"))
+    assert unit_reading["displays"][0]["unit"] == "nm" and unit_reading["displays"][0]["value"] == "52.0"
     parameters = tomllib.loads(run(cli, "parameters", imported))
     assert len(parameters["parameters"]) == 3
     reading = tomllib.loads(run(cli, "read-parameter", imported, "V_SIM_Threshold"))
@@ -424,7 +444,7 @@ def main():
 
     print("PASS: ZIP and variant selection, offline decoding, equal updates, on-change, rotation, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, CSV joining, "
-          "named scalar/record/array reads, array CSV fields, offline ISDU decoding, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling, and read-only AL1350 loopback")
+          "named scalar/record/array reads, array and localized CSV fields, supplied units, offline ISDU decoding, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 
 

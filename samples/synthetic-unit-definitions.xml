@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<IODDStandardUnitDefinitions xmlns="http://www.io-link.com/IODD/2010/10">
+  <!-- Original minimal test fixture. Supply the official definitions for real device imports. -->
+  <DocumentInfo version="synthetic-1"/>
+  <UnitCollection>
+    <Unit code="1015" abbr="nm"/>
+    <Unit code="1997" abbr=""/>
+  </UnitCollection>
+</IODDStandardUnitDefinitions>

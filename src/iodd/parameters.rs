@@ -231,6 +231,7 @@ pub(super) fn parse<'a, 'i>(
     types: &HashMap<&str, Node<'a, 'i>>,
     texts: &HashMap<&str, &str>,
     definitions: &[Parameter],
+    units: &super::resources::Units,
 ) -> Result<(Vec<Parameter>, Vec<String>)> {
     let mut parameters = Vec::new();
     let mut standard = Vec::new();
@@ -276,7 +277,7 @@ pub(super) fn parse<'a, 'i>(
         let parameter = parse_parameter(variable, id, index, access, types, texts, true)?;
         parameters.push(parameter);
     }
-    display::apply(function, &mut parameters);
+    display::apply(function, &mut parameters, units);
     for parameter in &parameters {
         parameter.validate()?;
     }

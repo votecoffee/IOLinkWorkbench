@@ -12,6 +12,7 @@
 - Parameter records preserve member layouts, defaults, access restrictions, standard record references, and menu display metadata. Whole-record and named subindex reads share the offline ISDU decoder. An offline import of the 22 official XML examples retained 46 records and 406 members. Synthetic and loopback checks cover member reads, whole-record decoding, malformed members, read restrictions, and 232-byte payloads.
 - Top-level cyclic arrays expand into named typed/CSV fields. Acyclic arrays preserve element metadata and support whole-array and permitted subindex reads, with per-element display scaling and standard count restrictions. The 22 official examples imported with 24 array definitions and 139 elements after standard restrictions. Synthetic and loopback checks cover packed ordering, octet boundaries, raw sign padding, array CSV fields, malformed responses, and read restrictions.
 - Optional local XSD 1.0 validation checks the selected main XML against a supplied schema closure using Windows System.Xml. Imports can require a pass and persist XML/schema hashes. GUI inspection uses a background worker. All 22 official example IODDs passed against the supplied 2025 schema set. Tests cover failed-import preservation, local includes, blocked external resolution, DTDs, schema hints, receipts, and helper timeouts.
+- Selected-language imports support embedded text and bounded XML/ZIP companions, primary-text fallbacks, and Direct Parameter Page 2 text redefinitions. Optional unit definitions extend the built-in abbreviations and persist their source/version. The full 688-entry official unit table imported with all 22 examples; German and Chinese imports passed for both official internal/external language examples. Synthetic checks cover Unicode CSV fields, ambiguous companions, mismatches, fallbacks, and new unit codes.
 - Documented ifm AL1350 IoT Core adapter with an isolated JSON loopback fixture. Physical acceptance begins once the master and sensor are selected.
 
 ## First physical bench
@@ -25,6 +26,6 @@
 
 - Add one documented source-counter or timestamp transport once selected hardware exposes it. Qualify timestamp clock, counter wrap, update semantics and firmware-specific behavior.
 - Add multiple independent port sessions with per-port identity, status, and capture accounting.
-- Expand IODD handling for external language files, profile snippets, unit definitions, and IODD Checker semantic/stamp rules. Add representative sanitized fixtures for supported device families.
+- Expand IODD handling for profile snippets, standard-definition translations, and IODD Checker semantic/stamp rules. Add representative sanitized fixtures for supported device families.
 - Expand parameter decoding for nested layouts and additional display formats. Add explicit display selection when a parameter has multiple menu representations.
 - Consider any configuration or output features only after explicit authorization for the specific operation and bench setup.
