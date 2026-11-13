@@ -26,6 +26,7 @@ pub use compare::{CaptureComparison, ComparisonMetric, ComparisonSetting, compar
 mod identity;
 mod timing_validation;
 use identity::RecordedStatus as ArchivedStatus;
+mod accounting;
 pub use identity::{IdentityReview, RecordedStatus};
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
@@ -66,6 +67,7 @@ struct Manifest {
     last_status: Option<ArchivedStatus>,
     rejected_status: Option<ArchivedStatus>,
     identity_check: Option<String>,
+    ended_connected: Option<bool>,
     counts: ArchivedCounts,
     source_gaps_observed: Option<u64>,
     source_update_loss: String,
@@ -92,6 +94,7 @@ fn legacy_format() -> u32 {
 
 #[derive(Deserialize)]
 struct ArchivedCounts {
+    unchanged: Option<u64>,
     poll_attempts: Option<u64>,
     new_updates_observed: Option<u64>,
     received: Option<u64>,
@@ -362,6 +365,7 @@ fn check_manifest(manifest: &Manifest, profile: &Profile) -> Result<()> {
         .context("invalid UTC capture origin")?;
     timing_validation::validate(manifest)?;
     identity::validate(manifest, profile)?;
+    accounting::validate(manifest, profile)?;
     ensure!(
         manifest.csv_rows_unconfirmed == 0,
         "report has {} unconfirmed CSV rows; this capture cannot be verified as complete",
@@ -544,6 +548,7 @@ fn inspect(
     }
     let mut summary = Summary::new(&manifest, joined_csv);
     let mut previous_record = None::<csv::StringRecord>;
+    let mut row_accounting = accounting::Rows::default();
     for part in parts {
         let path = directory.join(format!("capture-{part:04}.csv"));
         let mut reader =
@@ -566,6 +571,7 @@ fn inspect(
                     .transpose()?;
                 validate_row(&row, previous.as_ref(), &manifest)?;
                 let (payload, typed) = check_values(&profile, &fields, &row, &record)?;
+                row_accounting.observe(&row, previous.as_ref());
                 if let Some(export) = &mut export {
                     export.row(&record, &payload, typed)?;
                 }
@@ -591,6 +597,7 @@ fn inspect(
         }
     }
     summary.finish(&manifest)?;
+    row_accounting.finish(&manifest, &profile)?;
     if let Some(writer) = &mut writer {
         writer.flush()?;
     }

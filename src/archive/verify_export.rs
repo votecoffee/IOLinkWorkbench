@@ -187,6 +187,7 @@ pub fn verify_export(directory: &Path, source: Option<&Path>) -> Result<ExportVe
         "data.csv: header differs from the saved mapping"
     );
     let mut summary = Summary::new(&manifest, None);
+    let mut row_accounting = super::accounting::Rows::default();
     let mut previous_record = None::<csv::StringRecord>;
     let mut typed_rows = 0;
     for (index, record) in reader.records().enumerate() {
@@ -199,6 +200,7 @@ pub fn verify_export(directory: &Path, source: Option<&Path>) -> Result<ExportVe
                 .transpose()?;
             validate_row(&row, previous.as_ref(), &manifest)?;
             let (_, typed) = check_values(&mapping, &fields, &row, &record)?;
+            row_accounting.observe(&row, previous.as_ref());
             typed_rows += u64::from(typed);
             summary.observe(&row, previous.as_ref());
             Ok(record)
@@ -207,6 +209,7 @@ pub fn verify_export(directory: &Path, source: Option<&Path>) -> Result<ExportVe
             Some(check().with_context(|| format!("data.csv: data row {}", index + 1))?);
     }
     summary.finish(&manifest)?;
+    row_accounting.finish(&manifest, &profile)?;
     check_digest(&reader.get_ref().receipt("data.csv")?, &files)?;
     ensure!(
         summary == receipt.source_capture,

@@ -63,6 +63,8 @@ Rotation is checked before the next row. Time rotation uses receive elapsed time
 
 ## Timing, loss and saved evidence
 
+All offline capture paths also share [selection/reconnect/source-gap accounting checks](CAPTURE_REVIEW.md#selection-reconnect-and-source-gap-accounting). Preserve a contradictory bundle for inspection. Missing legacy counters are not zero, and selected-row counter jumps are not a source-loss measurement when filtering or writer drops occurred.
+
 Saved reviews also expose [recorded identity evidence](CAPTURE_REVIEW.md#recorded-identity-and-reconnects). Read configured expectations, last accepted status and rejected connections separately. The offline recheck uses only saved observed fields; producer text is a separate claim. Preserve a contradictory bundle for inspection. No live identity or ISDU query is issued by review.
 
 All saved capture operations share [recorded timing consistency checks](CAPTURE_REVIEW.md#recorded-timing-consistency). A failure identifies the affected timing domain; preserve the original bundle for inspection rather than editing it to pass. Missing old measurements remain unavailable. Verification checks recorded consistency and does not remeasure device timing.
