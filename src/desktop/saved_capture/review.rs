@@ -62,6 +62,7 @@ pub fn show(ui: &mut Ui, review: &Review) {
         spacing(ui, "Gateway update timestamps", timing.gateway_update_spacing.as_ref());
         ui.small("These are the acquisition report's measurements, not timing derived from the selected CSV rows. Change-only logging and dropped rows reduce the recorded row set. A 1 ms target needs the eventual sensor and gateway qualification.");
     });
+    crate::desktop::logger_metrics::show(ui, signal.recorded_timing.logger_metrics.as_ref());
 }
 
 fn spacing(ui: &mut Ui, name: &str, spacing: Option<&Spacing>) {

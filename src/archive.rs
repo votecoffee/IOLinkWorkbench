@@ -69,6 +69,7 @@ struct Manifest {
     host_receive_spacing: Option<crate::capture::Spacing>,
     host_new_update_spacing: Option<crate::capture::Spacing>,
     gateway_update_spacing: Option<crate::capture::Spacing>,
+    logger_metrics: Option<crate::capture::LoggerMetrics>,
 }
 
 fn legacy_format() -> u32 {
@@ -349,6 +350,15 @@ fn check_manifest(manifest: &Manifest, profile: &Profile) -> Result<()> {
             == u128::from(manifest.csv_rows_flushed) + u128::from(manifest.counts.logger_overruns),
         "report's CSV row accounting is inconsistent"
     );
+    if let Some(metrics) = &manifest.logger_metrics {
+        metrics.validate(
+            profile.logging.queue_capacity,
+            manifest.counts.selected - manifest.counts.logger_overruns,
+            manifest.csv_rows_flushed,
+            manifest.csv_parts,
+            manifest.writer_error.is_some(),
+        )?;
+    }
     Ok(())
 }
 

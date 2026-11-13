@@ -2,6 +2,71 @@ use super::*;
 use crate::capture::{self, Options, Stop};
 use std::time::Duration;
 
+#[test]
+fn logger_metrics_are_verified_and_absent_legacy_measurements_remain_unavailable() -> Result<()> {
+    let (_scratch, path) = fixture(false, false)?;
+    let report = path.join("capture.toml");
+    let original: toml::Value = toml::from_str(&fs::read_to_string(&report)?)?;
+    assert!(verify(&path, None).is_ok());
+    assert!(
+        review(&path, None, 1)?
+            .signal
+            .recorded_timing
+            .logger_metrics
+            .is_some()
+    );
+    for (keys, value) in [
+        (vec!["queue_capacity"], toml::Value::Integer(0)),
+        (
+            vec!["queue_high_water_observed"],
+            toml::Value::Integer(1_000_001),
+        ),
+        (vec!["rows_dequeued"], toml::Value::Integer(0)),
+        (vec!["queue_wait", "count"], toml::Value::Integer(0)),
+        (vec!["sync", "count"], toml::Value::Integer(1_000_000)),
+        (
+            vec!["row_service", "p50_us"],
+            toml::Value::Integer(i64::MAX),
+        ),
+        (vec!["flush", "mean_us"], toml::Value::Float(f64::NAN)),
+        (vec!["sync", "mean_us"], toml::Value::Float(-1.0)),
+        (vec!["unknown_metric"], toml::Value::Integer(1)),
+    ] {
+        let mut changed = original.clone();
+        let mut slot = &mut changed["logger_metrics"];
+        for key in &keys[..keys.len() - 1] {
+            slot = &mut slot[*key];
+        }
+        slot.as_table_mut()
+            .unwrap()
+            .insert(keys[keys.len() - 1].into(), value);
+        fs::write(&report, toml::to_string_pretty(&changed)?)?;
+        assert!(
+            verify(&path, None).is_err(),
+            "accepted inconsistent metric {keys:?}"
+        );
+    }
+    let mut changed = original.clone();
+    changed["logger_metrics"]
+        .as_table_mut()
+        .unwrap()
+        .remove("queue_wait");
+    fs::write(&report, toml::to_string_pretty(&changed)?)?;
+    assert!(verify(&path, None).is_err());
+    let mut legacy = original;
+    legacy.as_table_mut().unwrap().remove("logger_metrics");
+    fs::write(&report, toml::to_string_pretty(&legacy)?)?;
+    assert!(verify(&path, None).is_ok());
+    assert!(
+        review(&path, None, 1)?
+            .signal
+            .recorded_timing
+            .logger_metrics
+            .is_none()
+    );
+    Ok(())
+}
+
 fn fixture(snapshots: bool, backpressure: bool) -> Result<(tempfile::TempDir, PathBuf)> {
     fs::create_dir_all(".local")?;
     let scratch = tempfile::tempdir_in(".local")?;

@@ -14,6 +14,7 @@ use std::{
 };
 
 mod diagnostics;
+mod logger_metrics;
 mod logging_fields;
 mod parameters;
 mod saved_capture;
@@ -468,6 +469,7 @@ impl App {
                 "{} rows flushed across {} CSV parts",
                 report.csv_rows_flushed, report.csv_parts
             ));
+            logger_metrics::show(ui, report.logger_metrics.as_ref());
             if report.csv_rows_unconfirmed != 0 {
                 ui.colored_label(
                     WARNING,

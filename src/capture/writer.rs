@@ -1,4 +1,4 @@
-use super::{Row, csv_header, fs};
+use super::{Distribution, LoggerMetrics, Row, csv_header, fs, us};
 use crate::{decode, profile::Profile, transport::Validity};
 use anyhow::{Context, Result};
 use crossbeam_queue::ArrayQueue;
@@ -7,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
@@ -18,11 +18,18 @@ pub struct Summary {
     pub rows: u64,
     pub parts: u64,
     pub error: Option<String>,
+    pub metrics: Option<LoggerMetrics>,
+}
+
+struct QueuedRow {
+    row: Row,
+    enqueued: Instant,
 }
 
 struct Shared {
-    queue: ArrayQueue<Row>,
+    queue: ArrayQueue<QueuedRow>,
     stop: AtomicBool,
+    high_water: AtomicUsize,
 }
 
 pub struct Writer {
@@ -35,6 +42,7 @@ impl Writer {
         let shared = Arc::new(Shared {
             queue: ArrayQueue::new(profile.logging.queue_capacity),
             stop: AtomicBool::new(false),
+            high_water: AtomicUsize::new(0),
         });
         fs::create_dir(path)
             .with_context(|| format!("create new capture directory {}", path.display()))?;
@@ -52,16 +60,36 @@ impl Writer {
                     rows: output.flushed,
                     parts: output.part,
                     error: result.err().map(|error| format!("{error:#}")),
+                    metrics: Some(LoggerMetrics {
+                        queue_capacity: worker.queue.capacity(),
+                        queue_high_water_observed: worker.high_water.load(Ordering::Relaxed),
+                        rows_dequeued: output.queue_wait.histogram.len(),
+                        final_drain_us: 0,
+                        queue_wait: output.queue_wait.latency(),
+                        row_service: output.row_service.latency(),
+                        flush: output.flush_time.latency(),
+                        sync: output.sync_time.latency(),
+                    }),
                 }
             })?;
         Ok(Self { shared, thread })
     }
 
     pub fn enqueue(&self, row: Row) -> bool {
-        if self.shared.queue.push(row).is_ok() {
+        let queued = QueuedRow {
+            row,
+            enqueued: Instant::now(),
+        };
+        if self.shared.queue.push(queued).is_ok() {
+            self.shared
+                .high_water
+                .fetch_max(self.shared.queue.len().max(1), Ordering::Relaxed);
             self.thread.thread().unpark();
             true
         } else {
+            self.shared
+                .high_water
+                .fetch_max(self.shared.queue.capacity(), Ordering::Relaxed);
             false
         }
     }
@@ -71,12 +99,19 @@ impl Writer {
     }
 
     pub fn finish(self) -> Summary {
+        let start = Instant::now();
         self.shared.stop.store(true, Ordering::Release);
         self.thread.thread().unpark();
-        self.thread.join().unwrap_or_else(|_| Summary {
+        let mut summary = self.thread.join().unwrap_or_else(|_| Summary {
             error: Some("CSV writer panicked".into()),
             ..Summary::default()
-        })
+        });
+        if let Some(metrics) = &mut summary.metrics {
+            // Include producer observations made just before the writer finished on error.
+            metrics.queue_high_water_observed = self.shared.high_water.load(Ordering::Relaxed);
+            metrics.final_drain_us = us(start.elapsed());
+        }
+        summary
     }
 }
 
@@ -90,6 +125,10 @@ struct CsvOutput {
     part_start_us: u64,
     written: u64,
     flushed: u64,
+    queue_wait: Distribution,
+    row_service: Distribution,
+    flush_time: Distribution,
+    sync_time: Distribution,
 }
 
 impl CsvOutput {
@@ -117,23 +156,42 @@ impl CsvOutput {
             part_start_us: 0,
             written: 0,
             flushed: 0,
+            queue_wait: Distribution::new(),
+            row_service: Distribution::new(),
+            flush_time: Distribution::new(),
+            sync_time: Distribution::new(),
         })
     }
 
     fn flush(&mut self) -> Result<()> {
-        self.csv.flush()?;
+        let start = Instant::now();
+        let result = self.csv.flush();
+        self.flush_time.add(us(start.elapsed()));
+        result?;
         self.flushed = self.written;
         Ok(())
+    }
+
+    fn sync(&mut self) -> Result<()> {
+        let start = Instant::now();
+        let result = self.csv.get_ref().sync_all();
+        self.sync_time.add(us(start.elapsed()));
+        Ok(result?)
     }
 
     fn consume(&mut self, shared: &Shared, delay: Duration) -> Result<()> {
         let mut flush = Instant::now();
         loop {
-            if let Some(row) = shared.queue.pop() {
+            if let Some(queued) = shared.queue.pop() {
+                let started = Instant::now();
+                self.queue_wait
+                    .add(us(started.duration_since(queued.enqueued)));
                 if !delay.is_zero() {
                     thread::sleep(delay);
                 }
-                self.write(row)?;
+                let result = self.write(queued.row);
+                self.row_service.add(us(started.elapsed()));
+                result?;
             } else if shared.stop.load(Ordering::Acquire) && shared.queue.is_empty() {
                 break;
             } else {
@@ -145,7 +203,7 @@ impl CsvOutput {
             }
         }
         self.flush()?;
-        self.csv.get_ref().sync_all()?;
+        self.sync()?;
         Ok(())
     }
 
@@ -157,7 +215,7 @@ impl CsvOutput {
                 >= settings.rotate_seconds.saturating_mul(1_000_000);
         if self.part_rows != 0 && (rotate_rows || rotate_time) {
             self.flush()?;
-            self.csv.get_ref().sync_all()?;
+            self.sync()?;
             self.csv = Self::open_part(&self.path, &self.profile, self.part + 1)?;
             self.part += 1;
             self.part_rows = 0;

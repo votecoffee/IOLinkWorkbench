@@ -19,7 +19,9 @@ use std::{
 };
 
 mod deadline;
+mod logger;
 mod writer;
+pub use logger::{Latency, LoggerMetrics};
 
 pub(crate) const CSV_METADATA: &[&str] = &[
     "capture_utc_start",
@@ -180,6 +182,7 @@ pub struct Report {
     pub csv_rows_flushed: u64,
     pub csv_rows_unconfirmed: u64,
     pub csv_parts: u64,
+    pub logger_metrics: Option<LoggerMetrics>,
     pub counts: Counts,
     pub host_timer: &'static str,
     pub host_poll_start_spacing: Option<Spacing>,
@@ -605,6 +608,7 @@ fn run_with_transport(
             .saturating_sub(state.counts.logger_overruns)
             .saturating_sub(summary.rows),
         csv_parts: summary.parts,
+        logger_metrics: summary.metrics,
         counts: state.counts,
         host_timer: timer.label(),
         host_poll_start_spacing: poll_start.summarize(),

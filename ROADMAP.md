@@ -4,6 +4,7 @@
 
 - Shared one-port capture engine, portable GUI and CLI, saved profiles, manual mapping, and offline IODD inspection and decoding.
 - Headless checks for equal consecutive updates, change-only recording, snapshot labeling, invalid and stale inputs, reconnects, queue backpressure, and CSV rotation.
+- Saved logger telemetry measures observed queue high water, dequeued rows, queue wait, row service, CSV flush/file-sync attempts, and final stop/drain. GUI and CLI signal review retain the recorded measurements separately from source and receive cadence. Tests cover empty writers, backpressure, rotation failures, corrupt timing/count claims, and older reports without metrics. Measurements include p50/p95/p99/longest/mean; physical disk and 1 ms qualification remain separate.
 - Capture reliability checks cover frozen counters with zero reported age, retrying dropped changes, and reporting unconfirmed rows after a CSV rotation failure.
 - GUI CSV selection supports mapped-value checkboxes, IODD/manual/override labels, explicit column ordering, all-values reset, and raw-only logging with retained mappings. CLI capture accepts ordered repeated field overrides, raw-only, and all-fields options. Saved profiles persist the effective choice. Tests cover atomic selection failures, legacy defaults, mapping preservation, raw-only rotation/verification/re-decoding, Unicode field names, and snapshot freshness labels.
 - IODD checks cover display scaling, explicit no-unit metadata, ambiguous variant and datatype IDs, and overlapping supported input fields.

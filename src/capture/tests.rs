@@ -85,6 +85,29 @@ fn frozen_counter_overrides_a_gateway_age_of_zero() {
     assert_eq!(FreshnessState::default().stale(&sample, 5000), None);
 }
 
+#[test]
+fn empty_writer_measures_flush_and_sync_without_fabricated_row_latency() -> Result<()> {
+    fs::create_dir_all(".local")?;
+    let scratch = tempfile::tempdir_in(".local")?;
+    let profile = Profile::parse(include_str!("../../samples/simulator.toml"))?;
+    let summary = writer::Writer::start(
+        &scratch.path().join("empty"),
+        &profile,
+        "2026-11-12T00:00:00Z".into(),
+        Duration::ZERO,
+    )?
+    .finish();
+    assert!(summary.error.is_none());
+    assert_eq!(summary.rows, 0);
+    let metrics = summary.metrics.unwrap();
+    assert_eq!(metrics.queue_high_water_observed, 0);
+    assert!(metrics.queue_wait.is_none() && metrics.row_service.is_none());
+    assert_eq!(metrics.flush.as_ref().unwrap().count, 1);
+    assert_eq!(metrics.sync.as_ref().unwrap().count, 1);
+    metrics.validate(profile.logging.queue_capacity, 0, 0, 1, false)?;
+    Ok(())
+}
+
 struct SnapshotFixture {
     simulator: Box<dyn InputTransport>,
     samples: u32,
@@ -139,6 +162,21 @@ fn on_change_retries_a_dropped_value_until_it_is_queued() -> Result<()> {
     )?;
     assert!(report.success(), "{report:?}");
     assert!(report.counts.logger_overruns > 0);
+    let metrics = report.logger_metrics.as_ref().unwrap();
+    assert_eq!(metrics.queue_high_water_observed, 1);
+    assert_eq!(metrics.rows_dequeued, report.csv_rows_flushed);
+    assert_eq!(
+        metrics.row_service.as_ref().unwrap().count,
+        report.csv_rows_flushed
+    );
+    assert!(metrics.row_service.as_ref().unwrap().p50_us >= 80_000);
+    metrics.validate(
+        1,
+        report.csv_rows_flushed,
+        report.csv_rows_flushed,
+        report.csv_parts,
+        false,
+    )?;
     let mut csv = csv::Reader::from_path(output.join("capture-0001.csv"))?;
     let rows = csv.records().collect::<std::result::Result<Vec<_>, _>>()?;
     assert_eq!(rows.last().unwrap().get(11), Some("000A"));
@@ -174,6 +212,17 @@ fn rotation_failure_stops_capture_and_reports_unconfirmed_rows() -> Result<()> {
     assert!(report.elapsed_us < 2_000_000);
     assert_eq!(report.csv_rows_flushed, 1);
     assert!(report.csv_rows_unconfirmed > 0);
+    let metrics = report.logger_metrics.as_ref().unwrap();
+    assert!(metrics.rows_dequeued >= report.csv_rows_flushed);
+    assert_eq!(
+        metrics.queue_wait.as_ref().unwrap().count,
+        metrics.rows_dequeued
+    );
+    assert_eq!(
+        metrics.row_service.as_ref().unwrap().count,
+        metrics.rows_dequeued
+    );
+    assert!(metrics.flush.is_some() && metrics.sync.is_some());
     assert_eq!(
         report.counts.selected,
         report.csv_rows_flushed + report.csv_rows_unconfirmed + report.counts.logger_overruns

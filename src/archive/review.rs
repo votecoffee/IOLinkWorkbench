@@ -43,6 +43,7 @@ pub struct RecordedTiming {
     pub host_receive_spacing: Option<Spacing>,
     pub host_new_update_spacing: Option<Spacing>,
     pub gateway_update_spacing: Option<Spacing>,
+    pub logger_metrics: Option<crate::capture::LoggerMetrics>,
 }
 
 #[derive(Debug, Serialize)]
@@ -124,6 +125,7 @@ impl Collector {
                     host_receive_spacing: manifest.host_receive_spacing.clone(),
                     host_new_update_spacing: manifest.host_new_update_spacing.clone(),
                     gateway_update_spacing: manifest.gateway_update_spacing.clone(),
+                    logger_metrics: manifest.logger_metrics.clone(),
                 },
                 available_fields: fields.iter().map(|field| (*field).clone()).collect(),
                 field: (*field).clone(),

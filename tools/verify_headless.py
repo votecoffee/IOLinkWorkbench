@@ -147,7 +147,7 @@ def review_capture(cli, path, rows, report):
     assert sum(bucket["finite_values"] for bucket in signal["buckets"]) == len(finite)
     assert signal["recorded_logger_overruns"] == report["counts"]["logger_overruns"]
     assert review["capture"]["recorded_source_update_loss"] == report["source_update_loss"]
-    for key in ("host_poll_start_spacing", "host_receive_spacing", "host_new_update_spacing", "gateway_update_spacing"):
+    for key in ("host_poll_start_spacing", "host_receive_spacing", "host_new_update_spacing", "gateway_update_spacing", "logger_metrics"):
         assert signal["recorded_timing"].get(key) == report.get(key)
     explicit = tomllib.loads(run(cli, "review-capture", path, "--field", field["name"], "--buckets", 1))
     assert explicit["signal"]["numeric"] == numeric
@@ -252,6 +252,21 @@ def capture(cli, profile, path, *args):
     assert len(rows) == report["csv_rows_flushed"]
     assert report["csv_rows_unconfirmed"] == 0
     assert report["counts"]["selected"] == len(rows) + report["counts"]["logger_overruns"]
+    metrics = report["logger_metrics"]
+    saved_profile = tomllib.loads((path / "profile.toml").read_text(encoding="utf-8"))
+    assert metrics["queue_capacity"] == saved_profile["logging"]["queue_capacity"]
+    assert 1 <= metrics["queue_high_water_observed"] <= metrics["queue_capacity"]
+    assert metrics["rows_dequeued"] == len(rows)
+    assert metrics["queue_wait"]["count"] == metrics["row_service"]["count"] == len(rows)
+    assert metrics["flush"]["count"] >= metrics["sync"]["count"] == report["csv_parts"]
+    for key in ("queue_wait", "row_service", "flush", "sync"):
+        latency = metrics[key]
+        assert 0 <= latency["p50_us"] <= latency["p95_us"] <= latency["p99_us"] <= latency["longest_us"]
+        assert math.isfinite(latency["mean_us"]) and 0 <= latency["mean_us"] <= latency["longest_us"]
+    if report["counts"]["logger_overruns"]:
+        assert metrics["queue_high_water_observed"] == metrics["queue_capacity"]
+    if report["simulated_writer_delay_ms"]:
+        assert metrics["row_service"]["p50_us"] >= report["simulated_writer_delay_ms"] * 1000
     checked = tomllib.loads(run(cli, "verify-capture", path))
     assert checked["rows_checked"] == len(rows)
     assert checked["missing_sample_indexes"] == report["counts"]["logger_overruns"]
@@ -841,7 +856,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, "
+    print("PASS: ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "named scalar/record/array reads, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline reopening, array and localized CSV fields, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
