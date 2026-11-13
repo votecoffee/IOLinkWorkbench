@@ -839,6 +839,78 @@ def verify_identity_settings(cli, output):
     capture(cli, pinned, output / "capture", "--seconds", .25)
 
 
+def verify_mapping_settings(cli, output):
+    output.mkdir()
+    imported = output / "imported.toml"
+    source = output / "source.toml"
+    run(cli, "import", ROOT / "samples/sensor-formats.xml", imported)
+    run(cli, "select-display", imported, "V_SIM_Threshold", source, "--display", "M_SIM_Threshold/2")
+    source.write_bytes(b'# Original mapping profile bytes remain unchanged\n' + source.read_bytes())
+    original = source.read_bytes()
+    before = tomllib.loads(original.decode("utf-8"))
+    base = before["iodd"]["fields"][0]
+    name = base["name"]
+    assert not before.get("fields")
+    requests = Gateway.requests
+    edited = output / "override.toml"
+    run(cli, "set-field", source, edited, name, "--bit-offset", 0, "--bits", 12, "--kind", "signed",
+        "--byte-order", "big-endian", "--scale", .5, "--offset", -1, "--unit", "µm, scale", "--decimals", 3)
+    changed = tomllib.loads(edited.read_text(encoding="utf-8"))
+    expected = dict(base, bit_offset=0, bits=12, kind="signed", byte_order="big_endian", scale=.5, offset=-1., unit="µm, scale", decimals=3)
+    assert changed == dict(before, fields=[expected])
+    assert "-4.500" in run(cli, "decode", edited, "FFF9") and "override" in run(cli, "decode", edited, "FFF9")
+    saved = edited.read_bytes()
+    run(cli, "set-field", source, edited, name, "--unit", "must not replace", expected=1)
+    run(cli, "set-field", source, source, name, "--unit", "must not replace", expected=1)
+    assert source.read_bytes() == original and edited.read_bytes() == saved
+    little = output / "little-endian.toml"
+    run(cli, "set-field", edited, little, name, "--byte-order", "little-endian", "--scale", 1, "--offset", 0, "--clear-decimals")
+    assert "-1537" in run(cli, "decode", little, "FFF9")
+    auxiliary = "aux, µm"
+    added = output / "manual.toml"
+    run(cli, "set-field", edited, added, auxiliary, "--bit-offset", 0, "--bits", 1, "--kind", "bool")
+    assert "true" in run(cli, "decode", added, "FFF9")
+    updated = output / "updated.toml"
+    run(cli, "set-field", added, updated, auxiliary, "--unit", "changed")
+    assert [field["name"] for field in tomllib.loads(updated.read_text(encoding="utf-8"))["fields"]] == [name, auxiliary]
+    invalid = output / "must-not-exist.toml"
+    for args in [["--bits", 0], ["--bits", 65], ["--bit-offset", 16], ["--kind", "bool"], ["--kind", "float32", "--bits", 16],
+                 ["--scale", "NaN"], ["--offset", "inf"], ["--decimals", 13]]:
+        run(cli, "set-field", edited, invalid, name, *args, expected=1)
+        assert not invalid.exists()
+    run(cli, "set-field", source, invalid, "new", "--unit", "incomplete", expected=1)
+    for args in [[], ["--decimals", 2, "--clear-decimals"], ["--kind", "unknown"]]:
+        run(cli, "set-field", edited, invalid, name, *args, expected=2)
+        assert not invalid.exists()
+    run(cli, "remove-field", source, invalid, name, expected=1)
+    run(cli, "remove-field", source, invalid, "missing", expected=1)
+    restored_aux = output / "removed-aux.toml"
+    run(cli, "remove-field", added, restored_aux, auxiliary)
+    restored = output / "restored.toml"
+    run(cli, "remove-field", restored_aux, restored, name)
+    assert tomllib.loads(restored.read_text(encoding="utf-8")) == before
+    route = output / "unreachable-route.toml"
+    run(cli, "set-connection", added, route, "--gateway", "ifm-al1350", "--endpoint", "http://127.0.0.1:9")
+    offline = output / "unreachable-edited.toml"
+    run(cli, "set-field", route, offline, auxiliary, "--unit", "offline-only")
+    assert tomllib.loads(offline.read_text(encoding="utf-8"))["connection"] == tomllib.loads(route.read_text(encoding="utf-8"))["connection"]
+    assert Gateway.requests == requests and source.read_bytes() == original and edited.read_bytes() == saved
+    wide_source = output / "wide-source.toml"
+    wide_source.write_bytes((ROOT / "samples/simulator.toml").read_bytes().replace(b'input_bytes = 2', b'input_bytes = 8'))
+    wide = output / "wide.toml"
+    run(cli, "set-field", wide_source, wide, "wide", "--bit-offset", 0, "--bits", 64, "--kind", "unsigned", "--decimals", 2)
+    assert "18446744073709551615.00" in run(cli, "decode", wide, "FFFFFFFFFFFFFFFF")
+    snapshot = output / "parameter.json"
+    reading = tomllib.loads(run(cli, "read-parameter", added, "V_SIM_Threshold", "--snapshot", snapshot))
+    assert reading["raw_value"] == "500" and reading["preferred_display"] == tomllib.loads(run(cli, "review-parameter", snapshot))["decoded"]["preferred_display"]
+    capture(cli, added, output / "capture", "--seconds", .25, "--field", auxiliary)
+    selected = output / "capture/profile.toml"
+    selected_bytes = selected.read_bytes()
+    run(cli, "remove-field", selected, invalid, auxiliary, expected=1)
+    assert not invalid.exists() and selected.read_bytes() == selected_bytes
+    assert Gateway.requests == requests and source.read_bytes() == original and edited.read_bytes() == saved
+
+
 def verify_temporal_defaults(cli, output):
     output.mkdir()
     profile = output / "time-defaults.toml"
@@ -1173,6 +1245,7 @@ def main():
     verify_temporal_defaults(cli, scratch / "temporal-defaults")
     verify_connection_settings(cli, scratch / "connection-settings")
     verify_identity_settings(cli, scratch / "identity-settings")
+    verify_mapping_settings(cli, scratch / "mapping-settings")
     verify_xsd(cli, scratch)
     source = ROOT / "samples" / "simulator.toml"
     profile = source.read_text(encoding="utf-8")
@@ -1561,7 +1634,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline reopening, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")

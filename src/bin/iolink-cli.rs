@@ -13,6 +13,8 @@ use std::{path::PathBuf, time::Duration};
 mod connection;
 #[path = "iolink-cli/identity.rs"]
 mod identity;
+#[path = "iolink-cli/mapping.rs"]
+mod mapping;
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -42,6 +44,20 @@ enum Command {
     },
     /// Check a profile and list its effective fields.
     Validate { profile: PathBuf },
+    /// Save a cyclic manual field or IODD override to a new profile offline.
+    SetField {
+        profile: PathBuf,
+        output: PathBuf,
+        name: String,
+        #[command(flatten)]
+        changes: mapping::Arguments,
+    },
+    /// Remove a manual field/override in a new profile; imported IODD definitions are retained.
+    RemoveField {
+        profile: PathBuf,
+        output: PathBuf,
+        name: String,
+    },
     /// Save host connection settings to a new profile offline; no gateway access or configuration.
     SetConnection {
         profile: PathBuf,
@@ -240,6 +256,31 @@ impl IoddOptions {
 
 fn main() -> Result<()> {
     match Cli::parse().command {
+        Command::SetField {
+            profile,
+            output,
+            name,
+            changes,
+        } => {
+            let source = Profile::load(&profile)?;
+            changes.apply(&source, &name)?.save_new(&output)?;
+            println!(
+                "Saved host decoding field to {}. No gateway access or device configuration was performed.",
+                output.display()
+            );
+        }
+        Command::RemoveField {
+            profile,
+            output,
+            name,
+        } => {
+            let source = Profile::load(&profile)?;
+            source.without_manual_field(&name)?.save_new(&output)?;
+            println!(
+                "Removed manual decoding field/override in {}. Imported IODD definitions are retained.",
+                output.display()
+            );
+        }
         Command::SetIdentity {
             profile,
             output,

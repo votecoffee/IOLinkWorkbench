@@ -83,6 +83,11 @@ pub(super) fn render(
             let mut app = App::new();
             app.profile = profile.clone();
             app.setup.sync(&app.profile);
+            if tab == Tab::Setup
+                && let Some((field, origin)) = app.profile.effective_fields().first()
+            {
+                app.setup.edit_field((*field).clone(), *origin != "IODD");
+            }
             app.tab = tab;
             let before = app.profile.clone();
             let mut case = Case {

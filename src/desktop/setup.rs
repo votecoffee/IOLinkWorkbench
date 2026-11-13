@@ -8,6 +8,7 @@ use std::{
 
 mod connection;
 mod identity;
+mod mapping;
 
 pub struct Editor {
     path: String,
@@ -15,6 +16,7 @@ pub struct Editor {
     pending: bool,
     connection: connection::Form,
     identity: identity::Form,
+    mapping: mapping::Form,
     iodd_path: String,
     standard_definitions: String,
     standard_language_file: String,
@@ -38,6 +40,7 @@ impl Editor {
             pending: false,
             connection: connection::Form::new(&profile.connection),
             identity: identity::Form::new(&profile.expected_identity),
+            mapping: mapping::Form::default(),
             iodd_path: String::new(),
             standard_definitions: String::new(),
             standard_language_file: String::new(),
@@ -59,10 +62,18 @@ impl Editor {
         self.pending = false;
         self.connection.sync(&profile.connection);
         self.identity.sync(&profile.expected_identity);
+        self.mapping.sync(profile);
     }
 
     pub fn pending(&self) -> bool {
-        self.pending || self.connection.pending() || self.identity.pending()
+        self.pending
+            || self.connection.pending()
+            || self.identity.pending()
+            || self.mapping.pending()
+    }
+
+    pub fn edit_field(&mut self, field: Field, manual: bool) {
+        self.mapping.edit(field, manual);
     }
 
     pub fn busy(&self) -> bool {
@@ -131,12 +142,12 @@ impl Editor {
                 }
             });
             ui.separator();
-            if ui.add_enabled_ui(!self.pending && !self.identity.pending(), |ui| self.connection.show(ui, profile, message)).inner {
+            if ui.add_enabled_ui(!self.pending && !self.identity.pending() && !self.mapping.pending(), |ui| self.connection.show(ui, profile, message)).inner {
                 self.sync(profile);
                 changed = true;
             }
             ui.separator();
-            if ui.add_enabled_ui(!self.pending && !self.connection.pending(), |ui| self.identity.show(ui, profile, message)).inner {
+            if ui.add_enabled_ui(!self.pending && !self.connection.pending() && !self.mapping.pending(), |ui| self.identity.show(ui, profile, message)).inner {
                 self.sync(profile);
                 changed = true;
             }
@@ -165,23 +176,23 @@ impl Editor {
                     }
                 }
             }
-            let mut override_field = None;
+            let mut edit_field = None;
             for (field, origin) in profile.effective_fields() {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(format!("{} · {} · bit {} / {} · {:?} {:?} · ×{} + {} {}",
                         field.name, origin, field.bit_offset, field.bits, field.kind, field.byte_order,
                         field.scale, field.offset, field.unit));
-                    if origin == "IODD"
-                        && ui.add_enabled(!self.pending(), egui::Button::new("Edit as override")).clicked()
-                    { override_field = Some(field.clone()); }
+                    if ui.add_enabled(!self.pending(), egui::Button::new("Edit mapping")).clicked()
+                    { edit_field = Some((field.clone(), origin != "IODD")); }
                 });
             }
-            if let Some(field) = override_field { self.append_field(field); }
+            if let Some((field, manual)) = edit_field { self.edit_field(field, manual); }
             if ui.add_enabled(!self.pending(), egui::Button::new("Add manual field")).clicked() {
-                let existing = profile.effective_fields();
-                let name = (1..).map(|n| format!("field_{n}"))
-                    .find(|name| existing.iter().all(|(field, _)| field.name != *name)).expect("unused name");
-                self.append_field(Field { name, ..Field::default() });
+                self.mapping.new_field(profile);
+            }
+            if ui.add_enabled_ui(!self.pending && !self.connection.pending() && !self.identity.pending(), |ui| self.mapping.show(ui, profile, message)).inner {
+                self.sync(profile);
+                changed = true;
             }
             ui.separator();
             ui.heading("Advanced profile settings");
@@ -204,25 +215,11 @@ impl Editor {
                 }
                 if self.pending { ui.colored_label(WARNING, "Pending edits"); }
             });
-            if ui.add_enabled(!self.connection.pending() && !self.identity.pending(), egui::TextEdit::multiline(&mut self.toml).code_editor()
+            if ui.add_enabled(!self.connection.pending() && !self.identity.pending() && !self.mapping.pending(), egui::TextEdit::multiline(&mut self.toml).code_editor()
                 .desired_rows(16).desired_width(f32::INFINITY)).changed()
             { self.pending = true; }
         });
         changed
-    }
-
-    fn append_field(&mut self, field: Field) {
-        #[derive(serde::Serialize)]
-        struct FieldList {
-            fields: Vec<Field>,
-        }
-        let table = toml::to_string_pretty(&FieldList {
-            fields: vec![field],
-        })
-        .expect("serializable field");
-        self.toml.push('\n');
-        self.toml.push_str(&table);
-        self.pending = true;
     }
 
     fn iodd(&mut self, ui: &mut Ui, profile: &mut Profile, message: &mut String) -> bool {

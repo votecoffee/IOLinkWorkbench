@@ -5,6 +5,7 @@ use std::{collections::HashSet, fs, io::Write, path::Path};
 
 mod connection;
 mod identity;
+mod mapping;
 pub use identity::IdentityDraft;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
