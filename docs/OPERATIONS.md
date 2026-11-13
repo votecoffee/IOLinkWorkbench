@@ -63,6 +63,8 @@ Rotation is checked before the next row. Time rotation uses receive elapsed time
 
 ## Timing, loss and saved evidence
 
+Use `compare-captures LEFT RIGHT` or GUI **Compare two saved captures offline** to verify and compare finalized folders. Read the [comparison policy](CAPTURE_REVIEW.md#compare-two-captures): required settings must match before arithmetic differences appear, and counts additionally require equal recorded duration. Both complete reviews remain available even when deltas are suppressed. This never remeasures timing or follows saved endpoints.
+
 Use `review-interfaces DIRECTORY` for a verified offline view of all recorded interface counters, including raw-only captures. The GUI's Verify capture shows the same diagnostics and timing. Read the [capture review guide](CAPTURE_REVIEW.md) before treating coalescing, retention or socket/commit counts as delivery or source loss. No gateway, broker or mapping is opened by review.
 
 Keep the requested host interval, declared sensor minimum, reported port cycle, gateway update rate, source cadence, host poll/receive spacing and queue/writer timings separate. Treat 1 ms as a target to evaluate. AL1350 snapshots have no verifiable source update counter/timestamp in the supported path: source loss, source age and gateway update cadence are unknown. Host receive age is not sensor age. Simulator counters/timestamps are synthetic. Within-generation counter gaps cannot measure loss during disconnects.

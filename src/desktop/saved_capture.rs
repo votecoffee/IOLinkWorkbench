@@ -3,6 +3,7 @@ use eframe::egui::{Context, Ui};
 use iolink_workbench::archive;
 use std::{path::PathBuf, time::Duration};
 
+mod compare;
 mod interfaces;
 mod review;
 
@@ -15,6 +16,7 @@ enum Outcome {
 
 #[derive(Default)]
 pub struct Verifier {
+    comparer: compare::Comparer,
     directory: String,
     joined_csv: String,
     export_directory: String,
@@ -33,6 +35,7 @@ pub struct Verifier {
 
 impl Verifier {
     pub fn update(&mut self, ctx: &Context) {
+        self.comparer.update(ctx);
         if let Some(result) = completed(&mut self.worker) {
             self.export = None;
             self.checked_export = None;
@@ -85,6 +88,7 @@ impl Verifier {
         mapping_available: bool,
     ) {
         ui.heading("Review saved capture");
+        self.comparer.show(ui);
         let before = (
             self.directory.clone(),
             self.joined_csv.clone(),

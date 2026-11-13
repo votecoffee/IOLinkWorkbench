@@ -183,6 +183,8 @@ enum Command {
     },
     /// Verify all saved rows and review independent interface loss/accounting offline.
     ReviewInterfaces { directory: PathBuf },
+    /// Verify and compare two saved captures offline, with explicit context/availability.
+    CompareCaptures { left: PathBuf, right: PathBuf },
     /// Verify a saved capture and review one logged field without opening a gateway.
     ReviewCapture {
         directory: PathBuf,
@@ -289,6 +291,12 @@ impl IoddOptions {
 
 fn main() -> Result<()> {
     match Cli::parse().command {
+        Command::CompareCaptures { left, right } => {
+            print!(
+                "{}",
+                toml::to_string_pretty(&archive::compare_captures(&left, &right)?)?
+            );
+        }
         Command::ReviewInterfaces { directory } => {
             print!(
                 "{}",

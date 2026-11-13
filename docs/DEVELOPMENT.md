@@ -25,6 +25,8 @@ Capture plans describe saved configuration, never observed transport capabilitie
 
 `archive::review_interfaces` uses the same single-pass `inspect` path as verification/review/export, retaining the exact parsed profile/report bytes for hashes. It presents optional recorded interface summaries and availability separately from acquisition/CSV data. Offer totals are checked against acquisition events when receive/disconnect counters exist; legacy absence remains unavailable. The GUI's Verify action and optional field-review diagnostics share this interpretation. No live transport or IPC reader belongs in this path. See [offline review](CAPTURE_REVIEW.md).
 
+`archive::compare_captures` uses one complete inspection per side and only then constructs descriptive setting/metric comparisons. Required recorded settings include host connection, identity expectations, input width, effective mapping/IODD selection, logging, freshness/route, simulation controls and exporter configuration. Do not add clock alignment, source provenance inference, automatic benchmark verdicts, or loss-domain aggregation. Missing metrics remain unavailable and elapsed duration gates count differences. Comparison additionally rejects inconsistent recorded spacing statistics. See the [comparison policy](CAPTURE_REVIEW.md#compare-two-captures). Run `python tools/verify_comparison.py CLI CAPTURE_A CAPTURE_B` with explicitly chosen synthetic/recorded bundles; this suite opens no live service and preserves originals.
+
 ## Local validation
 
 Use a stable x64 MSVC Rust toolchain with Visual Studio C++ Build Tools and Windows SDK. The repository pins dependency resolution through Cargo.lock and static CRT through `.cargo/config.toml`. Run from the checkout root:

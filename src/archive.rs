@@ -21,6 +21,8 @@ mod review;
 pub use review::{Bucket, NumericSummary, RecordedTiming, Review, SignalReview};
 mod interfaces;
 pub use interfaces::{InterfaceContext, InterfaceFinding, InterfaceReview, RecordedInterfaces};
+mod compare;
+pub use compare::{CaptureComparison, ComparisonMetric, ComparisonSetting, compare_captures};
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
