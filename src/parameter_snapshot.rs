@@ -74,6 +74,7 @@ pub struct Snapshot {
 #[derive(Debug, Serialize)]
 pub struct Review {
     pub workbench_version: String,
+    pub decoder_version: String,
     pub parameter_id: String,
     pub name: String,
     pub index: u16,
@@ -88,8 +89,10 @@ pub struct Review {
 impl Review {
     pub fn text(&self) -> String {
         format!(
-            "Saved parameter snapshot · {}\n{} · index {}:{}\nMaster {} · firmware {} · port {} · {}\nIdentity {} · vendor {:?} · device {:?} · serial {:?}\nHost read {} · total operation {} µs\n{}",
+            "Saved parameter snapshot · {}\nProducer {} · decoder {}\n{} · index {}:{}\nMaster {} · firmware {} · port {} · {}\nIdentity {} · vendor {:?} · device {:?} · serial {:?}\nHost read {} · total operation {} µs\n{}",
             self.observation.route,
+            self.workbench_version,
+            self.decoder_version,
             self.name,
             self.index,
             self.subindex,
@@ -205,6 +208,7 @@ impl Snapshot {
         let target = parent.target(self.subindex)?;
         Ok(Review {
             workbench_version: self.workbench_version.clone(),
+            decoder_version: env!("CARGO_PKG_VERSION").into(),
             parameter_id: self.parameter_id.clone(),
             name: if parent.array.is_some() && self.subindex > 0 {
                 format!("{} [{}]", parent.name, self.subindex)

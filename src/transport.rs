@@ -176,6 +176,8 @@ pub struct ParameterReading {
     pub decode_error: Option<String>,
     pub record_items: Vec<crate::iodd::RecordValue>,
     pub array_items: Vec<crate::iodd::RecordValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time_value: Option<crate::iodd::TimeValue>,
 }
 
 /// Read one explicit IODD variable at subindex zero on the independent acyclic path.
@@ -238,6 +240,7 @@ pub(crate) fn read_parameter_observed(
             decode_error: decoded.decode_error,
             record_items: decoded.record_items,
             array_items: decoded.array_items,
+            time_value: decoded.time_value,
         },
         status,
     ))

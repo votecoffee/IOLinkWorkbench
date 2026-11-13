@@ -182,6 +182,19 @@ pub(super) fn apply(
                 continue;
             }
             let id = format!("{menu_id}/{}", ordinal + 1);
+            if matches!(parameter.datatype.as_str(), "TimeT" | "TimeSpanT") {
+                if reference
+                    .attribute("displayFormat")
+                    .is_none_or(|format| format == "default")
+                    && ["gradient", "offset", "unitCode"]
+                        .iter()
+                        .all(|attribute| reference.attribute(*attribute).is_none())
+                {
+                    continue;
+                }
+                parameter.needs_input.push(format!("Display {id}: time types support only the default view without gradient, offset or unitCode"));
+                continue;
+            }
             let display = (|| -> Result<Display> {
                 let mut field = parameter.scalar_field()?;
                 let raw_format = reference.attribute("displayFormat");

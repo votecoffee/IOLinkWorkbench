@@ -85,7 +85,9 @@ class Gateway(BaseHTTPRequestHandler):
         elif address == self.device + "/iolreadacyclic" and request["data"] in (
                 {"index": 19, "subindex": 0}, {"index": 36, "subindex": 0}, {"index": 37, "subindex": 0}, {"index": 64, "subindex": 0}, {"index": 65, "subindex": 0},
                 *({"index": 66, "subindex": subindex} for subindex in range(5)),
-                *({"index": 67, "subindex": subindex} for subindex in range(8))):
+                *({"index": 67, "subindex": subindex} for subindex in range(8)),
+                {"index": 71, "subindex": 0}, {"index": 72, "subindex": 0},
+                *({"index": index, "subindex": subindex} for index in (73, 74, 75) for subindex in range(3))):
             type(self).isdu_reads += 1
             index = request["data"]["index"]
             if index == self.block_index and self.block_parameter:
@@ -97,6 +99,10 @@ class Gateway(BaseHTTPRequestHandler):
                 (36, 0): "02", (37, 0): "E48DFE000000",
                 (66, 0): "FFEC010A54455354", (66, 1): "FFEC", (66, 2): "01", (66, 3): "0A", (66, 4): "54455354",
                 (67, 0): "02C495F0", (67, 1): "02", (67, 2): "FC", (67, 3): "04", (67, 4): "F9", (67, 5): "05", (67, 6): "FF", (67, 7): "00",
+                (71, 0): "9DFF440080000000", (72, 0): "FFFFFFFD40000000",
+                (73, 0): "9DFF440080000000FFFFFFFD40000000", (73, 1): "9DFF440080000000", (73, 2): "FFFFFFFD40000000",
+                (74, 0): "9DFF4400800000000000000000000000", (74, 1): "9DFF440080000000", (74, 2): "0000000000000000",
+                (75, 0): "00000001800000008000000000000000", (75, 1): "0000000180000000", (75, 2): "8000000000000000",
             }[(index, request["data"]["subindex"])]}
             if index == 37 and self.fail_detailed:
                 response["code"] = 500
@@ -492,6 +498,40 @@ def verify_standard_languages(cli, source, output):
     return profile
 
 
+def verify_time_parameters(cli, profile, output):
+    output.mkdir()
+    for variable, subindex, payload, value in [
+        ("V_SIM_Time", 0, "9DFF440080000000", "1984-01-01 00:00:00.500 UTC"),
+        ("V_SIM_TimeSpan", 0, "FFFFFFFD40000000", "-00:00:02.750"),
+        ("V_SIM_TimeRecord", 1, "9DFF440080000000", "1984-01-01 00:00:00.500 UTC"),
+        ("V_SIM_TimeRecord", 2, "FFFFFFFD40000000", "-00:00:02.750"),
+        ("V_SIM_Times", 2, "0000000000000000", "2036-02-07 06:28:16.000 UTC"),
+        ("V_SIM_TimeSpans", 2, "8000000000000000", "-24855 03:14:08.000")]:
+        path = output / f"{variable}-{subindex}.json"
+        reading = tomllib.loads(run(cli, "read-parameter", profile, variable, "--subindex", subindex, "--snapshot", path))
+        before = Gateway.requests
+        offline = tomllib.loads(run(cli, "decode-parameter", profile, variable, payload, "--subindex", subindex))
+        restored = tomllib.loads(run(cli, "review-parameter", path))
+        assert Gateway.requests == before
+        assert reading["raw_hex"] == offline["raw_hex"] == restored["decoded"]["raw_hex"] == payload
+        assert reading["time_value"] == offline["time_value"] == restored["decoded"]["time_value"]
+        assert reading["time_value"]["value"] == value
+        assert reading["raw_value"] == reading["time_value"]["raw_ticks"]
+        assert reading["time_value"]["bits"] == 64 and reading["time_value"]["byte_order"] == "big_endian"
+        assert restored["decoder_version"] == run(cli, "--version").strip().split()[-1]
+    for variable, key in [("V_SIM_TimeRecord", "record_items"), ("V_SIM_Times", "array_items"), ("V_SIM_TimeSpans", "array_items")]:
+        whole = tomllib.loads(run(cli, "read-parameter", profile, variable))
+        offline = tomllib.loads(run(cli, "decode-parameter", profile, variable, whole["raw_hex"]))
+        assert len(whole[key]) == 2 and whole[key] == offline[key]
+        assert all("time_value" in item["value"] for item in whole[key])
+    short = tomllib.loads(run(cli, "decode-parameter", profile, "V_SIM_Time", "FF" * 7, expected=1))
+    assert short["raw_hex"] == "FF" * 7 and short["decode_error"] and "time_value" not in short
+    negative_tick = tomllib.loads(run(cli, "decode-parameter", profile, "V_SIM_TimeSpan", "FFFFFFFFFFFFFFFF"))
+    assert negative_tick["time_value"]["sub_millisecond_truncated"] and negative_tick["raw_value"] == "-1"
+    maximum = tomllib.loads(run(cli, "decode-parameter", profile, "V_SIM_Time", "FFFFFFFFFFFFFFFF"))
+    assert maximum["raw_value"] == "18446744073709551615" and maximum["time_value"]["sub_millisecond_truncated"]
+
+
 def verify_xsd(cli, scratch):
     folder = scratch / "schema '$ local"
     folder.mkdir()
@@ -672,6 +712,9 @@ def main():
     run(cli, "decode-parameter", formats_profile, "V_SIM_Threshold", "FF", expected=1)
     verify_display_preferences(cli, formats_profile, scratch / "sim-display-preferences")
     verify_parameter_snapshots(cli, formats_profile, scratch / "sim-parameter-snapshots")
+    time_profile = scratch / "time.toml"
+    run(cli, "import", ROOT / "samples/sensor-time.xml", time_profile)
+    verify_time_parameters(cli, time_profile, scratch / "sim-time")
 
     clean, rows = capture(cli, source, scratch / "sim-every", "--seconds", 1)
     assert clean["last_status"]["route"] == "synthetic simulator"
@@ -827,6 +870,12 @@ kind = "bool"
             text = text.replace('port = 1', 'port = 1\nifm_mode = 3\nifm_cycle_unit = "microseconds"')
             parameter_fixture.write_text(text.replace('poll_us = 1000', 'poll_us = 10000'), encoding="utf-8")
             Gateway.device_id = 1
+            time_fixture = scratch / "time-fixture.toml"
+            time_text = time_profile.read_text(encoding="utf-8").replace('gateway = "simulator"', 'gateway = "ifm_al1350"')
+            time_text = time_text.replace('endpoint = ""', f'endpoint = "http://127.0.0.1:{server.server_port}"')
+            time_text = time_text.replace('ifm_firmware = ""', 'ifm_firmware = "3.1.42"').replace('port = 1', 'port = 1\nifm_mode = 3')
+            time_fixture.write_text(time_text, encoding="utf-8")
+            verify_time_parameters(cli, time_fixture, scratch / "ifm-time")
             language_fixture = scratch / "standard-language-fixture.toml"
             language_text = standard_language_profile.read_text(encoding="utf-8").replace('gateway = "simulator"', 'gateway = "ifm_al1350"')
             language_text = language_text.replace('endpoint = ""', f'endpoint = "http://127.0.0.1:{server.server_port}"')
@@ -903,7 +952,7 @@ kind = "bool"
 
     print("PASS: ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
-          "named scalar/record/array reads, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline reopening, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
+          "named scalar/record/array reads, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline reopening, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 
 

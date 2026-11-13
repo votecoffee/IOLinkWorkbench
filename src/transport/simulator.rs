@@ -118,9 +118,25 @@ pub fn read_isdu(index: u16, subindex: u8) -> Result<Vec<u8>> {
         (67, 1..=7) => Ok(vec![
             [2i8, -4, 4, -7, 5, -1, 0][usize::from(subindex - 1)] as u8,
         ]),
+        (71, 0) | (73, 1) | (74, 1) => Ok(0x9DFF_4400_8000_0000u64.to_be_bytes().to_vec()),
+        (72, 0) | (73, 2) => Ok(0xFFFF_FFFD_4000_0000u64.to_be_bytes().to_vec()),
+        (73, 0) => Ok([
+            0x9DFF_4400_8000_0000u64.to_be_bytes(),
+            0xFFFF_FFFD_4000_0000u64.to_be_bytes(),
+        ]
+        .concat()),
+        (74, 0) => Ok([0x9DFF_4400_8000_0000u64.to_be_bytes(), 0u64.to_be_bytes()].concat()),
+        (74, 2) => Ok(0u64.to_be_bytes().to_vec()),
+        (75, 0) => Ok([
+            0x0000_0001_8000_0000u64.to_be_bytes(),
+            i64::MIN.to_be_bytes(),
+        ]
+        .concat()),
+        (75, 1) => Ok(0x0000_0001_8000_0000u64.to_be_bytes().to_vec()),
+        (75, 2) => Ok(i64::MIN.to_be_bytes().to_vec()),
         _ => {
             bail!(
-                "simulator defines identity (18:0, 19:0, 21:0), diagnostics (36:0, 37:0), threshold (64:0), label (65:0), record (66:0 through 66:4), and array (67:0 through 67:7)"
+                "simulator defines identity (18:0, 19:0, 21:0), diagnostics (36:0, 37:0), threshold (64:0), label (65:0), record (66:0 through 66:4), array (67:0 through 67:7), and time parameters (71:0, 72:0, 73:0 through 73:2, 74:0 through 74:2, 75:0 through 75:2)"
             )
         }
     }

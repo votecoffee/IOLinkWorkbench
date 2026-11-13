@@ -24,7 +24,7 @@ mod resources;
 pub mod schema;
 pub use parameters::{
     Access, Array, Choice, DecodedParameter, Display, DisplayValue, NumberFormat, Parameter,
-    Record, RecordItem, RecordValue, ValueRange,
+    Record, RecordItem, RecordValue, TimeValue, ValueRange,
 };
 pub use resources::{Localization, StandardLocalization};
 

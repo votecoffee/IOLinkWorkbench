@@ -13,6 +13,8 @@ pub struct DecodedParameter {
     pub decode_error: Option<String>,
     pub record_items: Vec<RecordValue>,
     pub array_items: Vec<RecordValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time_value: Option<super::TimeValue>,
 }
 
 #[derive(Debug, Serialize)]
@@ -43,6 +45,7 @@ impl DecodedParameter {
             decode_error: Some(error.to_string()),
             record_items: Vec::new(),
             array_items: Vec::new(),
+            time_value: None,
         }
     }
 
@@ -53,6 +56,9 @@ impl DecodedParameter {
         }
         if let Some(name) = &self.choice_name {
             text.push_str(&format!(" · {name}"));
+        }
+        if let Some(time) = &self.time_value {
+            text.push_str(&format!("\n{}", time.text()));
         }
         for display in &self.displays {
             text.push_str(&format!(
@@ -106,12 +112,19 @@ impl Parameter {
             decode_error: None,
             record_items: Vec::new(),
             array_items: Vec::new(),
+            time_value: None,
         };
         value.choice_name = value
             .raw_value
             .as_deref()
             .and_then(|raw| self.choices.iter().find(|choice| choice.value == raw))
             .map(|choice| choice.name.clone());
+        if matches!(self.datatype.as_str(), "TimeT" | "TimeSpanT") {
+            match super::time::decode(&self.datatype, payload) {
+                Ok(time) => value.time_value = Some(time),
+                Err(error) => value.decode_error = Some(error.to_string()),
+            }
+        }
         match self.decode_displays(payload) {
             Ok(displays) => value.displays = displays,
             Err(error) => value.decode_error = Some(error.to_string()),

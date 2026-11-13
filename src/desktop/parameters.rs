@@ -119,6 +119,9 @@ fn picker<'a>(
     if let Some(bits) = target.bits {
         ui.label(format!("Declared width · {bits} bits"));
     }
+    if matches!(target.datatype.as_str(), "TimeT" | "TimeSpanT") {
+        ui.small("Time layout · 64 bits · big endian · 1/2^32-second ticks · clock validity is separate from decoding");
+    }
     if let Some(length) = target.fixed_length {
         ui.label(format!("Declared length · {length} bytes"));
     }

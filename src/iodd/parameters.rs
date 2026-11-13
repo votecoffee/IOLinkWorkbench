@@ -9,11 +9,13 @@ mod array;
 mod display;
 mod record;
 mod standard;
+mod time;
 mod value;
 pub use array::Array;
 pub use display::{Display, DisplayValue, NumberFormat};
 pub use record::{Record, RecordItem};
 pub(super) use standard::load as load_standard;
+pub use time::TimeValue;
 pub use value::{DecodedParameter, RecordValue};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -82,6 +84,12 @@ pub struct Parameter {
 
 impl Parameter {
     pub fn validate(&self) -> Result<()> {
+        if matches!(self.datatype.as_str(), "TimeT" | "TimeSpanT") {
+            ensure!(
+                self.bits.is_none_or(|bits| bits == 64),
+                "time datatypes require 64 bits"
+            );
+        }
         ensure!(
             !self.id.trim().is_empty() && !self.name.trim().is_empty(),
             "parameter ID or name is empty"
@@ -172,6 +180,7 @@ impl Parameter {
 
     pub fn width(&self) -> Option<u16> {
         match self.datatype.as_str() {
+            "TimeT" | "TimeSpanT" => Some(64),
             "StringT" | "OctetStringT" => self.fixed_length?.checked_mul(8),
             _ => self.bits,
         }
@@ -214,6 +223,9 @@ impl Parameter {
 
     /// Return the parameter's raw scalar or text value. Engineering display scaling is separate.
     pub fn decode_raw(&self, payload: &[u8]) -> Result<Option<String>> {
+        if matches!(self.datatype.as_str(), "TimeT" | "TimeSpanT") {
+            return Ok(Some(time::raw_ticks(&self.datatype, payload)?));
+        }
         if self.datatype == "StringT" {
             let length = usize::from(
                 self.fixed_length
@@ -354,6 +366,7 @@ fn parse_parameter<'a, 'i>(
             parameter.bits = match parameter.datatype.as_str() {
                 "BooleanT" => Some(1),
                 "Float32T" => Some(32),
+                "TimeT" | "TimeSpanT" => Some(64),
                 _ => dt.attribute("bitLength").map(str::parse).transpose()?,
             };
             parameter.fixed_length = dt.attribute("fixedLength").map(str::parse).transpose()?;
@@ -432,6 +445,8 @@ fn parse_parameter<'a, 'i>(
                     | "StringT"
                     | "RecordT"
                     | "ArrayT"
+                    | "TimeT"
+                    | "TimeSpanT"
             ) {
                 parameter.needs_input.push(format!(
                     "{} is available as raw hexadecimal",

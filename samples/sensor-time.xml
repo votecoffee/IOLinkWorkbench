@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<IODevice xmlns="http://www.io-link.com/IODD/2010/10" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <!-- Original synthetic time fixture. No physical sensor is associated with it. -->
+  <ProfileBody>
+    <DeviceIdentity vendorId="65535" deviceId="1">
+      <DeviceVariantCollection><DeviceVariant productId="SIM-SENSOR"><Name textId="sensor"/></DeviceVariant></DeviceVariantCollection>
+    </DeviceIdentity>
+    <DeviceFunction>
+      <VariableCollection>
+        <Variable id="V_SIM_Time" index="71" accessRights="ro" defaultValue="1984-01-01T00:00:00.5">
+          <Datatype xsi:type="TimeT"/><Name textId="time"/>
+        </Variable>
+        <Variable id="V_SIM_TimeSpan" index="72" accessRights="ro" defaultValue="-PT2.75S">
+          <Datatype xsi:type="TimeSpanT"/><Name textId="span"/>
+        </Variable>
+        <Variable id="V_SIM_TimeRecord" index="73" accessRights="ro">
+          <Datatype xsi:type="RecordT" bitLength="128" subindexAccessSupported="true">
+            <RecordItem subindex="1" bitOffset="64"><SimpleDatatype xsi:type="TimeT"/><Name textId="time"/></RecordItem>
+            <RecordItem subindex="2" bitOffset="0"><SimpleDatatype xsi:type="TimeSpanT"/><Name textId="span"/></RecordItem>
+          </Datatype><Name textId="record"/>
+        </Variable>
+        <Variable id="V_SIM_Times" index="74" accessRights="ro">
+          <Datatype xsi:type="ArrayT" count="2" subindexAccessSupported="true"><SimpleDatatype xsi:type="TimeT"/></Datatype><Name textId="times"/>
+        </Variable>
+        <Variable id="V_SIM_TimeSpans" index="75" accessRights="ro">
+          <Datatype xsi:type="ArrayT" count="2" subindexAccessSupported="true"><SimpleDatatype xsi:type="TimeSpanT"/></Datatype><Name textId="spans"/>
+        </Variable>
+      </VariableCollection>
+      <ProcessDataCollection>
+        <ProcessData id="PD"><ProcessDataIn id="IN" bitLength="16" unitCode="1997"><Datatype xsi:type="UIntegerT" bitLength="16"/></ProcessDataIn></ProcessData>
+      </ProcessDataCollection>
+      <UserInterface><MenuCollection><Menu id="M_TIME">
+        <VariableRef variableId="V_SIM_Time" displayFormat="default"/>
+        <VariableRef variableId="V_SIM_TimeSpan" displayFormat="default"/>
+        <RecordItemRef variableId="V_SIM_TimeRecord" subindex="1" displayFormat="default"/>
+        <RecordItemRef variableId="V_SIM_TimeRecord" subindex="2" displayFormat="default"/>
+        <VariableRef variableId="V_SIM_Times" displayFormat="default"/>
+      </Menu></MenuCollection></UserInterface>
+    </DeviceFunction>
+  </ProfileBody>
+  <ExternalTextCollection><PrimaryLanguage xml:lang="en">
+    <Text id="sensor" value="Synthetic time sensor"/><Text id="time" value="Recorded device time"/>
+    <Text id="span" value="Recorded duration"/><Text id="record" value="Time record"/>
+    <Text id="times" value="Device times"/><Text id="spans" value="Durations"/>
+  </PrimaryLanguage></ExternalTextCollection>
+</IODevice>
