@@ -32,7 +32,10 @@ pub(super) fn apply(function: Node<'_, '_>, parameters: &mut [Parameter]) {
         let menu_id = menu.attribute("id").unwrap_or("unnamed-menu");
         for (ordinal, reference) in menu
             .children()
-            .filter(|node| node.has_tag_name((IODD_NAMESPACE, "VariableRef")))
+            .filter(|node| {
+                node.has_tag_name((IODD_NAMESPACE, "VariableRef"))
+                    || node.has_tag_name((IODD_NAMESPACE, "RecordItemRef"))
+            })
             .enumerate()
         {
             let Some(parameter) = parameters
@@ -40,6 +43,31 @@ pub(super) fn apply(function: Node<'_, '_>, parameters: &mut [Parameter]) {
                 .find(|p| Some(p.id.as_str()) == reference.attribute("variableId"))
             else {
                 continue;
+            };
+            let parameter = if reference.has_tag_name((IODD_NAMESPACE, "RecordItemRef")) {
+                let Some(subindex) = reference
+                    .attribute("subindex")
+                    .and_then(|value| value.parse::<u8>().ok())
+                else {
+                    parameter
+                        .needs_input
+                        .push("Menu record reference has no valid subindex".into());
+                    continue;
+                };
+                let Some(item) = parameter.record.as_mut().and_then(|record| {
+                    record
+                        .items
+                        .iter_mut()
+                        .find(|item| item.subindex == subindex)
+                }) else {
+                    parameter.needs_input.push(format!(
+                        "Menu reference to unresolved record subindex {subindex}"
+                    ));
+                    continue;
+                };
+                &mut item.parameter
+            } else {
+                parameter
             };
             if !["gradient", "offset", "unitCode", "displayFormat"]
                 .iter()
@@ -82,11 +110,19 @@ pub(super) fn apply(function: Node<'_, '_>, parameters: &mut [Parameter]) {
         }
     }
     for parameter in parameters {
-        if parameter.displays.len() > 1 {
-            parameter.needs_input.push(
-                "Multiple menu displays are retained separately; confirm which display applies"
-                    .into(),
-            );
+        mark_multiple(parameter);
+        if let Some(record) = &mut parameter.record {
+            for item in &mut record.items {
+                mark_multiple(&mut item.parameter);
+            }
         }
+    }
+}
+
+fn mark_multiple(parameter: &mut Parameter) {
+    if parameter.displays.len() > 1 {
+        parameter.needs_input.push(
+            "Multiple menu displays are retained separately; confirm which display applies".into(),
+        );
     }
 }

@@ -47,7 +47,20 @@ enum Command {
     /// List imported IODD parameters without contacting a gateway.
     Parameters { profile: PathBuf },
     /// Read one named IODD parameter through the independent acyclic client.
-    ReadParameter { profile: PathBuf, id: String },
+    ReadParameter {
+        profile: PathBuf,
+        id: String,
+        #[arg(long, default_value_t = 0)]
+        subindex: u8,
+    },
+    /// Decode a recorded ISDU payload offline, using the saved IODD catalog.
+    DecodeParameter {
+        profile: PathBuf,
+        id: String,
+        payload: String,
+        #[arg(long, default_value_t = 0)]
+        subindex: u8,
+    },
     /// Verify a finalized capture offline and optionally join its rotated CSV parts.
     VerifyCapture {
         directory: PathBuf,
@@ -103,11 +116,35 @@ fn main() -> Result<()> {
                 })?
             );
         }
-        Command::ReadParameter { profile, id } => {
+        Command::ReadParameter {
+            profile,
+            id,
+            subindex,
+        } => {
             let profile = Profile::load(&profile)?;
             print!(
                 "{}",
-                toml::to_string_pretty(&transport::read_parameter(&profile, &id)?)?
+                toml::to_string_pretty(&transport::read_parameter_at(&profile, &id, subindex)?)?
+            );
+        }
+        Command::DecodeParameter {
+            profile,
+            id,
+            payload,
+            subindex,
+        } => {
+            let profile = Profile::load(&profile)?;
+            let parameter = profile.parameter(&id)?.target(subindex)?;
+            let bytes = decode::parse_hex_bounded(&payload, 232)?;
+            let decoded = parameter.decode(&bytes);
+            print!("{}", toml::to_string_pretty(&decoded)?);
+            ensure!(
+                decoded.decode_error.is_none()
+                    && decoded
+                        .record_items
+                        .iter()
+                        .all(|item| item.value.decode_error.is_none()),
+                "parameter payload needs decoding review; raw bytes retained above"
             );
         }
         Command::VerifyCapture {

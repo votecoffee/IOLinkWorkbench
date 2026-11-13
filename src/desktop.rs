@@ -96,6 +96,8 @@ struct App {
     offline_hex: String,
     saved_capture: saved_capture::Verifier,
     selected_parameter: Option<String>,
+    selected_subindex: u8,
+    offline_parameter: parameters::Offline,
 }
 
 impl App {
@@ -124,6 +126,8 @@ impl App {
             offline_hex: "FFF9".into(),
             saved_capture: saved_capture::Verifier::default(),
             selected_parameter: None,
+            selected_subindex: 0,
+            offline_parameter: parameters::Offline::default(),
         }
     }
 
@@ -463,18 +467,19 @@ impl App {
             }
         }
         ui.separator();
-        if let Some(id) = parameters::show(
+        if let Some((id, subindex)) = parameters::show(
             ui,
             &self.profile,
             &mut self.selected_parameter,
+            &mut self.selected_subindex,
             self.isdu_worker.is_none() && !self.setup.pending,
         ) {
             let profile = self.profile.clone();
             match background("acyclic-iodd-parameter", move || {
-                let reading = transport::read_parameter(&profile, &id)?;
+                let reading = transport::read_parameter_at(&profile, &id, subindex)?;
                 let mut text = format!(
-                    "{} · index {}:0\nRaw bytes {}",
-                    reading.name, reading.index, reading.raw_hex
+                    "{} · index {}:{}\nRaw bytes {}",
+                    reading.name, reading.index, reading.subindex, reading.raw_hex
                 );
                 if let Some(value) = &reading.raw_value {
                     text.push_str(&format!("\nRaw value {value}"));
@@ -489,6 +494,15 @@ impl App {
                     text.push_str(&format!(
                         "\nDisplay {} · {} {}",
                         display.id, display.value, display.unit
+                    ));
+                }
+                for item in &reading.record_items {
+                    text.push_str(&format!(
+                        "\n\n{} · subindex {} · bit {}\n{}",
+                        item.name,
+                        item.subindex,
+                        item.bit_offset,
+                        item.value.text()
                     ));
                 }
                 text.push_str(&format!(
@@ -560,6 +574,8 @@ impl App {
             }
         }
         ui.separator();
+        self.offline_parameter.show(ui, &self.profile);
+        ui.separator();
         self.saved_capture.show(ui);
     }
 }
@@ -612,6 +628,8 @@ impl eframe::App for App {
                                 self.live = Live::default();
                                 self.report = None;
                                 self.selected_parameter = None;
+                                self.selected_subindex = 0;
+                                self.offline_parameter = parameters::Offline::default();
                             }
                         }
                         Tab::Monitor => self.monitor(ui),

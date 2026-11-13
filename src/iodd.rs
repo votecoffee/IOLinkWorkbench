@@ -17,7 +17,10 @@ const IODD_NAMESPACE: &str = "http://www.io-link.com/IODD/2010/10";
 const XSI: &str = "http://www.w3.org/2001/XMLSchema-instance";
 
 mod parameters;
-pub use parameters::{Access, Choice, Display, DisplayValue, Parameter, ValueRange};
+pub use parameters::{
+    Access, Choice, DecodedParameter, Display, DisplayValue, Parameter, Record, RecordItem,
+    RecordValue, ValueRange,
+};
 
 #[derive(Debug, Serialize)]
 pub struct Variant {
@@ -500,3 +503,6 @@ fn parse_with_definitions(xml: &str, source: String, definitions: &[Parameter]) 
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod record_tests;

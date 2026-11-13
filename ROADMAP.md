@@ -9,6 +9,7 @@
 - Offline capture verification checks rotated CSV parts against the saved profile and report, with optional combined CSV output. Rejected reconnects retain the accepted capture identity and record the rejected candidate separately.
 - Explicit IODD variable catalogs persist names, indexes, access rights, defaults, choices, and ranges. Named scalar and text parameter reads use the acyclic client, with raw payloads retained on decoding errors.
 - Optional local IODD standard definitions resolve referenced parameters into saved profiles. Numeric menu displays retain separate scaling, units, formatting, and raw values. The 22 official example XML files imported with 329 resolved standard references and 15 supported parameter display mappings in an offline check.
+- Parameter records preserve member layouts, defaults, access restrictions, standard record references, and menu display metadata. Whole-record and named subindex reads share the offline ISDU decoder. An offline import of the 22 official XML examples retained 46 records and 406 members. Synthetic and loopback checks cover member reads, whole-record decoding, malformed members, read restrictions, and 232-byte payloads.
 - Documented ifm AL1350 IoT Core adapter with an isolated JSON loopback fixture. Physical acceptance begins once the master and sensor are selected.
 
 ## First physical bench
@@ -23,5 +24,5 @@
 - Add one documented source-counter or timestamp transport once selected hardware exposes it. Qualify timestamp clock, counter wrap, update semantics and firmware-specific behavior.
 - Add multiple independent port sessions with per-port identity, status, and capture accounting.
 - Expand IODD handling for arrays, external language files, profile snippets, unit definitions and schema validation. Add representative sanitized fixtures for supported device families.
-- Expand parameter decoding for records, arrays, standard record-item restrictions, and additional display formats. Add explicit display selection when a parameter has multiple menu representations.
+- Expand parameter decoding for arrays, nested layouts, and additional display formats. Add explicit display selection when a parameter has multiple menu representations.
 - Consider any configuration or output features only after explicit authorization for the specific operation and bench setup.

@@ -107,9 +107,14 @@ pub fn read_isdu(index: u16, subindex: u8) -> Result<Vec<u8>> {
         (21, 0) => Ok(b"SIM-0001".to_vec()),
         (64, 0) => Ok(500i16.to_be_bytes().to_vec()),
         (65, 0) => Ok(b"synthetic sensor".to_vec()),
+        (66, 0) => Ok(vec![0xFF, 0xEC, 1, 10, b'T', b'E', b'S', b'T']),
+        (66, 1) => Ok((-20i16).to_be_bytes().to_vec()),
+        (66, 2) => Ok(vec![1]),
+        (66, 3) => Ok(vec![10]),
+        (66, 4) => Ok(b"TEST".to_vec()),
         _ => {
             bail!(
-                "simulator defines identity (18:0, 19:0, 21:0), threshold (64:0), and label (65:0)"
+                "simulator defines identity (18:0, 19:0, 21:0), threshold (64:0), label (65:0), and record (66:0 through 66:4)"
             )
         }
     }

@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<IODevice xmlns="http://www.io-link.com/IODD/2010/10" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <!-- Original synthetic fixture. ISDU 66:0 is FFEC010A54455354. No physical sensor is associated with it. -->
+  <ProfileBody>
+    <DeviceIdentity vendorId="65535" deviceId="1">
+      <DeviceVariantCollection>
+        <DeviceVariant productId="SIM-SENSOR"><Name textId="sensor"/></DeviceVariant>
+      </DeviceVariantCollection>
+    </DeviceIdentity>
+    <DeviceFunction>
+      <VariableCollection>
+        <Variable id="V_SIM_Record" index="66" accessRights="rw">
+          <Datatype xsi:type="RecordT" bitLength="64" subindexAccessSupported="true">
+            <RecordItem subindex="1" bitOffset="48" accessRightRestriction="ro">
+              <SimpleDatatype xsi:type="IntegerT" bitLength="16"/>
+              <Name textId="level"/>
+            </RecordItem>
+            <RecordItem subindex="2" bitOffset="40">
+              <SimpleDatatype xsi:type="BooleanT"/>
+              <Name textId="switch"/>
+            </RecordItem>
+            <RecordItem subindex="3" bitOffset="32">
+              <SimpleDatatype xsi:type="UIntegerT" bitLength="8">
+                <SingleValue value="10"><Name textId="mode"/></SingleValue>
+              </SimpleDatatype>
+              <Name textId="mode"/>
+            </RecordItem>
+            <RecordItem subindex="4" bitOffset="0">
+              <SimpleDatatype xsi:type="StringT" fixedLength="4" encoding="US-ASCII"/>
+              <Name textId="label"/>
+            </RecordItem>
+          </Datatype>
+          <RecordItemInfo subindex="1" defaultValue="-20"/>
+          <Name textId="record"/>
+        </Variable>
+      </VariableCollection>
+      <ProcessDataCollection>
+        <ProcessData id="PD">
+          <ProcessDataIn id="IN" bitLength="16"><Datatype xsi:type="IntegerT" bitLength="16"/></ProcessDataIn>
+        </ProcessData>
+      </ProcessDataCollection>
+      <UserInterface>
+        <MenuCollection>
+          <Menu id="M_SIM_Record">
+            <RecordItemRef variableId="V_SIM_Record" subindex="1" gradient="0.1" offset="2" unitCode="1013" displayFormat="Dec.1"/>
+          </Menu>
+        </MenuCollection>
+      </UserInterface>
+    </DeviceFunction>
+  </ProfileBody>
+  <ExternalTextCollection>
+    <PrimaryLanguage xml:lang="en">
+      <Text id="sensor" value="Synthetic record sensor"/>
+      <Text id="record" value="Synthetic settings record"/>
+      <Text id="level" value="Level"/>
+      <Text id="switch" value="Switch"/>
+      <Text id="mode" value="Synthetic mode"/>
+      <Text id="label" value="Label"/>
+    </PrimaryLanguage>
+  </ExternalTextCollection>
+</IODevice>

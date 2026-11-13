@@ -6,9 +6,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 mod display;
+mod record;
 mod standard;
+mod value;
 pub use display::{Display, DisplayValue};
+pub use record::{Record, RecordItem};
 pub(super) use standard::load as load_standard;
+pub use value::{DecodedParameter, RecordValue};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Access {
@@ -58,6 +62,8 @@ pub struct Parameter {
     pub default_value: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record: Option<Record>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub displays: Vec<Display>,
     #[serde(default)]
@@ -79,6 +85,9 @@ impl Parameter {
             "parameter {} has no datatype description",
             self.id
         );
+        if let Some(record) = &self.record {
+            record.validate(self)?;
+        }
         let mut ids = HashSet::new();
         for display in &self.displays {
             ensure!(
@@ -97,6 +106,17 @@ impl Parameter {
             display.field.validate(usize::from(raw.bits).div_ceil(8))?;
         }
         Ok(())
+    }
+
+    pub fn target(&self, subindex: u8) -> Result<&Parameter> {
+        if subindex == 0 {
+            return Ok(self);
+        }
+        self.record
+            .as_ref()
+            .and_then(|record| record.items.iter().find(|item| item.subindex == subindex))
+            .map(|item| &item.parameter)
+            .with_context(|| format!("parameter {} has no declared subindex {subindex}", self.id))
     }
 
     fn scalar_field(&self) -> Result<Field> {
@@ -221,93 +241,7 @@ pub(super) fn parse<'a, 'i>(
             Some("wo") => Access::WriteOnly,
             _ => anyhow::bail!("parameter {id} has missing or invalid access rights"),
         };
-        let mut parameter = Parameter {
-            id: id.into(),
-            name: label(variable, texts, id),
-            index,
-            access,
-            datatype: "unresolved".into(),
-            bits: None,
-            fixed_length: None,
-            encoding: None,
-            default_value: variable.attribute("defaultValue").map(str::to_owned),
-            origin: None,
-            displays: Vec::new(),
-            choices: Vec::new(),
-            ranges: Vec::new(),
-            needs_input: Vec::new(),
-        };
-        match datatype(variable, types) {
-            Ok(dt) => {
-                parameter.datatype = dt
-                    .attribute((XSI, "type"))
-                    .unwrap_or("unresolved")
-                    .rsplit(':')
-                    .next()
-                    .unwrap_or("unresolved")
-                    .to_owned();
-                parameter.bits = match parameter.datatype.as_str() {
-                    "BooleanT" => Some(1),
-                    "Float32T" => Some(32),
-                    _ => dt.attribute("bitLength").map(str::parse).transpose()?,
-                };
-                parameter.fixed_length = dt.attribute("fixedLength").map(str::parse).transpose()?;
-                parameter.encoding = dt.attribute("encoding").map(str::to_owned);
-                if matches!(parameter.datatype.as_str(), "IntegerT" | "UIntegerT")
-                    && !parameter.bits.is_some_and(|bits| (1..=64).contains(&bits))
-                {
-                    parameter
-                        .needs_input
-                        .push("Numeric width requires manual interpretation of raw bytes".into());
-                }
-                if parameter.datatype == "StringT"
-                    && (parameter.fixed_length.is_none()
-                        || !parameter
-                            .encoding
-                            .as_deref()
-                            .is_some_and(|encoding| matches!(encoding, "UTF-8" | "US-ASCII")))
-                {
-                    parameter.needs_input.push(
-                        "Text length or encoding requires manual interpretation of raw bytes"
-                            .into(),
-                    );
-                }
-                for value in dt.children() {
-                    if value.has_tag_name((IODD_NAMESPACE, "SingleValue")) {
-                        let raw = value
-                            .attribute("value")
-                            .context("parameter choice has no value")?;
-                        parameter.choices.push(Choice {
-                            value: raw.into(),
-                            name: label(value, texts, raw),
-                        });
-                    }
-                    if value.has_tag_name((IODD_NAMESPACE, "ValueRange")) {
-                        parameter.ranges.push(ValueRange {
-                            lower: value
-                                .attribute("lowerValue")
-                                .context("parameter range has no lower bound")?
-                                .into(),
-                            upper: value
-                                .attribute("upperValue")
-                                .context("parameter range has no upper bound")?
-                                .into(),
-                        });
-                    }
-                }
-                if !matches!(
-                    parameter.datatype.as_str(),
-                    "IntegerT" | "UIntegerT" | "BooleanT" | "Float32T" | "StringT"
-                ) {
-                    parameter.needs_input.push(format!(
-                        "{} is available as raw hexadecimal",
-                        parameter.datatype
-                    ));
-                }
-            }
-            Err(error) => parameter.needs_input.push(error.to_string()),
-        }
-        parameter.validate()?;
+        let parameter = parse_parameter(variable, id, index, access, types, texts, true)?;
         parameters.push(parameter);
     }
     display::apply(function, &mut parameters);
@@ -315,4 +249,111 @@ pub(super) fn parse<'a, 'i>(
         parameter.validate()?;
     }
     Ok((parameters, standard))
+}
+
+fn parse_parameter<'a, 'i>(
+    variable: Node<'a, 'i>,
+    id: &str,
+    index: u16,
+    access: Access,
+    types: &HashMap<&str, Node<'a, 'i>>,
+    texts: &HashMap<&str, &str>,
+    allow_record: bool,
+) -> Result<Parameter> {
+    let mut parameter = Parameter {
+        id: id.into(),
+        name: label(variable, texts, id),
+        index,
+        access,
+        datatype: "unresolved".into(),
+        bits: None,
+        fixed_length: None,
+        encoding: None,
+        default_value: variable.attribute("defaultValue").map(str::to_owned),
+        origin: None,
+        record: None,
+        displays: Vec::new(),
+        choices: Vec::new(),
+        ranges: Vec::new(),
+        needs_input: Vec::new(),
+    };
+    match datatype(variable, types) {
+        Ok(dt) => {
+            parameter.datatype = dt
+                .attribute((XSI, "type"))
+                .unwrap_or("unresolved")
+                .rsplit(':')
+                .next()
+                .unwrap_or("unresolved")
+                .to_owned();
+            parameter.bits = match parameter.datatype.as_str() {
+                "BooleanT" => Some(1),
+                "Float32T" => Some(32),
+                _ => dt.attribute("bitLength").map(str::parse).transpose()?,
+            };
+            parameter.fixed_length = dt.attribute("fixedLength").map(str::parse).transpose()?;
+            parameter.encoding = dt.attribute("encoding").map(str::to_owned);
+            if matches!(parameter.datatype.as_str(), "IntegerT" | "UIntegerT")
+                && !parameter.bits.is_some_and(|bits| (1..=64).contains(&bits))
+            {
+                parameter
+                    .needs_input
+                    .push("Numeric width requires manual interpretation of raw bytes".into());
+            }
+            if parameter.datatype == "StringT"
+                && (parameter.fixed_length.is_none()
+                    || !parameter
+                        .encoding
+                        .as_deref()
+                        .is_some_and(|encoding| matches!(encoding, "UTF-8" | "US-ASCII")))
+            {
+                parameter.needs_input.push(
+                    "Text length or encoding requires manual interpretation of raw bytes".into(),
+                );
+            }
+            for value in dt.children() {
+                if value.has_tag_name((IODD_NAMESPACE, "SingleValue")) {
+                    let raw = value
+                        .attribute("value")
+                        .context("parameter choice has no value")?;
+                    parameter.choices.push(Choice {
+                        value: raw.into(),
+                        name: label(value, texts, raw),
+                    });
+                }
+                if value.has_tag_name((IODD_NAMESPACE, "ValueRange")) {
+                    parameter.ranges.push(ValueRange {
+                        lower: value
+                            .attribute("lowerValue")
+                            .context("parameter range has no lower bound")?
+                            .into(),
+                        upper: value
+                            .attribute("upperValue")
+                            .context("parameter range has no upper bound")?
+                            .into(),
+                    });
+                }
+            }
+            if parameter.datatype == "RecordT" && allow_record {
+                parameter.record = Some(record::parse(variable, dt, &parameter, types, texts)?);
+            }
+            if parameter.datatype == "RecordT" && !allow_record {
+                parameter
+                    .needs_input
+                    .push("Nested record datatypes require manual interpretation".into());
+            }
+            if !matches!(
+                parameter.datatype.as_str(),
+                "IntegerT" | "UIntegerT" | "BooleanT" | "Float32T" | "StringT" | "RecordT"
+            ) {
+                parameter.needs_input.push(format!(
+                    "{} is available as raw hexadecimal",
+                    parameter.datatype
+                ));
+            }
+        }
+        Err(error) => parameter.needs_input.push(error.to_string()),
+    }
+    parameter.validate()?;
+    Ok(parameter)
 }

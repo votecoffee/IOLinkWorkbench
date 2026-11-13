@@ -170,6 +170,13 @@ impl Default for Profile {
 }
 
 impl Profile {
+    pub fn parameter(&self, id: &str) -> Result<&crate::iodd::Parameter> {
+        self.iodd
+            .as_ref()
+            .and_then(|iodd| iodd.parameters.iter().find(|parameter| parameter.id == id))
+            .ok_or_else(|| anyhow::anyhow!("parameter {id} is not in the imported IODD catalog"))
+    }
+
     pub fn parse(text: &str) -> Result<Self> {
         let profile: Self = toml::from_str(text)?;
         profile.validate()?;

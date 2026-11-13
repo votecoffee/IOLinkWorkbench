@@ -164,53 +164,47 @@ pub struct ParameterReading {
     pub displays: Vec<crate::iodd::DisplayValue>,
     pub choice_name: Option<String>,
     pub decode_error: Option<String>,
+    pub record_items: Vec<crate::iodd::RecordValue>,
 }
 
 /// Read one explicit IODD variable at subindex zero on the independent acyclic path.
 pub fn read_parameter(profile: &Profile, id: &str) -> Result<ParameterReading> {
-    let parameter = profile
-        .iodd
-        .as_ref()
-        .and_then(|iodd| iodd.parameters.iter().find(|parameter| parameter.id == id))
-        .ok_or_else(|| anyhow::anyhow!("parameter {id} is not in the imported IODD catalog"))?;
+    read_parameter_at(profile, id, 0)
+}
+
+pub fn read_parameter_at(profile: &Profile, id: &str, subindex: u8) -> Result<ParameterReading> {
+    let parent = profile.parameter(id)?;
     ensure!(
-        parameter.access != crate::iodd::Access::WriteOnly,
+        subindex == 0
+            || parent
+                .record
+                .as_ref()
+                .is_some_and(|record| record.subindex_access),
+        "IODD does not permit individual subindex reads for {id}"
+    );
+    let parameter = parent.target(subindex)?;
+    ensure!(
+        parent.access != crate::iodd::Access::WriteOnly
+            && parameter.access != crate::iodd::Access::WriteOnly,
         "parameter {id} is write-only in the IODD"
     );
     let start = Instant::now();
-    let bytes = read_isdu(profile, parameter.index, 0)?;
+    let bytes = read_isdu(profile, parameter.index, subindex)?;
     let host_read_utc = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let read_duration_us = start.elapsed().as_micros().try_into().unwrap_or(u64::MAX);
-    let (raw_value, mut decode_error) = match parameter.decode_raw(&bytes) {
-        Ok(value) => (value, None),
-        Err(error) => (None, Some(error.to_string())),
-    };
-    let displays = if decode_error.is_none() {
-        match parameter.decode_displays(&bytes) {
-            Ok(values) => values,
-            Err(error) => {
-                decode_error = Some(error.to_string());
-                Vec::new()
-            }
-        }
-    } else {
-        Vec::new()
-    };
-    let choice_name = raw_value
-        .as_deref()
-        .and_then(|raw| parameter.choices.iter().find(|choice| choice.value == raw))
-        .map(|choice| choice.name.clone());
+    let decoded = parameter.decode(&bytes);
     Ok(ParameterReading {
-        parameter_id: parameter.id.clone(),
+        parameter_id: parent.id.clone(),
         name: parameter.name.clone(),
         index: parameter.index,
-        subindex: 0,
+        subindex,
         host_read_utc,
         read_duration_us,
-        raw_hex: crate::decode::hex(&bytes),
-        raw_value,
-        displays,
-        choice_name,
-        decode_error,
+        raw_hex: decoded.raw_hex,
+        raw_value: decoded.raw_value,
+        displays: decoded.displays,
+        choice_name: decoded.choice_name,
+        decode_error: decoded.decode_error,
+        record_items: decoded.record_items,
     })
 }

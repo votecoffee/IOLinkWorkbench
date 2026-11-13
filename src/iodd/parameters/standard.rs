@@ -2,7 +2,10 @@ use super::{Choice, Parameter, ValueRange};
 use crate::iodd::{IODD_NAMESPACE, child};
 use anyhow::{Context, Result, ensure};
 use roxmltree::{Document, Node};
-use std::{collections::HashMap, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+};
 
 pub(in crate::iodd) fn load(path: &Path) -> Result<Vec<Parameter>> {
     let xml = crate::iodd::read_xml(path)?;
@@ -51,6 +54,11 @@ pub(super) fn parse(xml: &str, source: &str) -> Result<Vec<Parameter>> {
         .unwrap_or("unspecified version");
     for parameter in &mut parameters {
         parameter.origin = Some(format!("{source} · {version}"));
+        if let Some(record) = &mut parameter.record {
+            for item in &mut record.items {
+                item.parameter.origin = parameter.origin.clone();
+            }
+        }
     }
     Ok(parameters)
 }
@@ -87,6 +95,7 @@ pub(super) fn resolve(
     }
     let mut choices = Vec::new();
     let mut ranges = Vec::new();
+    let mut subindexes = HashSet::new();
     for value in reference.children() {
         if value.has_tag_name((IODD_NAMESPACE, "StdSingleValueRef")) {
             let raw = value
@@ -127,9 +136,25 @@ pub(super) fn resolve(
             });
         }
         if value.has_tag_name((IODD_NAMESPACE, "StdRecordItemRef")) {
-            parameter
-                .needs_input
-                .push("Standard record-item restrictions require raw interpretation".into());
+            let subindex: u8 = value
+                .attribute("subindex")
+                .context("standard record reference has no subindex")?
+                .parse()?;
+            ensure!(
+                subindexes.insert(subindex),
+                "duplicate standard record item reference"
+            );
+            let item = parameter
+                .record
+                .as_mut()
+                .and_then(|record| {
+                    record
+                        .items
+                        .iter_mut()
+                        .find(|item| item.subindex == subindex)
+                })
+                .context("standard record reference has no declared member")?;
+            item.parameter = resolve(&item.parameter, value, texts)?;
         }
     }
     if !choices.is_empty() || !ranges.is_empty() || parameter.id == "V_SystemCommand" {

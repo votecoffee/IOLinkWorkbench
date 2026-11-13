@@ -72,7 +72,8 @@ class Gateway(BaseHTTPRequestHandler):
                 # Documented examples use both styles of path key.
                 response["data"][path if self.polls % 2 else path.lstrip("/")] = result
         elif address == self.device + "/iolreadacyclic" and request["data"] in (
-                {"index": 19, "subindex": 0}, {"index": 64, "subindex": 0}, {"index": 65, "subindex": 0}):
+                {"index": 19, "subindex": 0}, {"index": 64, "subindex": 0}, {"index": 65, "subindex": 0},
+                *({"index": 66, "subindex": subindex} for subindex in range(5))):
             type(self).isdu_reads += 1
             index = request["data"]["index"]
             if index == 64 and self.block_parameter:
@@ -80,8 +81,9 @@ class Gateway(BaseHTTPRequestHandler):
                 if not self.parameter_release.wait(timeout=3):
                     response["code"] = 500
             response["data"] = {"value": {
-                19: "53494D2D53454E534F52", 64: "01F4", 65: "666978747572652073656E736F72",
-            }[index]}
+                (19, 0): "53494D2D53454E534F52", (64, 0): "01F4", (65, 0): "666978747572652073656E736F72",
+                (66, 0): "FFEC010A54455354", (66, 1): "FFEC", (66, 2): "01", (66, 3): "0A", (66, 4): "54455354",
+            }[(index, request["data"]["subindex"])]}
         else:
             self.violations.append(request)
             response["code"] = 400
@@ -212,6 +214,22 @@ def main():
     assert product["raw_value"] == "SIM-SENSOR" and product["index"] == 19
     run(cli, "iodd", ROOT / "samples" / "sensor.xml", "--standard-definitions",
         ROOT / "samples" / "sensor.xml", expected=1)
+    record_profile = scratch / "record.toml"
+    run(cli, "import", ROOT / "samples" / "sensor-record.xml", record_profile)
+    decoded = tomllib.loads(run(cli, "decode-parameter", record_profile, "V_SIM_Record", "FFEC010A54455354"))
+    assert [item["value"]["raw_value"] for item in decoded["record_items"]] == ["-20", "true", "10", "TEST"]
+    assert decoded["record_items"][0]["value"]["displays"][0]["value"] == "0.0"
+    short = tomllib.loads(run(cli, "decode-parameter", record_profile, "V_SIM_Record", "FFEC", expected=1))
+    assert short["raw_hex"] == "FFEC" and "width differs" in short["decode_error"]
+    run(cli, "decode-parameter", record_profile, "V_SIM_Record", "00" * 233, expected=1)
+    for subindex in range(1, 5):
+        member = tomllib.loads(run(cli, "read-parameter", record_profile, "V_SIM_Record", "--subindex", subindex))
+        assert member["raw_value"] == decoded["record_items"][subindex - 1]["value"]["raw_value"]
+    # Offline parameter decoding must not attempt to open a configured endpoint.
+    offline_only = scratch / "record-offline.toml"
+    offline_only.write_text(record_profile.read_text(encoding="utf-8").replace('gateway = "simulator"',
+        'gateway = "ifm_al1350"').replace('endpoint = ""', 'endpoint = "unreachable offline endpoint"'), encoding="utf-8")
+    run(cli, "decode-parameter", offline_only, "V_SIM_Record", "FFEC", "--subindex", 1)
 
     clean, rows = capture(cli, source, scratch / "sim-every", "--seconds", 1)
     assert clean["last_status"]["route"] == "synthetic simulator"
@@ -291,13 +309,27 @@ def main():
             before = Gateway.isdu_reads
             run(cli, "read-parameter", parameter_fixture, "V_SIM_Command", expected=1)
             assert Gateway.isdu_reads == before and not Gateway.violations
+            record_fixture = scratch / "record-fixture.toml"
+            text = record_profile.read_text(encoding="utf-8").replace('gateway = "simulator"', 'gateway = "ifm_al1350"')
+            text = text.replace('endpoint = ""', f'endpoint = "http://127.0.0.1:{server.server_port}"')
+            text = text.replace('port = 1', 'port = 1\nifm_mode = 3')
+            record_fixture.write_text(text, encoding="utf-8")
+            whole = tomllib.loads(run(cli, "read-parameter", record_fixture, "V_SIM_Record"))
+            for subindex in range(1, 5):
+                member = tomllib.loads(run(cli, "read-parameter", record_fixture, "V_SIM_Record", "--subindex", subindex))
+                assert member["raw_hex"] == whole["record_items"][subindex - 1]["value"]["raw_hex"]
+            before = Gateway.isdu_reads
+            disabled = scratch / "record-disabled.toml"
+            disabled.write_text(text.replace('subindex_access = true', 'subindex_access = false'), encoding="utf-8")
+            run(cli, "read-parameter", disabled, "V_SIM_Record", "--subindex", 1, expected=1)
+            assert Gateway.isdu_reads == before and not Gateway.violations
         finally:
             server.shutdown()
             thread.join()
 
     print("PASS: ZIP and variant selection, offline decoding, equal updates, on-change, rotation, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, CSV joining, "
-          "named IODD parameter reads, parallel polling, and read-only AL1350 loopback")
+          "named scalar and record reads, offline ISDU decoding, subindex restrictions, parallel polling, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 
 

@@ -155,17 +155,21 @@ impl Field {
 }
 
 pub fn parse_hex(text: &str) -> Result<Vec<u8>> {
+    parse_hex_bounded(text, MAX_INPUT)
+}
+
+pub fn parse_hex_bounded(text: &str, max_bytes: usize) -> Result<Vec<u8>> {
     let text = text.trim().strip_prefix("0x").unwrap_or(text.trim());
     let clean: String = text
         .chars()
         .filter(|c| !c.is_ascii_whitespace() && *c != '_')
         .collect();
     if clean.is_empty()
-        || clean.len() > MAX_INPUT * 2
+        || clean.len() > max_bytes.saturating_mul(2)
         || !clean.len().is_multiple_of(2)
         || !clean.bytes().all(|byte| byte.is_ascii_hexdigit())
     {
-        bail!("enter 1–{MAX_INPUT} bytes as pairs of hexadecimal digits");
+        bail!("enter 1–{max_bytes} bytes as pairs of hexadecimal digits");
     }
     (0..clean.len())
         .step_by(2)

@@ -8,6 +8,19 @@
     </Datatype>
   </DatatypeCollection>
   <VariableCollection>
+    <Variable id="V_DirectParameters_1" index="0" accessRights="rw">
+      <Datatype xsi:type="RecordT" bitLength="16">
+        <RecordItem subindex="1" bitOffset="8" accessRightRestriction="ro">
+          <SimpleDatatype xsi:type="UIntegerT" bitLength="8"/>
+          <Name textId="product"/>
+        </RecordItem>
+        <RecordItem subindex="16" bitOffset="0" accessRightRestriction="wo">
+          <DatatypeRef datatypeId="COMMAND"/>
+          <Name textId="command"/>
+        </RecordItem>
+      </Datatype>
+      <Name textId="record"/>
+    </Variable>
     <Variable id="V_ProductID" index="19" accessRights="ro">
       <Datatype xsi:type="StringT" fixedLength="64" encoding="UTF-8"/>
       <Name textId="product"/>
@@ -31,6 +44,7 @@
       <Text id="reset" value="Synthetic reset"/>
       <Text id="zero" value="Synthetic zero"/>
       <Text id="offset" value="Synthetic offset time"/>
+      <Text id="record" value="Synthetic direct parameter record"/>
     </PrimaryLanguage>
   </ExternalTextCollection>
 </IODDStandardDefinitions>
