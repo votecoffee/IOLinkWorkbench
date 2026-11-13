@@ -1,10 +1,5 @@
 //! Opt-in loopback telemetry. The sampler only offers events to a preallocated queue.
-use crate::{
-    capture::Counts,
-    decode,
-    profile::Profile,
-    transport::{Freshness, Input, Status},
-};
+use crate::{profile::Profile, transport::Status};
 use anyhow::{Context, Result, ensure};
 use crossbeam_queue::ArrayQueue;
 use serde::{Deserialize, Serialize};
@@ -60,17 +55,9 @@ impl Config {
     }
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct Sample {
-    pub input: Input,
-    pub freshness: Freshness,
-    pub stale: Option<bool>,
-    pub classification: &'static str,
-    pub csv_sample_index: Option<u64>,
-    pub csv_enqueued: Option<bool>,
-    pub counts: Counts,
-    pub source_gaps: Option<u64>,
-}
+use crate::telemetry::Sample;
+#[cfg(test)]
+use crate::telemetry::truncate;
 
 enum Body {
     Connected {
@@ -312,31 +299,7 @@ impl Service {
     }
 
     pub(crate) fn connected(&self, generation: u64, status: &Status) {
-        // Route/identity strings are bounded on this optional path; the original is untouched.
-        let mut status = status.clone();
-        let mut text_truncated = false;
-        for text in [
-            &mut status.model,
-            &mut status.firmware,
-            &mut status.port_mode,
-        ] {
-            text_truncated |= truncate(text);
-        }
-        for text in [
-            &mut status.master_serial,
-            &mut status.device_status,
-            &mut status.port_event,
-            &mut status.device_event,
-            &mut status.port_cycle_raw,
-            &mut status.identity.product_id,
-            &mut status.identity.product_name,
-            &mut status.identity.serial,
-        ]
-        .into_iter()
-        .flatten()
-        {
-            text_truncated |= truncate(text);
-        }
+        let (status, text_truncated) = crate::telemetry::bounded_status(status);
         self.offer(
             generation,
             self.elapsed(),
@@ -397,15 +360,6 @@ impl Drop for Service {
     }
 }
 
-fn truncate(text: &mut String) -> bool {
-    let truncated = text.len() > 256;
-    let mut end = text.len().min(256);
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    text.truncate(end);
-    truncated
-}
 fn micros(duration: Duration) -> u64 {
     duration.as_micros().min(u128::from(u64::MAX)) as u64
 }
@@ -420,20 +374,7 @@ fn event_json(event: &Event, profile: &Profile) -> Value {
         }
         Body::Disconnected => json!({"kind":"disconnected"}),
         Body::Finished => json!({"kind":"capture_finished"}),
-        Body::Sample(sample) => {
-            let typed = (sample.input.validity == crate::transport::Validity::Valid && sample.stale != Some(true)).then(|| profile.decode(sample.input.payload.bytes()).map(|values| values.into_iter().map(|(field,origin,value)| json!({"name":field.name,"origin":origin,"unit":field.unit,"decoded":value})).collect::<Vec<_>>()));
-            let (values, error) = match typed {
-                Some(Ok(values)) => (Some(values), None),
-                Some(Err(error)) => (None, Some(error.to_string())),
-                None => (None, None),
-            };
-            json!({"kind":"input","receive_index":sample.counts.received,"classification":sample.classification,
-                "row_kind":sample.freshness.row_kind(),"freshness":sample.freshness,"validity":sample.input.validity,"stale":sample.stale,
-                "source_counter":sample.input.counter,"source_time_us":sample.input.source_time_us,"source_age_us":sample.input.source_age_us,
-                "source_gaps_observed":sample.source_gaps,"source_update_loss":if sample.freshness==Freshness::Counter32 {"counter gaps within generations; disconnect loss unknown"} else {"unknown"},
-                "diagnostic_code":sample.input.diagnostic_code,"raw_hex":decode::hex(sample.input.payload.bytes()),"values":values,"decode_error":error,
-                "csv_sample_index":sample.csv_sample_index,"csv_enqueued":sample.csv_enqueued,"capture_counts":sample.counts})
-        }
+        Body::Sample(sample) => crate::telemetry::sample_json(*sample, profile),
     };
     json!({"sequence":event.sequence,"host_elapsed_us":event.elapsed_us,"generation":event.generation,"data":body})
 }

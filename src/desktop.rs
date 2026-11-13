@@ -97,6 +97,10 @@ struct App {
     simulate_faults: bool,
     api_enabled: bool,
     api_port: u16,
+    mqtt_enabled: bool,
+    mqtt_broker: String,
+    mqtt_topic: String,
+    mqtt_interval_ms: u64,
     worker: Option<Worker<Report>>,
     isdu_worker: Option<Worker<String>>,
     isdu_index: u16,
@@ -132,6 +136,10 @@ impl App {
             simulate_faults: false,
             api_enabled: false,
             api_port: 8765,
+            mqtt_enabled: false,
+            mqtt_broker: "127.0.0.1:1883".into(),
+            mqtt_topic: "iolink-workbench/input".into(),
+            mqtt_interval_ms: 100,
             worker: None,
             isdu_worker: None,
             isdu_index: 19,
@@ -174,7 +182,22 @@ impl App {
             None
         };
         let profile = self.profile.clone();
+        let mqtt = if self.mqtt_enabled {
+            Some(iolink_workbench::mqtt::Config {
+                broker: self
+                    .mqtt_broker
+                    .trim()
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("Enter a numeric MQTT broker IP:PORT"))?,
+                topic: self.mqtt_topic.clone(),
+                interval_ms: self.mqtt_interval_ms,
+                ..Default::default()
+            })
+        } else {
+            None
+        };
         let options = Options {
+            mqtt,
             output,
             duration: (record && self.duration != 0)
                 .then(|| Duration::from_secs(u64::from(self.duration))),
@@ -267,6 +290,23 @@ impl App {
         let available = !running && !self.closing && !self.setup.pending() && !self.setup.busy();
         ui.add_enabled_ui(available, |ui| {
             ui.horizontal_wrapped(|ui| {
+                ui.checkbox(&mut self.mqtt_enabled, "MQTT latest-state publishing");
+                ui.label("Broker IP:port");
+                ui.text_edit_singleline(&mut self.mqtt_broker);
+            });
+            if self.mqtt_enabled {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Topic");
+                    ui.text_edit_singleline(&mut self.mqtt_topic);
+                    ui.add(
+                        egui::DragValue::new(&mut self.mqtt_interval_ms)
+                            .range(10..=60000)
+                            .suffix(" ms"),
+                    );
+                    ui.small("TCP · QoS 0 · not retained · no TLS/auth");
+                });
+            }
+            ui.horizontal_wrapped(|ui| {
                 ui.checkbox(&mut self.api_enabled, "Read-only local API");
                 ui.add_enabled(
                     self.api_enabled,
@@ -340,6 +380,15 @@ impl App {
         }
         if running && self.api_enabled {
             ui.label(format!("Local API requested at http://127.0.0.1:{}/v1/status · API drops are separate from CSV/source loss", self.api_port));
+        }
+        if running && self.mqtt_enabled {
+            ui.label(format!(
+                "MQTT requested at {} · {} · latest-state; broker delivery unknown",
+                self.mqtt_broker, self.mqtt_topic
+            ));
+        }
+        if let Some(mqtt) = self.report.as_ref().and_then(|report| report.mqtt.as_ref()) {
+            ui.label(format!("MQTT stopped · {} socket writes · {} coalesced · {} queue drops · {} write failures · worker failed: {}",mqtt.socket_writes_completed,mqtt.coalesced,mqtt.queue_dropped,mqtt.publish_write_failures,mqtt.worker_failed));
         }
         if let Some(api) = self
             .report

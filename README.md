@@ -27,7 +27,7 @@ cargo build --locked --release --target x86_64-pc-windows-msvc
 
 ## Usage
 
-Start with the [operations guide](docs/OPERATIONS.md) for description import, manual setup, CLI recipes and capture interpretation. Contributors can use the [development guide](docs/DEVELOPMENT.md), [repository instructions](AGENTS.md) and [Codex skill](.agents/skills/iolink-workbench/SKILL.md). The opt-in [local HTTP API](docs/LOCAL_API.md) adds bounded live history to CLI/saved-file integration. MQTT, shared memory and C FFI remain [planned interfaces](docs/INTERFACES.md). The development guide explains installing the skill for discovery.
+Start with the [operations guide](docs/OPERATIONS.md) for description import, manual setup, CLI recipes and capture interpretation. Contributors can use the [development guide](docs/DEVELOPMENT.md), [repository instructions](AGENTS.md) and [Codex skill](.agents/skills/iolink-workbench/SKILL.md). The opt-in [local HTTP API](docs/LOCAL_API.md) adds bounded live history to CLI/saved-file integration. Optional [MQTT publishing](docs/MQTT.md) provides a separate latest-state feed. Shared memory and C FFI remain [planned interfaces](docs/INTERFACES.md). The development guide explains installing the skill for discovery.
 
 In the GUI, use **Setup** to load, edit, and save a named TOML profile. The profile editor accepts the same TOML as the CLI. Choose **Inspect IODD** to list the variants and input layouts, select the matching entries, then use **Apply IODD layout**. The effective field list distinguishes IODD fields, overrides, and manual fields. **Edit mapping** opens a typed field editor; applying an imported field creates a host override. **Add manual field** opens a new field draft. Apply edits before connecting or saving.
 

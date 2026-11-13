@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TARGET = "x86_64-pc-windows-msvc"
 EXES = {"iolink-workbench.exe": 2, "iolink-cli.exe": 3}
 DOCS = ["README.md", "ROADMAP.md", "LICENSE", "AGENTS.md",
-        "docs/OPERATIONS.md", "docs/DEVELOPMENT.md", "docs/INTERFACES.md", "docs/LOCAL_API.md",
+        "docs/OPERATIONS.md", "docs/DEVELOPMENT.md", "docs/INTERFACES.md", "docs/LOCAL_API.md", "docs/MQTT.md",
         ".agents/skills/iolink-workbench/SKILL.md", "samples/simulator.toml",
         "samples/ifm-al1350.toml", "samples/raw-only.toml", "samples/redecode.toml", "samples/sensor.xml", "samples/sensor-formats.xml", "samples/sensor-record.xml", "samples/sensor-array.xml",
         "samples/synthetic-standard-definitions.xml", "samples/synthetic-standard-definitions-de.xml", "samples/synthetic-value-standard-definitions.xml", "samples/sensor-standard-values.xml", "samples/sensor-defaults.xml", "samples/sensor-time.xml", "samples/sensor-strings.xml", "samples/sensor-values.xml", "samples/sensor-checksum.xml", "samples/sensor-checksum-de.xml", "samples/sensor-communication.xml", "samples/sensor-de.xml", "samples/synthetic-unit-definitions.xml"]

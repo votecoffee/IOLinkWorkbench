@@ -73,6 +73,7 @@ pub struct Options {
     pub simulate_faults: bool,
     pub simulated_writer_delay: Duration,
     pub local_api: Option<crate::local_api::Config>,
+    pub mqtt: Option<crate::mqtt::Config>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize)]
@@ -188,6 +189,8 @@ pub struct Report {
     pub logger_metrics: Option<LoggerMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub local_api: Option<crate::local_api::Summary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mqtt: Option<crate::mqtt::Summary>,
     pub counts: Counts,
     pub host_timer: &'static str,
     pub host_poll_start_spacing: Option<Spacing>,
@@ -202,6 +205,7 @@ impl Report {
         self.terminal_error.is_none()
             && self.writer_error.is_none()
             && self.local_api.as_ref().is_none_or(|api| !api.worker_failed)
+            && self.mqtt.as_ref().is_none_or(|mqtt| !mqtt.worker_failed)
     }
 }
 
@@ -334,6 +338,11 @@ fn run_with_transport(
         .as_ref()
         .map(|config| crate::local_api::Service::start(config, profile, start, &utc_start))
         .transpose()?;
+    let mqtt = options
+        .mqtt
+        .as_ref()
+        .map(|config| crate::mqtt::Service::start(config, profile, start, &utc_start))
+        .transpose()?;
     let deadline = options
         .duration
         .and_then(|duration| start.checked_add(duration));
@@ -421,6 +430,9 @@ fn run_with_transport(
                     if let Some(api) = &local_api {
                         api.connected(state.generation, &status);
                     }
+                    if let Some(mqtt) = &mqtt {
+                        mqtt.connected(state.generation, &status);
+                    }
                     state.message.clear();
                     state.message.push_str("Connected read-only");
                     route_pin = Some(status);
@@ -468,6 +480,9 @@ fn run_with_transport(
                 state.stale = None;
                 if let Some(api) = &local_api {
                     api.disconnected(state.generation);
+                }
+                if let Some(mqtt) = &mqtt {
+                    mqtt.disconnected(state.generation);
                 }
                 if let Some(live) = live {
                     live.force_push(state.clone());
@@ -571,26 +586,29 @@ fn run_with_transport(
                 }
             }
         }
-        if let Some(api) = &local_api {
-            api.sample(
-                state.generation,
-                crate::local_api::Sample {
-                    input,
-                    freshness,
-                    stale,
-                    classification: match update {
-                        Update::First => "first",
-                        Update::Forward(_) => "forward",
-                        Update::Same => "duplicate",
-                        Update::Backward => "out_of_order",
-                        Update::Snapshot => "host_poll",
-                    },
-                    csv_sample_index,
-                    csv_enqueued,
-                    counts: state.counts,
-                    source_gaps: (freshness == Freshness::Counter32).then_some(gaps),
+        if local_api.is_some() || mqtt.is_some() {
+            let sample = crate::telemetry::Sample {
+                input,
+                freshness,
+                stale,
+                classification: match update {
+                    Update::First => "first",
+                    Update::Forward(_) => "forward",
+                    Update::Same => "duplicate",
+                    Update::Backward => "out_of_order",
+                    Update::Snapshot => "host_poll",
                 },
-            );
+                csv_sample_index,
+                csv_enqueued,
+                counts: state.counts,
+                source_gaps: (freshness == Freshness::Counter32).then_some(gaps),
+            };
+            if let Some(api) = &local_api {
+                api.sample(state.generation, sample);
+            }
+            if let Some(mqtt) = &mqtt {
+                mqtt.sample(state.generation, sample);
+            }
         }
         if stamp.saturating_duration_since(last_ui) >= Duration::from_millis(80) {
             if let Some(live) = live {
@@ -621,6 +639,10 @@ fn run_with_transport(
     let local_api = local_api.map(|api| {
         api.ended(state.generation);
         api.finish()
+    });
+    let mqtt = mqtt.map(|mqtt| {
+        mqtt.ended(state.generation);
+        mqtt.finish()
     });
     let freshness = state.status.as_ref().map(|status| status.freshness);
     let report = Report {
@@ -659,6 +681,7 @@ fn run_with_transport(
         csv_parts: summary.parts,
         logger_metrics: summary.metrics,
         local_api,
+        mqtt,
         counts: state.counts,
         host_timer: timer.label(),
         host_poll_start_spacing: poll_start.summarize(),

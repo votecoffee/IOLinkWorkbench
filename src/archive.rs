@@ -72,6 +72,7 @@ struct Manifest {
     gateway_update_spacing: Option<crate::capture::Spacing>,
     logger_metrics: Option<crate::capture::LoggerMetrics>,
     local_api: Option<crate::local_api::Summary>,
+    mqtt: Option<crate::mqtt::Summary>,
 }
 
 fn legacy_format() -> u32 {
@@ -373,6 +374,9 @@ fn check_manifest(manifest: &Manifest, profile: &Profile) -> Result<()> {
     }
     if let Some(api) = &manifest.local_api {
         api.validate()?;
+    }
+    if let Some(mqtt) = &manifest.mqtt {
+        mqtt.validate()?;
     }
     Ok(())
 }

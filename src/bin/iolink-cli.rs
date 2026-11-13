@@ -19,6 +19,8 @@ mod local_api;
 mod logging;
 #[path = "iolink-cli/mapping.rs"]
 mod mapping;
+#[path = "iolink-cli/mqtt.rs"]
+mod mqtt;
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -226,6 +228,8 @@ enum Command {
         fields: Vec<String>,
         #[command(flatten)]
         api: local_api::Arguments,
+        #[command(flatten)]
+        mqtt: mqtt::Arguments,
     },
 }
 
@@ -682,6 +686,7 @@ fn main() -> Result<()> {
             all_fields,
             fields,
             api,
+            mqtt,
         } => {
             ensure!(
                 seconds.is_finite() && (0.01..=86400.0).contains(&seconds),
@@ -709,6 +714,7 @@ fn main() -> Result<()> {
                     simulate_faults,
                     simulated_writer_delay: Duration::from_millis(simulate_writer_delay_ms),
                     local_api: api.config(),
+                    mqtt: mqtt.config(),
                 },
                 &stop,
                 None,
@@ -716,7 +722,7 @@ fn main() -> Result<()> {
             print!("{}", toml::to_string_pretty(&report)?);
             ensure!(
                 report.success(),
-                "capture ended with a transport, writer or local API worker error; see the report"
+                "capture ended with a transport, writer or integration worker error; see the report"
             );
             if report.stopped_by_request {
                 std::process::exit(130);

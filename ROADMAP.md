@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Optional MQTT 3.1.1 TCP QoS 0 latest-state publishing in GUI/CLI with no retained data or subscriptions. Its preallocated queue and dedicated worker keep broker backpressure separate from sampling, API history and CSV. Payloads preserve raw/typed quality, source generations/clocks, configured mappings, host age and distinct sequence/loss meanings. Final reports verify handoff/coalescing/publish accounting. Tests cover framing, fragmented/refused handshakes, keepalive, reset/stalled/non-reading peers, stale/invalid data, snapshots, independent API/CSV operation and shutdown. This uses an original loopback peer; production-broker, physical timing and visible GUI acceptance remain pending.
+
 - Opt-in read-only loopback HTTP API in GUI/CLI with independent preallocated handoff and bounded history. Schema/status/history preserve raw/typed inputs, response classifications, identity generations, session clocks/cursors and separate API/CSV/source accounting. Request/response size and time limits isolate slow clients; finalized reports retain verified queue/history counts. Rust and synthetic loopback checks cover queue saturation, size pagination, stale/invalid/duplicate/equal values, reconnects, on-change filtering, CSV backpressure, malformed requests and shutdown. Physical timing and visible GUI interaction remain pending.
 
 - Saved logging edits and offline capture plans share validated candidates across GUI/CLI. Plans expose configured freshness meaning, ordered typed mappings/origins and exact CSV headers without transport access. Headless checks cover scalar/selection preservation, row/time rotation, source/destination preservation, unreachable endpoints and clearing selections before manual-field removal. Operator/developer guides, repository instructions and a discoverable Codex skill accompany the portable package.
@@ -50,10 +52,11 @@
 
 ## Follow-on work
 
-- Add optional MQTT publishing with documented QoS/retention/reconnect semantics, bounded independent buffering and visible drops/age. Latest-value delivery must declare skipped updates; source loss remains separate.
+- Qualify MQTT against selected production brokers and add TLS/authentication only with explicit endpoint/credential handling, bounded reconnect behavior and tests. QoS 1/2, durable replay and subscriber receipt confirmation are outside the current latest-state contract.
+
 - Add a versioned Windows shared-memory latest raw snapshot with coherent status/identity/timing, sequence and reader-consistency/lifecycle contracts. Account for overwritten observations independently of source and logger loss.
 - Evaluate optional C-compatible FFI for C# embedding, including whether the C# host must own the hardware connection. Define ABI lifetime/thread/error/cancellation/panic boundaries before implementation. FFI is discussed future work, not implemented here or in the EthernetIPWorkbench reference when this item was added.
-- Maintain operational/developer documentation, AGENTS.md and the Codex skill as public workflows evolve. See [interface design and acceptance criteria](docs/INTERFACES.md); all live interfaces above remain future work.
+- Maintain operational/developer documentation, AGENTS.md and the Codex skill as public workflows evolve. See [interface design and acceptance criteria](docs/INTERFACES.md); shared memory and C FFI remain future work.
 
 - Add one documented source-counter or timestamp transport once selected hardware exposes it. Qualify timestamp clock, counter wrap, update semantics and firmware-specific behavior.
 - Add multiple independent port sessions with per-port identity, status, and capture accounting.

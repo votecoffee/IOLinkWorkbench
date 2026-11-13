@@ -1,5 +1,8 @@
 use super::*;
-use crate::transport::{Payload, Validity};
+use crate::{
+    capture::Counts,
+    transport::{Freshness, Input, Payload, Validity},
+};
 use std::{
     io::{Read, Write},
     net::TcpStream,
