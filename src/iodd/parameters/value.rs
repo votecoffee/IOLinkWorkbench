@@ -7,6 +7,8 @@ pub struct DecodedParameter {
     pub raw_hex: String,
     pub raw_value: Option<String>,
     pub displays: Vec<DisplayValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preferred_display: Option<DisplayValue>,
     pub choice_name: Option<String>,
     pub decode_error: Option<String>,
     pub record_items: Vec<RecordValue>,
@@ -27,6 +29,7 @@ impl DecodedParameter {
             raw_hex: hex(payload),
             raw_value: None,
             displays: Vec::new(),
+            preferred_display: None,
             choice_name: None,
             decode_error: Some(error.to_string()),
             record_items: Vec::new(),
@@ -44,8 +47,19 @@ impl DecodedParameter {
         }
         for display in &self.displays {
             text.push_str(&format!(
-                "\nDisplay {} · {} {}",
-                display.id, display.value, display.unit
+                "\nDisplay {}{} · {} {}",
+                display.id,
+                if self
+                    .preferred_display
+                    .as_ref()
+                    .is_some_and(|preferred| preferred.id == display.id)
+                {
+                    " (preferred)"
+                } else {
+                    ""
+                },
+                display.value,
+                display.unit
             ));
         }
         if let Some(error) = &self.decode_error {
@@ -78,6 +92,7 @@ impl Parameter {
             raw_hex: hex(payload),
             raw_value,
             displays: Vec::new(),
+            preferred_display: None,
             choice_name: None,
             decode_error: None,
             record_items: Vec::new(),
@@ -92,6 +107,11 @@ impl Parameter {
             Ok(displays) => value.displays = displays,
             Err(error) => value.decode_error = Some(error.to_string()),
         }
+        value.preferred_display = value
+            .displays
+            .iter()
+            .find(|display| Some(&display.id) == self.preferred_display.as_ref())
+            .cloned();
         if let Some(record) = &self.record {
             if self.bits.map(|bits| usize::from(bits).div_ceil(8)) != Some(payload.len()) {
                 return DecodedParameter::error(

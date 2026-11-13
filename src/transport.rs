@@ -170,6 +170,8 @@ pub struct ParameterReading {
     pub raw_hex: String,
     pub raw_value: Option<String>,
     pub displays: Vec<crate::iodd::DisplayValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preferred_display: Option<crate::iodd::DisplayValue>,
     pub choice_name: Option<String>,
     pub decode_error: Option<String>,
     pub record_items: Vec<crate::iodd::RecordValue>,
@@ -212,6 +214,7 @@ pub fn read_parameter_at(profile: &Profile, id: &str, subindex: u8) -> Result<Pa
         raw_hex: decoded.raw_hex,
         raw_value: decoded.raw_value,
         displays: decoded.displays,
+        preferred_display: decoded.preferred_display,
         choice_name: decoded.choice_name,
         decode_error: decoded.decode_error,
         record_items: decoded.record_items,

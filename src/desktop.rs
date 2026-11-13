@@ -490,13 +490,18 @@ impl App {
                 for event in &imported.events { ui.label(format!("0x{:04X} · {:?} · {}", event.code, event.event_type, event.name)); }
             }
         });
-        if let Some((id, subindex)) = parameters::show(
+        let parameter_actions = parameters::show(
             ui,
             &self.profile,
             &mut self.selected_parameter,
             &mut self.selected_subindex,
             self.isdu_worker.is_none() && !self.setup.pending && !self.setup.busy(),
-        ) {
+            self.worker.is_none(),
+        );
+        if let Some(selection) = parameter_actions.display {
+            self.select_parameter_display(selection);
+        }
+        if let Some((id, subindex)) = parameter_actions.read {
             let profile = self.profile.clone();
             match background("acyclic-iodd-parameter", move || {
                 let reading = transport::read_parameter_at(&profile, &id, subindex)?;
@@ -515,8 +520,19 @@ impl App {
                 }
                 for display in &reading.displays {
                     text.push_str(&format!(
-                        "\nDisplay {} · {} {}",
-                        display.id, display.value, display.unit
+                        "\nDisplay {}{} · {} {}",
+                        display.id,
+                        if reading
+                            .preferred_display
+                            .as_ref()
+                            .is_some_and(|preferred| preferred.id == display.id)
+                        {
+                            " (preferred)"
+                        } else {
+                            ""
+                        },
+                        display.value,
+                        display.unit
                     ));
                 }
                 for item in reading.record_items.iter().chain(&reading.array_items) {
@@ -578,6 +594,19 @@ impl App {
         }
     }
 
+    fn select_parameter_display(&mut self, selection: parameters::DisplaySelection) {
+        match selection.apply(&mut self.profile) {
+            Ok(()) => {
+                self.setup.sync(&self.profile);
+                self.isdu_result =
+                    "Display preference updated. Read again to refresh the result.".into();
+                self.message =
+                    "Display preference updated; save the profile in Setup to retain it.".into();
+            }
+            Err(error) => self.message = error.to_string(),
+        }
+    }
+
     fn offline(&mut self, ui: &mut Ui) {
         ui.heading("Offline payload decoder");
         ui.label(format!(
@@ -597,7 +626,16 @@ impl App {
             }
         }
         ui.separator();
-        self.offline_parameter.show(ui, &self.profile);
+        if let Some(selection) = self.offline_parameter.show(
+            ui,
+            &self.profile,
+            self.worker.is_none()
+                && self.isdu_worker.is_none()
+                && !self.setup.pending
+                && !self.setup.busy(),
+        ) {
+            self.select_parameter_display(selection);
+        }
         ui.separator();
         self.offline_diagnostics.show(ui, &self.profile);
         ui.separator();

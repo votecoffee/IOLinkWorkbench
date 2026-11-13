@@ -70,6 +70,8 @@ pub struct Parameter {
     pub array: Option<Array>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub displays: Vec<Display>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preferred_display: Option<String>,
     #[serde(default)]
     pub choices: Vec<Choice>,
     #[serde(default)]
@@ -113,7 +115,40 @@ impl Parameter {
             display.field.validate(usize::from(raw.bits).div_ceil(8))?;
             display.validate_format()?;
         }
+        if let Some(id) = &self.preferred_display {
+            ensure!(
+                ids.contains(id),
+                "preferred display {id} is not declared for {}",
+                self.id
+            );
+        }
         Ok(())
+    }
+
+    /// Display selection for an array applies to its shared element definition.
+    pub(crate) fn display_target_mut(&mut self, subindex: u8) -> Result<&mut Parameter> {
+        match self {
+            Self {
+                array: Some(array), ..
+            } => {
+                ensure!(
+                    subindex <= array.count,
+                    "undeclared array subindex {subindex}"
+                );
+                Ok(&mut array.element)
+            }
+            parameter if subindex == 0 => Ok(parameter),
+            Self { record, .. } => record
+                .as_mut()
+                .and_then(|record| {
+                    record
+                        .items
+                        .iter_mut()
+                        .find(|item| item.subindex == subindex)
+                })
+                .map(|item| &mut item.parameter)
+                .with_context(|| format!("parameter has no declared subindex {subindex}")),
+        }
     }
 
     pub fn target(&self, subindex: u8) -> Result<&Parameter> {
@@ -302,6 +337,7 @@ fn parse_parameter<'a, 'i>(
         record: None,
         array: None,
         displays: Vec::new(),
+        preferred_display: None,
         choices: Vec::new(),
         ranges: Vec::new(),
         needs_input: Vec::new(),

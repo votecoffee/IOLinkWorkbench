@@ -192,6 +192,29 @@ impl Default for Profile {
 }
 
 impl Profile {
+    /// Host-only presentation choice. Validate a candidate before replacing the profile.
+    pub fn set_parameter_display(
+        &mut self,
+        id: &str,
+        subindex: u8,
+        display: Option<&str>,
+    ) -> Result<()> {
+        let mut candidate = self.clone();
+        let parameter = candidate
+            .iodd
+            .as_mut()
+            .and_then(|iodd| {
+                iodd.parameters
+                    .iter_mut()
+                    .find(|parameter| parameter.id == id)
+            })
+            .ok_or_else(|| anyhow::anyhow!("parameter {id} is not in the imported IODD catalog"))?;
+        parameter.display_target_mut(subindex)?.preferred_display = display.map(str::to_owned);
+        candidate.validate()?;
+        *self = candidate;
+        Ok(())
+    }
+
     pub fn parameter(&self, id: &str) -> Result<&crate::iodd::Parameter> {
         self.iodd
             .as_ref()

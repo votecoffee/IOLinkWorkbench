@@ -25,6 +25,7 @@ class Gateway(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     polls = 0
     isdu_reads = 0
+    requests = 0
     violations = []
     device_id = 1
     inject_faults = True
@@ -55,6 +56,7 @@ class Gateway(BaseHTTPRequestHandler):
         pass
 
     def do_POST(self):
+        type(self).requests += 1
         request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         response = {"code": 200, "cid": request["cid"]}
         address = request["adr"]
@@ -319,6 +321,59 @@ def parallel_parameter_read(cli, fixture, output, diagnostics=False):
             process.communicate(timeout=5)
 
 
+def verify_display_preferences(cli, source, output):
+    output.mkdir()
+    original = source.read_bytes()
+    preferred = output / "preferred.toml"
+    before_reads = Gateway.isdu_reads
+    before_requests = Gateway.requests
+    run(cli, "select-display", source, "V_SIM_Threshold", preferred, "--display", "M_SIM_Threshold/2")
+    run(cli, "select-display", preferred, "V_SIM_Record", preferred, "--subindex", 1, "--display", "M_SIM_Record/2")
+    run(cli, "select-display", preferred, "V_SIM_Record", preferred, "--subindex", 2, "--display", "M_SIM_Record/4")
+    run(cli, "select-display", preferred, "V_SIM_History", preferred, "--subindex", 2, "--display", "M_SIM_History/2")
+    assert Gateway.isdu_reads == before_reads and Gateway.requests == before_requests and source.read_bytes() == original
+    for variable, payload, subindex, display_id, value, raw in [
+            ("V_SIM_Threshold", "01F4", 0, "M_SIM_Threshold/2", "01F4h", "500"),
+            ("V_SIM_Record", "FFEC", 1, "M_SIM_Record/2", "FFECh", "-20"),
+            ("V_SIM_Record", "01", 2, "M_SIM_Record/4", "1", "true"),
+            ("V_SIM_History", "FC", 2, "M_SIM_History/2", "1111 1100b", "-4")]:
+        live = tomllib.loads(run(cli, "read-parameter", preferred, variable, "--subindex", subindex))
+        before_requests = Gateway.requests
+        offline = tomllib.loads(run(cli, "decode-parameter", preferred, variable, payload, "--subindex", subindex))
+        assert Gateway.requests == before_requests
+        assert live["preferred_display"] == offline["preferred_display"] == {"id": display_id, "value": value, "unit": ""}
+        assert live["raw_value"] == offline["raw_value"] == raw
+        assert live["displays"] == offline["displays"]
+    record = tomllib.loads(run(cli, "read-parameter", preferred, "V_SIM_Record"))
+    assert record["record_items"][0]["value"]["preferred_display"]["value"] == "FFECh"
+    array = tomllib.loads(run(cli, "read-parameter", preferred, "V_SIM_History"))
+    assert all(item["value"]["preferred_display"]["id"] == "M_SIM_History/2" for item in array["array_items"])
+    assert all(len(item["value"]["displays"]) == 2 for item in array["array_items"])
+    bad = tomllib.loads(run(cli, "decode-parameter", preferred, "V_SIM_Threshold", "FF", expected=1))
+    assert bad["raw_hex"] == "FF" and bad["decode_error"] and "preferred_display" not in bad
+    before_reads = Gateway.isdu_reads
+    before_requests = Gateway.requests
+    saved = preferred.read_bytes()
+    invalid = output / "invalid.toml"
+    run(cli, "select-display", preferred, "V_SIM_Threshold", invalid, "--display", "M_SIM_Record/2", expected=1)
+    run(cli, "select-display", preferred, "V_SIM_Threshold", preferred, "--display", "missing", expected=1)
+    assert preferred.read_bytes() == saved
+    run(cli, "select-display", preferred, "V_SIM_Record", invalid, "--subindex", 8, "--clear", expected=1)
+    run(cli, "select-display", preferred, "V_SIM_Threshold", invalid, expected=2)
+    run(cli, "select-display", preferred, "V_SIM_Threshold", invalid, "--clear", "--display", "M_SIM_Threshold/1", expected=2)
+    assert not invalid.exists() and Gateway.isdu_reads == before_reads and Gateway.requests == before_requests
+    stale = output / "stale-id.toml"
+    stale.write_text(preferred.read_text(encoding="utf-8").replace('preferred_display = "M_SIM_Threshold/2"', 'preferred_display = "missing"'), encoding="utf-8")
+    run(cli, "read-parameter", stale, "V_SIM_Threshold", expected=1)
+    assert Gateway.isdu_reads == before_reads and Gateway.requests == before_requests
+    cleared = output / "cleared.toml"
+    run(cli, "select-display", preferred, "V_SIM_Threshold", cleared, "--clear")
+    decoded = tomllib.loads(run(cli, "decode-parameter", cleared, "V_SIM_Threshold", "01F4"))
+    assert "preferred_display" not in decoded and len(decoded["displays"]) == 3
+    assert source.read_bytes() == original
+    return preferred
+
+
 def verify_xsd(cli, scratch):
     folder = scratch / "schema '$ local"
     folder.mkdir()
@@ -496,6 +551,7 @@ def main():
     assert format_array["array_items"][1]["value"]["displays"][0]["value"] == "FCh"
     assert format_array["array_items"][1]["value"]["displays"][1]["value"] == "1111 1100b"
     run(cli, "decode-parameter", formats_profile, "V_SIM_Threshold", "FF", expected=1)
+    verify_display_preferences(cli, formats_profile, scratch / "sim-display-preferences")
 
     clean, rows = capture(cli, source, scratch / "sim-every", "--seconds", 1)
     assert clean["last_status"]["route"] == "synthetic simulator"
@@ -663,6 +719,7 @@ kind = "bool"
             assert bool_read["raw_value"] == "true" and bool_read["displays"][0]["value"] == "1"
             packed_read = tomllib.loads(run(cli, "read-parameter", format_fixture, "V_SIM_History"))
             assert packed_read["array_items"][1]["value"]["displays"][0]["value"] == "FCh"
+            verify_display_preferences(cli, format_fixture, scratch / "ifm-display-preferences")
             parallel_parameter_read(cli, parameter_fixture, scratch / "ifm-parallel-parameter")
             parallel_parameter_read(cli, parameter_fixture, scratch / "ifm-parallel-diagnostics", diagnostics=True)
             Gateway.fail_detailed = True
@@ -718,7 +775,7 @@ kind = "bool"
 
     print("PASS: ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
-          "named scalar/record/array reads, binary/hex/plain-decimal parameter views, array and localized CSV fields, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling, and read-only AL1350 loopback")
+          "named scalar/record/array reads, binary/hex/plain-decimal parameter views and saved display preferences, array and localized CSV fields, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 
 

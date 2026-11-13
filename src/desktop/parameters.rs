@@ -158,22 +158,89 @@ fn picker<'a>(
     Some((parent, target))
 }
 
+pub struct DisplaySelection {
+    pub id: String,
+    pub subindex: u8,
+    pub display: Option<String>,
+}
+
+impl DisplaySelection {
+    pub fn apply(self, profile: &mut Profile) -> anyhow::Result<()> {
+        profile.set_parameter_display(&self.id, self.subindex, self.display.as_deref())
+    }
+}
+
+fn preference(
+    ui: &mut Ui,
+    parent: &Parameter,
+    target: &Parameter,
+    subindex: u8,
+    available: bool,
+    salt: &str,
+) -> Option<DisplaySelection> {
+    let target = parent.array.as_ref().map_or(target, |array| &array.element);
+    if target.displays.is_empty() {
+        if parent.record.is_some() && subindex == 0 {
+            ui.small("Select a member subindex to choose its preferred display.");
+        }
+        return None;
+    }
+    let mut chosen = target.preferred_display.clone();
+    ui.add_enabled_ui(available, |ui| {
+        egui::ComboBox::from_id_salt((salt, "preferred-display"))
+            .selected_text(chosen.as_deref().unwrap_or("All displays · no preference"))
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut chosen, None, "All displays · no preference");
+                for display in &target.displays {
+                    ui.selectable_value(
+                        &mut chosen,
+                        Some(display.id.clone()),
+                        format!(
+                            "{} · {} · {}",
+                            display.id,
+                            display.format.label(),
+                            display.field.unit
+                        ),
+                    );
+                }
+            });
+    });
+    ui.small(if parent.array.is_some() {
+        "Preferred display applies to every array element. Save the profile in Setup to retain it."
+    } else {
+        "Preferred display is a host setting. Save the profile in Setup to retain it."
+    });
+    (chosen != target.preferred_display).then(|| DisplaySelection {
+        id: parent.id.clone(),
+        subindex,
+        display: chosen,
+    })
+}
+
+#[derive(Default)]
+pub struct Actions {
+    pub read: Option<(String, u8)>,
+    pub display: Option<DisplaySelection>,
+}
+
 pub fn show(
     ui: &mut Ui,
     profile: &Profile,
     selected: &mut Option<String>,
     subindex: &mut u8,
     available: bool,
-) -> Option<(String, u8)> {
-    let mut requested = None;
+    preferences_available: bool,
+) -> Actions {
+    let mut actions = Actions::default();
     ui.collapsing("IODD parameters", |ui| {
         ui.small("IODD defaults and permitted values describe the device. Reads use a separate acyclic client.");
         ui.add_enabled_ui(available, |ui| {
             if let Some((parent, target)) = picker(ui, profile, selected, subindex, "iodd-read-parameter") {
+                actions.display = preference(ui, parent, target, *subindex, preferences_available, "iodd-read-parameter");
                 let allowed = parent.access != Access::WriteOnly && target.access != Access::WriteOnly
                     && (*subindex == 0 || parent.subindex_access());
                 if ui.add_enabled(allowed, egui::Button::new("Read named parameter")).clicked() {
-                    requested = Some((parent.id.clone(), *subindex));
+                    actions.read = Some((parent.id.clone(), *subindex));
                 }
             }
         });
@@ -184,7 +251,7 @@ pub fn show(
             });
         }
     });
-    requested
+    actions
 }
 
 #[derive(Default)]
@@ -195,16 +262,30 @@ pub struct Offline {
 }
 
 impl Offline {
-    pub fn show(&mut self, ui: &mut Ui, profile: &Profile) {
+    pub fn show(
+        &mut self,
+        ui: &mut Ui,
+        profile: &Profile,
+        preferences_available: bool,
+    ) -> Option<DisplaySelection> {
+        let mut selection = None;
         ui.heading("Offline ISDU parameter decoder");
         ui.small("Paste a recorded 1–232 byte response. Select subindex 0 for a whole record, or the member addressed by the recorded query.");
-        if let Some((_, target)) = picker(
+        if let Some((parent, target)) = picker(
             ui,
             profile,
             &mut self.selected,
             &mut self.subindex,
             "iodd-offline-parameter",
         ) {
+            selection = preference(
+                ui,
+                parent,
+                target,
+                self.subindex,
+                preferences_available,
+                "iodd-offline-parameter",
+            );
             ui.add(
                 egui::TextEdit::multiline(&mut self.payload)
                     .code_editor()
@@ -222,5 +303,6 @@ impl Offline {
                 }
             }
         }
+        selection
     }
 }

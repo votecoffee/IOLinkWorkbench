@@ -49,6 +49,18 @@ enum Command {
     Decode { profile: PathBuf, payload: String },
     /// List imported IODD parameters without contacting a gateway.
     Parameters { profile: PathBuf },
+    /// Save a host-only preferred parameter display to an output profile. No gateway access.
+    SelectDisplay {
+        profile: PathBuf,
+        id: String,
+        output: PathBuf,
+        #[arg(long, default_value_t = 0)]
+        subindex: u8,
+        #[arg(long, conflicts_with = "clear", required_unless_present = "clear")]
+        display: Option<String>,
+        #[arg(long)]
+        clear: bool,
+    },
     /// List saved IODD event definitions and unresolved standard event references.
     Events { profile: PathBuf },
     /// Explicitly read optional Device Status (36:0) and Detailed Device Status (37:0).
@@ -286,6 +298,19 @@ fn main() -> Result<()> {
                     standard_parameter_refs: &iodd.standard_parameter_refs,
                 })?
             );
+        }
+        Command::SelectDisplay {
+            profile,
+            id,
+            output,
+            subindex,
+            display,
+            clear: _,
+        } => {
+            let mut profile = Profile::load(&profile)?;
+            profile.set_parameter_display(&id, subindex, display.as_deref())?;
+            profile.save(&output)?;
+            println!("Saved {}", output.display());
         }
         Command::ReadParameter {
             profile,
