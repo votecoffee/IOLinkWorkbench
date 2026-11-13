@@ -44,16 +44,19 @@ pub(super) fn validate(m: &Manifest, profile: &Profile) -> Result<()> {
                 c.duplicate.is_none_or(|v| v == 0) && c.out_of_order.is_none_or(|v| v == 0),
                 "snapshot freshness cannot claim verified duplicate or late source updates"
             );
-        } else if let (Some(received), Some(new), Some(duplicates), Some(late)) = (
-            c.received,
-            c.new_updates_observed,
-            c.duplicate,
-            c.out_of_order,
-        ) {
+        } else if let Some(received) = c.received {
+            let categories = [c.new_updates_observed, c.duplicate, c.out_of_order];
+            let known: u128 = categories.iter().flatten().map(|v| u128::from(*v)).sum();
             ensure!(
-                u128::from(new) + u128::from(duplicates) + u128::from(late) == u128::from(received),
-                "new, duplicate and late classifications differ from received input count"
+                known <= u128::from(received),
+                "known source classifications exceed received input count"
             );
+            if categories.iter().all(Option::is_some) {
+                ensure!(
+                    known == u128::from(received),
+                    "new, duplicate and late classifications differ from received input count"
+                );
+            }
         }
     }
     Ok(())

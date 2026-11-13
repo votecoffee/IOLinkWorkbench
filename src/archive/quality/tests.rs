@@ -367,7 +367,15 @@ fn classification_partitions_and_quality_bounds_use_wide_arithmetic() -> Result<
     m.counts.duplicate = Some(1);
     m.counts.out_of_order = Some(1);
     validate(&m, &Profile::default())?;
+    m.counts.new_updates_observed = Some(4);
+    m.counts.duplicate = Some(2);
+    m.counts.out_of_order = None;
+    assert!(
+        format!("{:#}", validate(&m, &Profile::default()).unwrap_err())
+            .contains("known source classifications exceed")
+    );
     m.last_status.as_mut().unwrap().freshness = Freshness::Snapshots;
+    m.counts.new_updates_observed = Some(0);
     m.counts.duplicate = None;
     m.counts.out_of_order = None;
     m.counts.received = Some(u64::MAX);

@@ -56,7 +56,7 @@ def verify(cli, captures, output):
     assert original["counts"]["invalid"] > 0
     assert tomllib.loads(run(cli, "verify-capture", baseline))["invalid_rows"] > 0
     edited_csv = None
-    for number, name in enumerate(("invalid-total", "classification", "threshold", "stale-age")):
+    for number, name in enumerate(("invalid-total", "classification", "partial-classification", "threshold", "stale-age")):
         case = output / name
         copy_capture(baseline, case)
         report = case / "capture.toml"
@@ -64,6 +64,9 @@ def verify(cli, captures, output):
             patch(report, "counts", "invalid", 0)
         elif name == "classification":
             patch(report, "counts", "duplicate", original["counts"]["duplicate"] + 1)
+        elif name == "partial-classification":
+            patch(report, "counts", "duplicate", original["counts"]["received"] - original["counts"]["new_updates_observed"] + 1)
+            patch(report, "counts", "out_of_order", None)
         elif name == "threshold":
             root_patch(report, "stale_threshold_us", original["stale_threshold_us"] + 1)
         else:
@@ -79,7 +82,7 @@ def verify(cli, captures, output):
         patch(legacy / "capture.toml", "counts", key, None)
     assert tomllib.loads(run(cli, "verify-capture", legacy)) == tomllib.loads(run(cli, "verify-capture", baseline))
     assert all(digest(p) == value for p, value in originals.items())
-    receipt = {"scope": "offline recorded-quality consistency only; no physical validity or timing qualification", "source_rows_verified": checked, "four_corruptions_rejected_by_six_paths": True, "missing_quality_metrics_not_zero": True, "csv_cells_encoding_and_lf_records_preserved": True, "edited_csv": str(edited_csv.resolve()), "failed_outputs_not_published": True, "originals_preserved": True}
+    receipt = {"scope": "offline recorded-quality consistency only; no physical validity or timing qualification", "source_rows_verified": checked, "five_corruptions_rejected_by_six_paths": True, "missing_quality_metrics_not_zero": True, "partial_classification_sum_checked_without_zero_fills": True, "csv_cells_encoding_and_lf_records_preserved": True, "edited_csv": str(edited_csv.resolve()), "failed_outputs_not_published": True, "originals_preserved": True}
     (output / "receipt.json").write_bytes((json.dumps(receipt, indent=2) + "\n").encode())
     return receipt
 
