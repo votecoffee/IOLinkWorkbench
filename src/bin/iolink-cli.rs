@@ -4,7 +4,7 @@ use iolink_workbench::{
     archive,
     capture::{self, Options, Stop},
     decode, diagnostics, iodd,
-    profile::Profile,
+    profile::{LogSelection, Profile},
     transport,
 };
 use std::{path::PathBuf, time::Duration};
@@ -127,6 +127,15 @@ enum Command {
         simulate_writer_delay_ms: u64,
         #[arg(long)]
         queue_capacity: Option<usize>,
+        /// Log only raw inputs and metadata; preserve mappings for offline decoding.
+        #[arg(long, conflicts_with_all = ["fields", "all_fields"])]
+        raw_only: bool,
+        /// Log all mapped values in mapping order.
+        #[arg(long, conflicts_with_all = ["fields", "raw_only"])]
+        all_fields: bool,
+        /// Exact mapped field name; repeat to choose CSV value order.
+        #[arg(long = "field", value_name = "NAME", conflicts_with_all = ["raw_only", "all_fields"])]
+        fields: Vec<String>,
     },
 }
 
@@ -352,6 +361,14 @@ fn main() -> Result<()> {
         Command::Validate { profile } => {
             let profile = Profile::load(&profile)?;
             println!("{} ({} bytes)", profile.name, profile.input_bytes);
+            println!(
+                "CSV typed columns · {:?}",
+                profile
+                    .log_fields()
+                    .iter()
+                    .map(|field| field.name.as_str())
+                    .collect::<Vec<_>>()
+            );
             if let Some(iodd) = &profile.iodd {
                 if let Some(localization) = &iodd.localization {
                     println!("{}", localization.summary());
@@ -414,6 +431,9 @@ fn main() -> Result<()> {
             simulate_faults,
             simulate_writer_delay_ms,
             queue_capacity,
+            raw_only,
+            all_fields,
+            fields,
         } => {
             ensure!(
                 seconds.is_finite() && (0.01..=86400.0).contains(&seconds),
@@ -422,6 +442,13 @@ fn main() -> Result<()> {
             let mut profile = Profile::load(&profile)?;
             if let Some(capacity) = queue_capacity {
                 profile.logging.queue_capacity = capacity;
+            }
+            if raw_only {
+                profile.set_log_selection(LogSelection::RawOnly)?;
+            } else if all_fields {
+                profile.set_log_selection(LogSelection::All)?;
+            } else if !fields.is_empty() {
+                profile.set_log_selection(LogSelection::Fields(fields))?;
             }
             let stop = Stop::default();
             let interrupt = stop.clone();

@@ -1,0 +1,33 @@
+version = 1
+name = "Synthetic sensor - raw capture"
+input_bytes = 2
+
+[connection]
+gateway = "simulator"
+port = 1
+poll_us = 1000
+
+[expected_identity]
+vendor_id = 65535
+device_id = 1
+product_id = "SIM-SENSOR"
+
+[logging]
+mode = "every_update"
+raw_only = true
+
+# Retained for typed previews and later re-decoding, without CSV value columns.
+[[fields]]
+name = "level"
+bit_offset = 1
+bits = 15
+kind = "signed"
+scale = 0.1
+decimals = 1
+unit = "mm"
+
+[[fields]]
+name = "switch"
+bit_offset = 0
+bits = 1
+kind = "bool"

@@ -14,6 +14,7 @@ use std::{
 };
 
 mod diagnostics;
+mod logging_fields;
 mod parameters;
 mod saved_capture;
 mod setup;
@@ -277,6 +278,9 @@ impl App {
                     self.setup.sync(&self.profile);
                 }
             });
+            if logging_fields::show(ui, &mut self.profile, &mut self.message) {
+                self.setup.sync(&self.profile);
+            }
             if self.profile.connection.gateway == Gateway::Simulator {
                 ui.checkbox(
                     &mut self.simulate_faults,

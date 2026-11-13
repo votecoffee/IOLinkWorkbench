@@ -101,6 +101,8 @@ pub enum LogMode {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Logging {
+    #[serde(skip_serializing_if = "is_false")]
+    pub raw_only: bool,
     pub mode: LogMode,
     pub queue_capacity: usize,
     pub rotate_rows: u64,
@@ -108,9 +110,21 @@ pub struct Logging {
     pub fields: Vec<String>,
 }
 
+fn is_false(value: &bool) -> bool {
+    !value
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LogSelection {
+    All,
+    RawOnly,
+    Fields(Vec<String>),
+}
+
 impl Default for Logging {
     fn default() -> Self {
         Self {
+            raw_only: false,
             mode: LogMode::EveryUpdate,
             queue_capacity: 8192,
             rotate_rows: 0,
@@ -225,7 +239,38 @@ impl Profile {
         fields
     }
 
+    /// Apply CSV selection atomically. Mappings and connection settings are preserved.
+    pub fn set_log_selection(&mut self, selection: LogSelection) -> Result<()> {
+        let old = self.logging.clone();
+        match selection {
+            LogSelection::All => {
+                self.logging.raw_only = false;
+                self.logging.fields.clear();
+            }
+            LogSelection::RawOnly => {
+                self.logging.raw_only = true;
+                self.logging.fields.clear();
+            }
+            LogSelection::Fields(fields) => {
+                ensure!(
+                    !fields.is_empty(),
+                    "choose at least one field, or use raw-only logging"
+                );
+                self.logging.raw_only = false;
+                self.logging.fields = fields;
+            }
+        }
+        if let Err(error) = self.validate() {
+            self.logging = old;
+            return Err(error);
+        }
+        Ok(())
+    }
+
     pub fn log_fields(&self) -> Vec<&Field> {
+        if self.logging.raw_only {
+            return Vec::new();
+        }
         let fields = self.effective_fields();
         if self.logging.fields.is_empty() {
             return fields.into_iter().map(|(field, _)| field).collect();
@@ -318,6 +363,10 @@ impl Profile {
             );
             field.validate(self.input_bytes)?;
         }
+        ensure!(
+            !self.logging.raw_only || self.logging.fields.is_empty(),
+            "raw-only logging cannot also select typed fields"
+        );
         let mut selected = HashSet::new();
         for name in &self.logging.fields {
             ensure!(names.contains(name), "log field {name} does not exist");

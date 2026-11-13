@@ -153,7 +153,7 @@ impl Editor {
             }
             ui.separator();
             ui.heading("Profile settings");
-            ui.small("Edit the host connection, expected identity, and named fields here. A matching field name overrides an imported field. Set logging.fields to the names to record.");
+            ui.small("Edit the host connection, expected identity, and named fields here. A matching field name overrides an imported field. Choose CSV values in Monitor & CSV, or set logging.fields / logging.raw_only here.");
             ui.horizontal(|ui| {
                 if ui.add_enabled(self.pending, egui::Button::new("Apply edits")).clicked() {
                     match Profile::parse(&self.toml) {

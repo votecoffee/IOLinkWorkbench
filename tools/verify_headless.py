@@ -258,7 +258,11 @@ def capture(cli, profile, path, *args):
     for earlier, later in zip(rows, rows[1:]):
         assert int(earlier["sample_index"]) < int(later["sample_index"])
         assert int(earlier["host_elapsed_us"]) <= int(later["host_elapsed_us"])
-    review_capture(cli, path, rows, report)
+    if any(key.startswith("value.") for key in rows[0]):
+        review_capture(cli, path, rows, report)
+    else:
+        assert len(rows[0]) == 12
+        assert not run(cli, "review-capture", path, expected=1)
     redecode_capture(cli, path, rows, report)
     return report, rows
 
@@ -410,6 +414,9 @@ def main():
     assert reading["name"] == "Grenzwert" and reading["choice_name"] == "Nennwert" and reading["raw_value"] == "500"
     _, localized_rows = capture(cli, localized, scratch / "sim-localized", "--seconds", 0.25)
     assert any("Füllstand [1]" in name for name in localized_rows[0])
+    _, selected_locale = capture(cli, localized, scratch / "sim-selected-language", "--seconds", 0.25,
+                                 "--field", "Füllstand [1]")
+    assert list(selected_locale[0])[12:] == ["value.Füllstand [1]"]
     before = localized.read_bytes()
     run(cli, "import", scratch / "iodd.zip", localized, "--variant", "SIM-SENSOR", "--language", "fr", expected=1)
     assert localized.read_bytes() == before
@@ -480,6 +487,54 @@ def main():
     assert any(a["raw_hex"] == b["raw_hex"] for a, b in zip(rows, rows[1:]))
     assert len({row["source_counter"] for row in rows}) == len(rows)
     assert clean["gateway_update_spacing"]["p50_us"] == 1000
+
+    before_selection = source.read_bytes()
+    raw_report, raw_rows = capture(cli, source, scratch / "sim-raw-only", "--seconds", 0.4, "--raw-only", "--simulate-faults")
+    raw_profile = scratch / "sim-raw-only/profile.toml"
+    saved_raw = tomllib.loads(raw_profile.read_text(encoding="utf-8"))
+    assert saved_raw["logging"]["raw_only"] and not saved_raw["logging"]["fields"]
+    assert len(saved_raw["fields"]) == 2 and len(raw_rows[0]) == 12
+    assert "level [manual]" in run(cli, "decode", raw_profile, "FFF9")
+    raw_profile_before = raw_profile.read_bytes()
+    rotating_raw = scratch / "raw-rotating.toml"
+    rotating_raw.write_text(raw_profile.read_text(encoding="utf-8").replace('mode = "every_update"', 'mode = "on_change"').replace('rotate_rows = 0', 'rotate_rows = 11'), encoding="utf-8")
+    rotated_raw, rotated_rows = capture(cli, rotating_raw, scratch / "sim-raw-change-rotation", "--seconds", 0.35)
+    assert rotated_raw["csv_parts"] > 1 and rotated_raw["counts"]["unchanged"] > 0
+    assert len(rotated_rows[0]) == 12
+    joined_raw = scratch / "raw-joined.csv"
+    run(cli, "verify-capture", scratch / "sim-raw-change-rotation", "--joined-csv", joined_raw)
+    with joined_raw.open(encoding="utf-8", newline="") as file:
+        assert list(csv.DictReader(file)) == rotated_rows
+    _, ordered_rows = capture(cli, raw_profile, scratch / "sim-selected-order", "--seconds", 0.25,
+                              "--field", "switch", "--field", "level")
+    assert list(ordered_rows[0])[12:] == ["value.switch", "value.level [mm]"]
+    ordered_profile = tomllib.loads((scratch / "sim-selected-order/profile.toml").read_text(encoding="utf-8"))
+    assert not ordered_profile["logging"].get("raw_only", False)
+    assert ordered_profile["logging"]["fields"] == ["switch", "level"]
+    _, all_rows = capture(cli, raw_profile, scratch / "sim-all-values", "--seconds", 0.25, "--all-fields")
+    assert list(all_rows[0])[12:] == ["value.level [mm]", "value.switch"]
+    assert raw_profile.read_bytes() == raw_profile_before and source.read_bytes() == before_selection
+    for index, (arguments, selection_exit_code) in enumerate([
+            (["--field", "missing"], 1), (["--field", "level", "--field", "level"], 1),
+            (["--raw-only", "--field", "level"], 2), (["--all-fields", "--raw-only"], 2)]):
+        failed = scratch / f"bad-selection-{index}"
+        assert not run(cli, "capture", source, failed, "--seconds", 0.1, *arguments, expected=selection_exit_code)
+        assert not failed.exists()
+
+    punctuation = scratch / "punctuation.toml"
+    punctuation.write_text('''name = "Punctuation selection"
+input_bytes = 2
+[[fields]]
+name = 'Level, "quoted"'
+bits = 16
+[[fields]]
+name = "Unused"
+bits = 1
+kind = "bool"
+''', encoding="utf-8")
+    _, punctuation_rows = capture(cli, punctuation, scratch / "sim-selected-punctuation", "--seconds", 0.25,
+                                  "--field", 'Level, "quoted"')
+    assert list(punctuation_rows[0])[12:] == ['value.Level, "quoted"']
 
     changed = scratch / "changed.toml"
     changed.write_text(profile.replace('"every_update"', '"on_change"').replace(
@@ -559,6 +614,10 @@ def main():
             assert all(row["source_age_us"] == "" and row["stale"] == "" for row in rows)
             assert sum(row["raw_hex"] == "03C9" for row in rows) > 1
             assert Gateway.isdu_reads == 1 and not Gateway.violations
+            raw_snapshot, raw_snapshot_rows = capture(cli, fixture, scratch / "ifm-raw-only", "--seconds", 0.4, "--raw-only")
+            assert raw_snapshot["source_update_loss"] == "unknown"
+            assert len(raw_snapshot_rows[0]) == 12 and all(row["row_kind"] == "host_poll" for row in raw_snapshot_rows)
+            assert Gateway.isdu_reads == 1 and not Gateway.violations
             matched = tomllib.loads(run(cli, "status", fixture, "--verify-product-id"))
             assert matched["identity_check"] == "matched all configured identity fields"
             assert matched["identity"]["product_id"] == "SIM-SENSOR"
@@ -628,7 +687,7 @@ def main():
             server.shutdown()
             thread.join()
 
-    print("PASS: ZIP and variant selection, offline decoding, equal updates, on-change, rotation, "
+    print("PASS: ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "named scalar/record/array reads, array and localized CSV fields, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
