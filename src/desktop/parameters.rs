@@ -247,6 +247,7 @@ pub fn show(
     let mut actions = Actions::default();
     ui.collapsing("IODD parameters", |ui| {
         ui.small("IODD defaults and permitted values describe the device. Reads use a separate acyclic client.");
+        ui.small("Numeric/Boolean reads assess unscaled values against declared choices and ranges. This assessment is separate from transport validity and device diagnostics.");
         ui.add_enabled_ui(available, |ui| {
             if let Some((parent, target)) = picker(ui, profile, selected, subindex, "iodd-read-parameter") {
                 actions.display = preference(ui, parent, target, *subindex, preferences_available, "iodd-read-parameter");

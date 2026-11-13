@@ -37,6 +37,7 @@ class Gateway(BaseHTTPRequestHandler):
     threshold_payload = "01F4"
     octet_payload = "0080FF2C"
     text_payload = "C2B56D0000000000"
+    wide_payload = "FFFFFFFFFFFFFFFF"
     parameter_entered = threading.Event()
     parameter_release = threading.Event()
     port = "/iolinkmaster/port[1]"
@@ -92,7 +93,9 @@ class Gateway(BaseHTTPRequestHandler):
                 *({"index": index, "subindex": subindex} for index in (73, 74, 75) for subindex in range(3)),
                 {"index": 76, "subindex": 0}, {"index": 77, "subindex": 0},
                 *({"index": 78, "subindex": subindex} for subindex in range(4)),
-                *({"index": index, "subindex": subindex} for index in (79, 80) for subindex in range(3))):
+                *({"index": index, "subindex": subindex} for index in (79, 80) for subindex in range(3)),
+                *({"index": index, "subindex": 0} for index in (81, 82, 83)),
+                *({"index": index, "subindex": subindex} for index in (84, 85) for subindex in range(4))):
             type(self).isdu_reads += 1
             index = request["data"]["index"]
             if index == self.block_index and self.block_parameter:
@@ -112,6 +115,9 @@ class Gateway(BaseHTTPRequestHandler):
                 (78, 0): "0080FF2CC2B56D00000000004F4B0000", (78, 1): "0080FF2C", (78, 2): "C2B56D0000000000", (78, 3): "4F4B0000",
                 (79, 0): "0080FF2C10200000", (79, 1): "0080FF2C", (79, 2): "10200000",
                 (80, 0): "C3A900004F4B0000", (80, 1): "C3A9", (80, 2): "4F4B0000",
+                (81, 0): "01", (82, 0): self.wide_payload, (83, 0): "3FA00000",
+                (84, 0): "01FFFB03", (84, 1): "01", (84, 2): "FFFB", (84, 3): "03",
+                (85, 0): "0F23", (85, 1): "FF", (85, 2): "02", (85, 3): "03",
             }[(index, request["data"]["subindex"])]}
             if index == 37 and self.fail_detailed:
                 response["code"] = 500
@@ -587,6 +593,56 @@ def verify_string_parameters(cli, profile, output, loopback=False):
             Gateway.text_payload = "C2B56D0000000000"
 
 
+def verify_value_definitions(cli, profile, output, loopback=False):
+    output.mkdir()
+    for variable, subindex, raw, value, choice in [
+        ("V_SIM_Enabled", 0, "01", "true", "Enabled"),
+        ("V_SIM_Wide", 0, "FFFFFFFFFFFFFFFF", "18446744073709551615", "Maximum unsigned value"),
+        ("V_SIM_Float", 0, "3FA00000", "1.25", "Nominal float"),
+        ("V_SIM_ValueRecord", 1, "01", "true", "Enabled"),
+        ("V_SIM_ValueRecord", 2, "FFFB", "-5", "Negative offset"),
+        ("V_SIM_ValueRecord", 3, "03", "3", None),
+        ("V_SIM_ValueArray", 1, "FF", "-1", "Minus one"),
+        ("V_SIM_ValueArray", 2, "02", "2", None)]:
+        path = output / f"{variable}-{subindex}.json"
+        reading = tomllib.loads(run(cli, "read-parameter", profile, variable, "--subindex", subindex, "--snapshot", path))
+        before = Gateway.requests
+        restored = tomllib.loads(run(cli, "review-parameter", path))["decoded"]
+        offline = tomllib.loads(run(cli, "decode-parameter", profile, variable, raw, "--subindex", subindex))
+        assert Gateway.requests == before
+        for result in (reading, restored, offline):
+            assert result["raw_value"] == value and result["raw_hex"] == raw
+            assert result.get("choice_name") == choice
+            assert result["value_assessment"]["status"] == "allowed" and not result["value_assessment"]["notes"]
+        assert reading["value_assessment"] == restored["value_assessment"] == offline["value_assessment"]
+    for variable, key in [("V_SIM_ValueRecord", "record_items"), ("V_SIM_ValueArray", "array_items")]:
+        whole = tomllib.loads(run(cli, "read-parameter", profile, variable))
+        offline = tomllib.loads(run(cli, "decode-parameter", profile, variable, whole["raw_hex"]))
+        assert whole[key] == offline[key]
+        assert all(item["value"]["value_assessment"]["status"] == "allowed" for item in whole[key])
+    for variable, raw, status in [
+        ("V_SIM_Wide", "0020000000000001", "allowed"),
+        ("V_SIM_Wide", "0020000000000002", "outside_definition"),
+        ("V_SIM_Float", "3FC00000", "outside_definition"),
+        ("V_SIM_Float", "7FC00000", "not_comparable"),
+        ("V_SIM_Float", "7F800000", "allowed")]:
+        result = tomllib.loads(run(cli, "decode-parameter", profile, variable, raw))
+        assert result["raw_hex"] == raw and result["value_assessment"]["status"] == status
+        assert "decode_error" not in result
+    if loopback:
+        Gateway.wide_payload = "0020000000000002"
+        try:
+            path = output / "outside-definition.json"
+            result = tomllib.loads(run(cli, "read-parameter", profile, "V_SIM_Wide", "--snapshot", path))
+            before = Gateway.requests
+            restored = tomllib.loads(run(cli, "review-parameter", path))["decoded"]
+            assert Gateway.requests == before
+            assert result["value_assessment"] == restored["value_assessment"]
+            assert restored["value_assessment"]["status"] == "outside_definition"
+        finally:
+            Gateway.wide_payload = "FFFFFFFFFFFFFFFF"
+
+
 def verify_xsd(cli, scratch):
     folder = scratch / "schema '$ local"
     folder.mkdir()
@@ -779,6 +835,12 @@ def main():
     strings_profile = scratch / "strings.toml"
     run(cli, "import", ROOT / "samples/sensor-strings.xml", strings_profile)
     verify_string_parameters(cli, strings_profile, scratch / "sim-strings")
+    values_profile = scratch / "values.toml"
+    run(cli, "import", ROOT / "samples/sensor-values.xml", values_profile)
+    verify_value_definitions(cli, values_profile, scratch / "sim-values")
+    # The older fixture intentionally overlaps its nominal choice and range.
+    overlapping = tomllib.loads(run(cli, "read-parameter", imported, "V_SIM_Threshold"))
+    assert overlapping["choice_name"] == "Nominal setting" and overlapping["value_assessment"]["status"] == "definition_needs_review"
 
     clean, rows = capture(cli, source, scratch / "sim-every", "--seconds", 1)
     assert clean["last_status"]["route"] == "synthetic simulator"
@@ -940,6 +1002,12 @@ kind = "bool"
             strings_text = strings_text.replace('ifm_firmware = ""', 'ifm_firmware = "3.1.42"').replace('port = 1', 'port = 1\nifm_mode = 3')
             strings_fixture.write_text(strings_text, encoding="utf-8")
             verify_string_parameters(cli, strings_fixture, scratch / "ifm-strings", loopback=True)
+            values_fixture = scratch / "values-fixture.toml"
+            values_text = values_profile.read_text(encoding="utf-8").replace('gateway = "simulator"', 'gateway = "ifm_al1350"')
+            values_text = values_text.replace('endpoint = ""', f'endpoint = "http://127.0.0.1:{server.server_port}"')
+            values_text = values_text.replace('ifm_firmware = ""', 'ifm_firmware = "3.1.42"').replace('port = 1', 'port = 1\nifm_mode = 3')
+            values_fixture.write_text(values_text, encoding="utf-8")
+            verify_value_definitions(cli, values_fixture, scratch / "ifm-values", loopback=True)
             time_fixture = scratch / "time-fixture.toml"
             time_text = time_profile.read_text(encoding="utf-8").replace('gateway = "simulator"', 'gateway = "ifm_al1350"')
             time_text = time_text.replace('endpoint = ""', f'endpoint = "http://127.0.0.1:{server.server_port}"')
@@ -1022,7 +1090,7 @@ kind = "bool"
 
     print("PASS: ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
-          "named scalar/record/array reads, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline reopening, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
+          "named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline reopening, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 
 

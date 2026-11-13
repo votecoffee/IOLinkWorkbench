@@ -548,6 +548,9 @@ impl App {
                 if let Some(time) = &reading.time_value {
                     text.push_str(&format!("\n{}", time.text()));
                 }
+                if let Some(assessment) = &reading.value_assessment {
+                    text.push_str(&format!("\n{}", assessment.text()));
+                }
                 if let Some(error) = &reading.decode_error {
                     text.push_str(&format!("\nDecode review · {error}"));
                 }

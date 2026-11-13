@@ -10,6 +10,8 @@ pub struct DecodedParameter {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preferred_display: Option<DisplayValue>,
     pub choice_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value_assessment: Option<super::ValueAssessment>,
     pub decode_error: Option<String>,
     pub record_items: Vec<RecordValue>,
     pub array_items: Vec<RecordValue>,
@@ -42,6 +44,7 @@ impl DecodedParameter {
             displays: Vec::new(),
             preferred_display: None,
             choice_name: None,
+            value_assessment: None,
             decode_error: Some(error.to_string()),
             record_items: Vec::new(),
             array_items: Vec::new(),
@@ -59,6 +62,9 @@ impl DecodedParameter {
         }
         if let Some(time) = &self.time_value {
             text.push_str(&format!("\n{}", time.text()));
+        }
+        if let Some(assessment) = &self.value_assessment {
+            text.push_str(&format!("\n{}", assessment.text()));
         }
         for display in &self.displays {
             text.push_str(&format!(
@@ -109,16 +115,15 @@ impl Parameter {
             displays: Vec::new(),
             preferred_display: None,
             choice_name: None,
+            value_assessment: None,
             decode_error: None,
             record_items: Vec::new(),
             array_items: Vec::new(),
             time_value: None,
         };
-        value.choice_name = value
-            .raw_value
-            .as_deref()
-            .and_then(|raw| self.choices.iter().find(|choice| choice.value == raw))
-            .map(|choice| choice.name.clone());
+        if let Some(raw) = &value.raw_value {
+            (value.value_assessment, value.choice_name) = super::assessment::assess(self, raw);
+        }
         if matches!(self.datatype.as_str(), "TimeT" | "TimeSpanT") {
             match super::time::decode(&self.datatype, payload) {
                 Ok(time) => value.time_value = Some(time),

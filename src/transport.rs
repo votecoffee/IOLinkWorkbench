@@ -173,6 +173,8 @@ pub struct ParameterReading {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preferred_display: Option<crate::iodd::DisplayValue>,
     pub choice_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value_assessment: Option<crate::iodd::ValueAssessment>,
     pub decode_error: Option<String>,
     pub record_items: Vec<crate::iodd::RecordValue>,
     pub array_items: Vec<crate::iodd::RecordValue>,
@@ -237,6 +239,7 @@ pub(crate) fn read_parameter_observed(
             displays: decoded.displays,
             preferred_display: decoded.preferred_display,
             choice_name: decoded.choice_name,
+            value_assessment: decoded.value_assessment,
             decode_error: decoded.decode_error,
             record_items: decoded.record_items,
             array_items: decoded.array_items,

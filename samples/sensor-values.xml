@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<IODevice xmlns="http://www.io-link.com/IODD/2010/10" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <!-- Original abbreviated parser fixture; no associated physical sensor. -->
+  <ProfileBody>
+    <DeviceIdentity vendorId="65535" deviceId="1"><DeviceVariantCollection><DeviceVariant productId="SIM-SENSOR"><Name textId="sensor"/></DeviceVariant></DeviceVariantCollection></DeviceIdentity>
+    <DeviceFunction>
+      <VariableCollection>
+        <Variable id="V_SIM_Enabled" index="81" accessRights="ro"><Datatype xsi:type="BooleanT"><SingleValue value="0"><Name textId="off"/></SingleValue><SingleValue value="1"><Name textId="on"/></SingleValue></Datatype><Name textId="enabled"/></Variable>
+        <Variable id="V_SIM_Wide" index="82" accessRights="ro"><Datatype xsi:type="UIntegerT" bitLength="64"><SingleValue value="+018446744073709551615"><Name textId="maximum"/></SingleValue><ValueRange lowerValue="+0000" upperValue="9007199254740993"/></Datatype><Name textId="wide"/></Variable>
+        <Variable id="V_SIM_Float" index="83" accessRights="ro"><Datatype xsi:type="Float32T"><SingleValue value="1.250e+0"><Name textId="nominal"/></SingleValue><ValueRange lowerValue="-INF" upperValue="-1.0"/><ValueRange lowerValue="2.5" upperValue="INF"/></Datatype><Name textId="float"/></Variable>
+        <Variable id="V_SIM_ValueRecord" index="84" accessRights="ro"><Datatype xsi:type="RecordT" bitLength="32" subindexAccessSupported="true">
+          <RecordItem subindex="1" bitOffset="24"><SimpleDatatype xsi:type="BooleanT"><SingleValue value="1"><Name textId="on"/></SingleValue></SimpleDatatype><Name textId="enabled"/></RecordItem>
+          <RecordItem subindex="2" bitOffset="8"><SimpleDatatype xsi:type="IntegerT" bitLength="16"><SingleValue value="-0005"><Name textId="offset"/></SingleValue><ValueRange lowerValue="+0" upperValue="+100"/></SimpleDatatype><Name textId="signed"/></RecordItem>
+          <RecordItem subindex="3" bitOffset="0"><SimpleDatatype xsi:type="UIntegerT" bitLength="8"><ValueRange lowerValue="2" upperValue="4"/></SimpleDatatype><Name textId="limited"/></RecordItem>
+        </Datatype><Name textId="record"/></Variable>
+        <Variable id="V_SIM_ValueArray" index="85" accessRights="ro"><Datatype xsi:type="ArrayT" count="3" subindexAccessSupported="true"><SimpleDatatype xsi:type="IntegerT" bitLength="4"><SingleValue value="-01"><Name textId="minusOne"/></SingleValue><ValueRange lowerValue="+00" upperValue="+07"/></SimpleDatatype></Datatype><Name textId="array"/></Variable>
+      </VariableCollection>
+      <ProcessDataCollection><ProcessData id="PD"><ProcessDataIn id="IN" bitLength="16" unitCode="1997"><Datatype xsi:type="UIntegerT" bitLength="16"/></ProcessDataIn></ProcessData></ProcessDataCollection>
+      <UserInterface><MenuCollection><Menu id="M_VALUES"><VariableRef variableId="V_SIM_Enabled" displayFormat="default"/><VariableRef variableId="V_SIM_Wide" displayFormat="Hex"/><VariableRef variableId="V_SIM_Float" displayFormat="Dec.2" gradient="10"/><RecordItemRef variableId="V_SIM_ValueRecord" subindex="2" gradient="2" displayFormat="Dec"/></Menu></MenuCollection></UserInterface>
+    </DeviceFunction>
+  </ProfileBody>
+  <ExternalTextCollection><PrimaryLanguage xml:lang="en">
+    <Text id="sensor" value="Synthetic value-definition sensor"/><Text id="off" value="Disabled"/><Text id="on" value="Enabled"/><Text id="enabled" value="Enable state"/>
+    <Text id="wide" value="Exact wide value"/><Text id="maximum" value="Maximum unsigned value"/><Text id="float" value="Floating value"/><Text id="nominal" value="Nominal float"/>
+    <Text id="signed" value="Signed value"/><Text id="offset" value="Negative offset"/><Text id="limited" value="Restricted value"/><Text id="record" value="Value record"/>
+    <Text id="array" value="Packed values"/><Text id="minusOne" value="Minus one"/>
+  </PrimaryLanguage></ExternalTextCollection>
+</IODevice>

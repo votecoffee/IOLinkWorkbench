@@ -144,9 +144,18 @@ pub fn read_isdu(index: u16, subindex: u8) -> Result<Vec<u8>> {
         (79, 2) => Ok(vec![0x10, 0x20, 0, 0]),
         (80, 0) => Ok(vec![0xC3, 0xA9, 0, 0, b'O', b'K', 0, 0]),
         (80, 1) => Ok(vec![0xC3, 0xA9]),
+        (81, 0) | (84, 1) => Ok(vec![1]),
+        (82, 0) => Ok(u64::MAX.to_be_bytes().to_vec()),
+        (83, 0) => Ok(1.25f32.to_be_bytes().to_vec()),
+        (84, 0) => Ok(vec![1, 0xFF, 0xFB, 3]),
+        (84, 2) => Ok((-5i16).to_be_bytes().to_vec()),
+        (84, 3) | (85, 3) => Ok(vec![3]),
+        (85, 0) => Ok(vec![0x0F, 0x23]),
+        (85, 1) => Ok(vec![0xFF]),
+        (85, 2) => Ok(vec![2]),
         _ => {
             bail!(
-                "simulator defines identity (18:0, 19:0, 21:0), diagnostics (36:0, 37:0), threshold (64:0), label (65:0), record (66:0 through 66:4), array (67:0 through 67:7), time parameters (71:0 through 75:2), and text/octet parameters (76:0 through 80:2; record 78 also has subindex 3)"
+                "simulator defines identity (18:0, 19:0, 21:0), diagnostics (36:0, 37:0), threshold (64:0), label (65:0), record (66:0 through 66:4), array (67:0 through 67:7), time parameters (71:0 through 75:2), text/octet parameters (76:0 through 80:2; record 78 also has subindex 3), and value-definition parameters (81:0 through 83:0, 84:0 through 85:3)"
             )
         }
     }

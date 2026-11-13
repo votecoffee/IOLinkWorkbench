@@ -190,21 +190,24 @@ pub(super) fn resolve(
             let raw = value
                 .attribute("value")
                 .context("standard choice reference has no value")?;
-            choices.push(
-                definition
-                    .choices
-                    .iter()
-                    .find(|choice| choice.value == raw)
-                    .with_context(|| format!("unknown standard choice {raw}"))?
-                    .clone(),
-            );
+            let mut matching = definition
+                .choices
+                .iter()
+                .filter(|choice| super::assessment::equivalent(definition, &choice.value, raw));
+            let choice = matching
+                .next()
+                .with_context(|| format!("unknown standard choice {raw}"))?;
+            ensure!(matching.next().is_none(), "ambiguous standard choice {raw}");
+            choices.push(choice.clone());
         }
         if value.has_tag_name((IODD_NAMESPACE, "SingleValue")) {
             let raw = value
                 .attribute("value")
                 .context("parameter choice has no value")?;
             ensure!(
-                !definition.choices.iter().any(|choice| choice.value == raw),
+                !definition.choices.iter().any(|choice| {
+                    super::assessment::equivalent(definition, &choice.value, raw)
+                }),
                 "standard choice cannot be redefined"
             );
             choices.push(Choice {

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 mod array;
+mod assessment;
 mod display;
 mod record;
 mod standard;
@@ -13,6 +14,7 @@ mod text;
 mod time;
 mod value;
 pub use array::Array;
+pub use assessment::{AssessmentStatus, ValueAssessment};
 pub use display::{Display, DisplayValue, NumberFormat};
 pub use record::{Record, RecordItem};
 pub(super) use standard::load as load_standard;
