@@ -233,7 +233,10 @@ impl Service {
             master: None,
         }));
         let session_id = format!(
-            "{utc}-{}-{}",
+            "{}-{}-{}",
+            utc.chars()
+                .filter(char::is_ascii_alphanumeric)
+                .collect::<String>(),
             std::process::id(),
             SESSION.fetch_add(1, Ordering::Relaxed)
         );

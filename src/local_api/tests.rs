@@ -307,7 +307,18 @@ fn response_size_pagination_keeps_the_next_event_and_utf8_status_bounds() {
 fn slow_http_headers_do_not_block_ingestion_and_shutdown_drains() -> Result<()> {
     let mut config = Config::default();
     config.listen.set_port(0);
-    let service = Service::start(&config, &profile(), Instant::now(), "test")?;
+    let service = Service::start(
+        &config,
+        &profile(),
+        Instant::now(),
+        "2026-11-13T00:00:00.000Z",
+    )?;
+    assert!(
+        service
+            .session_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+    );
     let address = service.url.trim_start_matches("http://").to_owned();
     let mut slow = TcpStream::connect(&address)?;
     thread::sleep(Duration::from_millis(20));

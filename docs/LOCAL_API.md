@@ -25,7 +25,7 @@ Any local process able to reach the socket can read telemetry, including device 
 
 Responses contain `format_version: 1`, `session_id`, `capture_utc_start`, current monotonic `host_elapsed_us`, and `body`. Data appears under `body.schema`, `body.latest_event` or `body.events`. Configured endpoints, passwords and vendor-file paths are omitted. Numeric decoded values remain strings to retain exact 64-bit values.
 
-Begin without a cursor. Save the session ID and send `body.next_after` with `session` on subsequent pages. Both cursor keys must appear together. A different session returns 409; future cursors, invalid/duplicate keys or invalid limits return 400. Empty pages retain the cursor. Follow `more_available`; `size_limited` means byte-size pagination stopped early, leaving the next event available while retained. Do not reuse cursors silently across sessions.
+Begin without a cursor. Save the opaque URL-safe session ID and send `body.next_after` with `session` on subsequent pages. Both cursor keys must appear together. A different session returns 409; future cursors, invalid/duplicate keys or invalid limits return 400. Empty pages retain the cursor. Follow `more_available`; `size_limited` means byte-size pagination stopped early, leaving the next event available while retained. Do not reuse cursors silently across sessions.
 
 `metrics.oldest_sequence`/`newest_sequence` identify retained bounds. `missed_before_oldest` counts sequence positions before the oldest retained event after the requested cursor. This can include API queue drops and history eviction; it is not source loss. Check individual sequence gaps as well as aggregate counters. A client's exact losses cannot be inferred from total eviction alone.
 
