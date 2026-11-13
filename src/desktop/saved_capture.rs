@@ -4,6 +4,7 @@ use iolink_workbench::archive;
 use std::{path::PathBuf, time::Duration};
 
 mod compare;
+mod identity;
 mod interfaces;
 mod review;
 

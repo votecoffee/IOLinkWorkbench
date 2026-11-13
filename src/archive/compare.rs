@@ -56,8 +56,31 @@ fn settings(data: &Inspected) -> Result<Vec<(&'static str, Option<String>)>> {
         .shared_memory
         .as_ref()
         .map(|v| serde_json::json!([v.name, v.interval_ms, v.queue_capacity]));
+    let observed_master = m
+        .last_status
+        .as_ref()
+        .filter(|s| {
+            [&s.model, &s.firmware, &s.port_mode]
+                .iter()
+                .all(|v| v.as_ref().is_some_and(|s| !s.trim().is_empty()))
+                && s.port.is_some()
+        })
+        .map(|s| serde_json::json!([s.model, s.firmware, s.master_serial, s.port, s.port_mode]));
+    let observed_device = m
+        .last_status
+        .as_ref()
+        .and_then(|s| s.identity.as_ref())
+        .filter(|id| id.vendor_id.is_some() && id.device_id.is_some());
     Ok(vec![
         ("connection", json(serde_json::to_value(&p.connection)?)),
+        (
+            "observed_master",
+            optional(serde_json::json!(observed_master)),
+        ),
+        (
+            "observed_device",
+            optional(serde_json::to_value(observed_device)?),
+        ),
         (
             "expected_identity",
             json(serde_json::to_value(&p.expected_identity)?),

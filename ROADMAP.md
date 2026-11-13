@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Saved identity review retains configured pins, accepted/rejected master/device observations, producer check text and a separate offline recheck in GUI/CLI. Common verification rejects known accepted-pin contradictions and out-of-range accepted device IDs. Comparison includes observed master/firmware/port and device fields, suppressing deltas on differences or unavailable required observations. Missing legacy fields stay unknown; no per-generation identity history, authentication or live query is inferred.
+
 - Shared saved-timing validation now applies to verification, interface/field review, comparison, re-decoding and local export verification. Quantile/frequency consistency, available observation counts, host acquisition bounds and snapshot/source distinctions share one contract. Missing legacy data remains unavailable; gateway clocks are independent of host elapsed duration. Tests cover corrupted aggregates across all entry points, non-published failed outputs, rehashed exports, old captures, extreme values, and snapshot/clock boundaries.
 
 - Offline two-capture comparison in CLI and GUI verifies both bundles and retains their complete reviews, hashes, timing and separate loss domains. It lists acquisition, mapping, logging and exporter setting differences. Available timing deltas require matching recorded context; count deltas also require equal acquisition duration. Missing context, invalid spacing and capture/worker failures cannot produce misleading deltas. No clock alignment, inferred physical provenance, normalized loss score or automatic performance verdict is added.

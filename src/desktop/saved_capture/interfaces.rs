@@ -20,6 +20,9 @@ pub(super) fn show(ui: &mut Ui, data: &RecordedInterfaces) {
 
 pub(super) fn show_review(ui: &mut Ui, review: &InterfaceReview) {
     ui.small(review.basis);
+    if let Some(identity) = &review.identity {
+        super::identity::show(ui, identity);
+    }
     let context = &review.acquisition;
     ui.label(format!(
         "Configured {:?} · recorded route {} · received {} · {} logger overruns",

@@ -19,6 +19,9 @@ pub fn show(ui: &mut Ui, review: &Review) {
         signal.log_mode
     ));
     ui.small("This is an offline file review. Physical hardware qualification is separate.");
+    if let Some(identity) = &review.identity {
+        super::identity::show(ui, identity);
+    }
     ui.small(format!(
         "Recorded simulation settings · faults {:?} · writer delay {:?} ms",
         signal.simulation_faults, signal.simulated_writer_delay_ms

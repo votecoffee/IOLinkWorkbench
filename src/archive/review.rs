@@ -52,6 +52,8 @@ pub struct Review {
     pub signal: SignalReview,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub interfaces: Option<super::RecordedInterfaces>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identity: Option<super::IdentityReview>,
 }
 
 #[derive(Debug, Serialize)]
@@ -210,6 +212,7 @@ impl Collector {
             capture: summary,
             signal: self.signal,
             interfaces: None,
+            identity: None,
         }
     }
 }

@@ -23,7 +23,10 @@ mod interfaces;
 pub use interfaces::{InterfaceContext, InterfaceFinding, InterfaceReview, RecordedInterfaces};
 mod compare;
 pub use compare::{CaptureComparison, ComparisonMetric, ComparisonSetting, compare_captures};
+mod identity;
 mod timing_validation;
+use identity::RecordedStatus as ArchivedStatus;
+pub use identity::{IdentityReview, RecordedStatus};
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -61,6 +64,8 @@ struct Manifest {
     csv_rows_unconfirmed: u64,
     row_kind: Option<String>,
     last_status: Option<ArchivedStatus>,
+    rejected_status: Option<ArchivedStatus>,
+    identity_check: Option<String>,
     counts: ArchivedCounts,
     source_gaps_observed: Option<u64>,
     source_update_loss: String,
@@ -83,14 +88,6 @@ struct Manifest {
 
 fn legacy_format() -> u32 {
     1
-}
-
-#[derive(Deserialize)]
-struct ArchivedStatus {
-    freshness: Freshness,
-    route: Option<String>,
-    port_cycle_raw: Option<String>,
-    port_cycle_us: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -364,6 +361,7 @@ fn check_manifest(manifest: &Manifest, profile: &Profile) -> Result<()> {
     chrono::DateTime::parse_from_rfc3339(&manifest.utc_start)
         .context("invalid UTC capture origin")?;
     timing_validation::validate(manifest)?;
+    identity::validate(manifest, profile)?;
     ensure!(
         manifest.csv_rows_unconfirmed == 0,
         "report has {} unconfirmed CSV rows; this capture cannot be verified as complete",
@@ -453,6 +451,7 @@ pub fn review(directory: &Path, field: Option<&str>, buckets: usize) -> Result<R
     );
     let inspected = inspect(directory, None, Some((field, buckets)), None)?;
     let interfaces = RecordedInterfaces::new(&inspected.manifest);
+    let identity = IdentityReview::new(&inspected.manifest, &inspected.profile);
     let mut review = inspected
         .collector
         .expect("requested review collector")
@@ -460,6 +459,7 @@ pub fn review(directory: &Path, field: Option<&str>, buckets: usize) -> Result<R
     if interfaces.any_recorded() {
         review.interfaces = Some(interfaces);
     }
+    review.identity = identity;
     Ok(review)
 }
 

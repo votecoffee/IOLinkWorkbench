@@ -58,6 +58,8 @@ pub struct InterfaceReview {
     pub capture: Summary,
     pub acquisition: InterfaceContext,
     pub interfaces: RecordedInterfaces,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identity: Option<super::IdentityReview>,
 }
 
 impl InterfaceReview {
@@ -109,6 +111,7 @@ impl InterfaceReview {
                 )?,
             },
             interfaces: RecordedInterfaces::new(manifest),
+            identity: super::IdentityReview::new(manifest, profile),
         })
     }
 }
