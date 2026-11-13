@@ -3,6 +3,8 @@ use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, fs, io::Write, path::Path};
 
+mod connection;
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Identity {
@@ -242,6 +244,15 @@ impl Profile {
     }
 
     pub fn save(&self, path: &Path) -> Result<()> {
+        self.save_profile(path, true)
+    }
+
+    /// Publish a new normalized host profile without replacing an existing file.
+    pub fn save_new(&self, path: &Path) -> Result<()> {
+        self.save_profile(path, false)
+    }
+
+    fn save_profile(&self, path: &Path, replace: bool) -> Result<()> {
         self.validate()?;
         let parent = path
             .parent()
@@ -250,9 +261,12 @@ impl Profile {
         let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
         temporary.write_all(toml::to_string_pretty(self)?.as_bytes())?;
         temporary.as_file().sync_all()?;
-        temporary
-            .persist(path)
-            .with_context(|| path.display().to_string())?;
+        if replace {
+            temporary.persist(path)
+        } else {
+            temporary.persist_noclobber(path)
+        }
+        .with_context(|| path.display().to_string())?;
         Ok(())
     }
 

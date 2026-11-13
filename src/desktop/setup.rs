@@ -6,10 +6,13 @@ use std::{
     time::Duration,
 };
 
+mod connection;
+
 pub struct Editor {
     path: String,
     toml: String,
-    pub pending: bool,
+    pending: bool,
+    connection: connection::Form,
     iodd_path: String,
     standard_definitions: String,
     standard_language_file: String,
@@ -31,6 +34,7 @@ impl Editor {
             path: String::new(),
             toml: serialize(profile),
             pending: false,
+            connection: connection::Form::new(&profile.connection),
             iodd_path: String::new(),
             standard_definitions: String::new(),
             standard_language_file: String::new(),
@@ -50,6 +54,11 @@ impl Editor {
     pub fn sync(&mut self, profile: &Profile) {
         self.toml = serialize(profile);
         self.pending = false;
+        self.connection.sync(&profile.connection);
+    }
+
+    pub fn pending(&self) -> bool {
+        self.pending || self.connection.pending()
     }
 
     pub fn busy(&self) -> bool {
@@ -98,7 +107,7 @@ impl Editor {
         ui.add_enabled_ui(editable, |ui| {
             ui.horizontal_wrapped(|ui| {
                 path_entry(ui, &mut self.path, "Profile path (.toml)");
-                if ui.add_enabled(!self.pending, egui::Button::new("Load profile")).clicked() {
+                if ui.add_enabled(!self.pending(), egui::Button::new("Load profile")).clicked() {
                     match Profile::load(Path::new(self.path.trim())) {
                         Ok(loaded) => {
                             *profile = loaded;
@@ -110,13 +119,18 @@ impl Editor {
                         Err(error) => *message = format!("{error:#}"),
                     }
                 }
-                if ui.add_enabled(!self.pending, egui::Button::new("Save / replace profile")).clicked() {
+                if ui.add_enabled(!self.pending(), egui::Button::new("Save / replace profile")).clicked() {
                     *message = match profile.save(Path::new(self.path.trim())) {
                         Ok(()) => "Profile saved".into(),
                         Err(error) => format!("{error:#}"),
                     };
                 }
             });
+            ui.separator();
+            if ui.add_enabled_ui(!self.pending, |ui| self.connection.show(ui, profile, message)).inner {
+                self.sync(profile);
+                changed = true;
+            }
             ui.separator();
             changed |= self.iodd(ui, profile, message);
             ui.separator();
@@ -136,7 +150,7 @@ impl Editor {
                 if let Some(condition) = &import.condition {
                     let checkbox = egui::Checkbox::new(&mut profile.confirm_iodd_condition,
                         format!("Confirmed active condition on the device · {condition}"));
-                    if ui.add_enabled(!self.pending, checkbox).changed() {
+                    if ui.add_enabled(!self.pending(), checkbox).changed() {
                         self.sync(profile);
                         changed = true;
                     }
@@ -149,19 +163,19 @@ impl Editor {
                         field.name, origin, field.bit_offset, field.bits, field.kind, field.byte_order,
                         field.scale, field.offset, field.unit));
                     if origin == "IODD"
-                        && ui.add_enabled(!self.pending, egui::Button::new("Edit as override")).clicked()
+                        && ui.add_enabled(!self.pending(), egui::Button::new("Edit as override")).clicked()
                     { override_field = Some(field.clone()); }
                 });
             }
             if let Some(field) = override_field { self.append_field(field); }
-            if ui.add_enabled(!self.pending, egui::Button::new("Add manual field")).clicked() {
+            if ui.add_enabled(!self.pending(), egui::Button::new("Add manual field")).clicked() {
                 let existing = profile.effective_fields();
                 let name = (1..).map(|n| format!("field_{n}"))
                     .find(|name| existing.iter().all(|(field, _)| field.name != *name)).expect("unused name");
                 self.append_field(Field { name, ..Field::default() });
             }
             ui.separator();
-            ui.heading("Profile settings");
+            ui.heading("Advanced profile settings");
             ui.small("Edit the host connection, expected identity, and named fields here. A matching field name overrides an imported field. Choose CSV values in Monitor & CSV, or set logging.fields / logging.raw_only here.");
             ui.horizontal(|ui| {
                 if ui.add_enabled(self.pending, egui::Button::new("Apply edits")).clicked() {
@@ -181,7 +195,7 @@ impl Editor {
                 }
                 if self.pending { ui.colored_label(WARNING, "Pending edits"); }
             });
-            if ui.add(egui::TextEdit::multiline(&mut self.toml).code_editor()
+            if ui.add_enabled(!self.connection.pending(), egui::TextEdit::multiline(&mut self.toml).code_editor()
                 .desired_rows(16).desired_width(f32::INFINITY)).changed()
             { self.pending = true; }
         });
@@ -318,6 +332,7 @@ impl Editor {
                 }
             }
         });
+        let can_apply = !self.pending();
         if let Some(catalog) = &self.catalog {
             if let Some(communication) = &catalog.communication {
                 ui.small(communication.summary());
@@ -372,7 +387,7 @@ impl Editor {
                         }
                     });
                 if ui
-                    .add_enabled(!self.pending, egui::Button::new("Apply IODD layout"))
+                    .add_enabled(can_apply, egui::Button::new("Apply IODD layout"))
                     .clicked()
                 {
                     match catalog.select(self.variant.as_deref(), self.layout.as_deref()) {

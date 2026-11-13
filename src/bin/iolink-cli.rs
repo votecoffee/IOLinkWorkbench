@@ -9,6 +9,9 @@ use iolink_workbench::{
 };
 use std::{path::PathBuf, time::Duration};
 
+#[path = "iolink-cli/connection.rs"]
+mod connection;
+
 #[derive(Parser)]
 #[command(version, about)]
 struct Cli {
@@ -37,6 +40,13 @@ enum Command {
     },
     /// Check a profile and list its effective fields.
     Validate { profile: PathBuf },
+    /// Save host connection settings to a new profile offline; no gateway access or configuration.
+    SetConnection {
+        profile: PathBuf,
+        output: PathBuf,
+        #[command(flatten)]
+        changes: connection::Arguments,
+    },
     /// Compare declared cycle limits and a host poll interval offline; no gateway access.
     Timing {
         profile: PathBuf,
@@ -221,6 +231,18 @@ impl IoddOptions {
 
 fn main() -> Result<()> {
     match Cli::parse().command {
+        Command::SetConnection {
+            profile,
+            output,
+            changes,
+        } => {
+            let profile = Profile::load(&profile)?;
+            changes.apply(&profile)?.save_new(&output)?;
+            println!(
+                "Saved host connection settings to {}. No gateway connection or configuration was performed.",
+                output.display()
+            );
+        }
         Command::VerifyExport { directory, source } => {
             print!(
                 "{}",

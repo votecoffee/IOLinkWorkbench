@@ -30,18 +30,7 @@ pub struct Client {
 
 impl Client {
     pub fn new(settings: &Connection) -> Result<Self> {
-        let url =
-            Url::parse(&settings.endpoint).context("enter an explicit http(s) AL1350 origin")?;
-        ensure!(
-            matches!(url.scheme(), "http" | "https")
-                && url.host().is_some()
-                && url.username().is_empty()
-                && url.password().is_none()
-                && url.path() == "/"
-                && url.query().is_none()
-                && url.fragment().is_none(),
-            "AL1350 endpoint must be an http(s) origin without path or credentials"
-        );
+        let url = settings.origin()?;
         let host = url.host_str().unwrap_or_default().trim_matches(['[', ']']);
         let loopback = host.eq_ignore_ascii_case("localhost")
             || host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback());

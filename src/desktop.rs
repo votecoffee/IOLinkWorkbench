@@ -240,7 +240,7 @@ impl App {
     fn monitor(&mut self, ui: &mut Ui) {
         ui.heading("Process input and capture");
         let running = self.worker.is_some();
-        let available = !running && !self.closing && !self.setup.pending && !self.setup.busy();
+        let available = !running && !self.closing && !self.setup.pending() && !self.setup.busy();
         ui.add_enabled_ui(available, |ui| {
             ui.horizontal_wrapped(|ui| {
                 path_entry(ui, &mut self.capture_path, "New capture folder");
@@ -293,7 +293,7 @@ impl App {
                 );
             }
         });
-        if self.setup.pending {
+        if self.setup.pending() {
             ui.colored_label(WARNING, "Apply or discard pending profile edits in Setup.");
         }
         ui.horizontal(|ui| {
@@ -493,7 +493,7 @@ impl App {
         ui.separator();
         ui.collapsing("Device diagnostics (explicit ISDU reads)", |ui| {
             ui.small("Reads optional 36:0 and 37:0 on independent acyclic clients. These snapshots provide no continuous event history or source-loss count.");
-            let available = self.isdu_worker.is_none() && !self.setup.pending && !self.setup.busy();
+            let available = self.isdu_worker.is_none() && !self.setup.pending() && !self.setup.busy();
             if ui.add_enabled(available, egui::Button::new("Read device diagnostics")).clicked() {
                 let profile = self.profile.clone();
                 match background("acyclic-device-diagnostics", move || Ok(iolink_workbench::diagnostics::read(&profile)?.text())) {
@@ -511,7 +511,7 @@ impl App {
             &self.profile,
             &mut self.selected_parameter,
             &mut self.selected_subindex,
-            self.isdu_worker.is_none() && !self.setup.pending && !self.setup.busy(),
+            self.isdu_worker.is_none() && !self.setup.pending() && !self.setup.busy(),
             self.worker.is_none(),
             &mut self.parameter_snapshot_path,
         );
@@ -609,7 +609,7 @@ impl App {
             ui.horizontal_wrapped(|ui| {
                 ui.add(egui::DragValue::new(&mut self.isdu_index).prefix("Index "));
                 ui.add(egui::DragValue::new(&mut self.isdu_subindex).prefix("Subindex "));
-                if ui.add_enabled(self.isdu_worker.is_none() && !self.setup.pending && !self.setup.busy(), egui::Button::new("Read parameter")).clicked() {
+                if ui.add_enabled(self.isdu_worker.is_none() && !self.setup.pending() && !self.setup.busy(), egui::Button::new("Read parameter")).clicked() {
                     let (profile, index, subindex) = (self.profile.clone(), self.isdu_index, self.isdu_subindex);
                     match background("acyclic-isdu", move || { let bytes = transport::read_isdu(&profile, index, subindex)?;
                         let hex = decode::hex(&bytes);
@@ -622,7 +622,7 @@ impl App {
                         Err(error) => self.isdu_result = error.to_string(),
                     }
                 }
-                let can_verify = self.isdu_worker.is_none() && !self.setup.pending && !self.setup.busy()
+                let can_verify = self.isdu_worker.is_none() && !self.setup.pending() && !self.setup.busy()
                     && self.profile.expected_identity.product_id.is_some();
                 if ui.add_enabled(can_verify, egui::Button::new("Verify Product ID")).clicked() {
                     let profile = self.profile.clone();
@@ -678,7 +678,7 @@ impl App {
             &self.profile,
             self.worker.is_none()
                 && self.isdu_worker.is_none()
-                && !self.setup.pending
+                && !self.setup.pending()
                 && !self.setup.busy(),
         ) {
             self.select_parameter_display(selection);
@@ -688,8 +688,11 @@ impl App {
         ui.separator();
         self.offline_diagnostics.show(ui, &self.profile);
         ui.separator();
-        self.saved_capture
-            .show(ui, &self.profile, !self.setup.pending && !self.setup.busy());
+        self.saved_capture.show(
+            ui,
+            &self.profile,
+            !self.setup.pending() && !self.setup.busy(),
+        );
     }
 }
 

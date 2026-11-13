@@ -716,6 +716,62 @@ def verify_defaults(cli, output):
     assert different["declared_default"]["decoded"]["raw_value"] == "41"
 
 
+def verify_connection_settings(cli, output):
+    output.mkdir()
+    imported = output / "imported.toml"
+    source = output / "source.toml"
+    run(cli, "import", ROOT / "samples/sensor-formats.xml", imported)
+    run(cli, "select-display", imported, "V_SIM_Threshold", source, "--display", "M_SIM_Threshold/2")
+    source.write_bytes(b'# Original profile comment remains untouched\n' + source.read_bytes())
+    original = source.read_bytes()
+    before = tomllib.loads(original.decode("utf-8"))
+    requests = Gateway.requests
+    edited = output / "edited.toml"
+    run(cli, "set-connection", source, edited, "--gateway", "ifm-al1350", "--endpoint", " http://127.0.0.1:9 ",
+        "--port", 4, "--firmware", " 3.1.42 ", "--expected-mode", 3, "--cycle-unit", "milliseconds",
+        "--poll-us", 20000, "--timeout-ms", 2000, "--stale-us", 150000, "--reconnect-ms", 500, "--simulator-snapshots", "true")
+    result = tomllib.loads(edited.read_text(encoding="utf-8"))
+    expected_connection = dict(before["connection"], gateway="ifm_al1350", endpoint="http://127.0.0.1:9", port=4,
+        ifm_firmware="3.1.42", ifm_mode=3, ifm_cycle_unit="milliseconds", poll_us=20000, timeout_ms=2000,
+        stale_us=150000, reconnect_ms=500, simulate_snapshots=True)
+    assert result == dict(before, connection=expected_connection)
+    assert Gateway.requests == requests and source.read_bytes() == original
+    saved = edited.read_bytes()
+    run(cli, "set-connection", source, edited, "--poll-us", 40000, expected=1)
+    assert edited.read_bytes() == saved
+    run(cli, "set-connection", source, source, "--poll-us", 40000, expected=1)
+    assert source.read_bytes() == original
+    invalid = output / "must-not-exist.toml"
+    for args in [
+        ["--gateway", "ifm-al1350", "--endpoint", "http://localhost/path"],
+        ["--gateway", "ifm-al1350", "--endpoint", "https://user:secret123@localhost"],
+        ["--port", 0], ["--port", 5], ["--poll-us", 99], ["--poll-us", 60000001],
+        ["--timeout-ms", 0], ["--timeout-ms", 30001], ["--reconnect-ms", 0], ["--reconnect-ms", 60001]]:
+        run(cli, "set-connection", source, invalid, *args, expected=1)
+        assert not invalid.exists() and source.read_bytes() == original
+    for args in [[], ["--expected-mode", 3, "--clear-expected-mode"], ["--gateway", "unknown"], ["--cycle-unit", "guess"], ["--port", 256]]:
+        run(cli, "set-connection", source, invalid, *args, expected=2)
+        assert not invalid.exists()
+    unfinished = output / "unfinished.toml"
+    run(cli, "set-connection", ROOT / "samples/ifm-al1350.toml", unfinished, "--poll-us", 1000)
+    assert tomllib.loads(unfinished.read_text(encoding="utf-8"))["connection"]["endpoint"] == ""
+    restored = output / "simulator.toml"
+    run(cli, "set-connection", edited, restored, "--gateway", "simulator", "--port", 1, "--poll-us", 1000,
+        "--firmware", "", "--clear-expected-mode", "--cycle-unit", "unknown", "--simulator-snapshots", "false")
+    sim = tomllib.loads(restored.read_text(encoding="utf-8"))
+    assert sim["connection"]["endpoint"] == "http://127.0.0.1:9"
+    assert "ifm_mode" not in sim["connection"] and "ifm_cycle_unit" not in sim["connection"] and sim["connection"]["ifm_firmware"] == ""
+    assert dict(sim, connection=before["connection"]) == before
+    assert run(cli, "decode", restored, "FFF9") == run(cli, "decode", source, "FFF9")
+    snapshot = output / "parameter.json"
+    reading = tomllib.loads(run(cli, "read-parameter", restored, "V_SIM_Threshold", "--snapshot", snapshot))
+    review = tomllib.loads(run(cli, "review-parameter", snapshot))
+    assert reading["raw_value"] == review["decoded"]["raw_value"] == "500"
+    assert reading["preferred_display"] == review["decoded"]["preferred_display"]
+    assert Gateway.requests == requests and edited.read_bytes() == saved and source.read_bytes() == original
+    capture(cli, restored, output / "capture", "--seconds", .25)
+
+
 def verify_temporal_defaults(cli, output):
     output.mkdir()
     profile = output / "time-defaults.toml"
@@ -1048,6 +1104,7 @@ def main():
     standard_range_profile = verify_standard_ranges(cli, scratch / "standard-ranges")
     verify_defaults(cli, scratch / "defaults")
     verify_temporal_defaults(cli, scratch / "temporal-defaults")
+    verify_connection_settings(cli, scratch / "connection-settings")
     verify_xsd(cli, scratch)
     source = ROOT / "samples" / "simulator.toml"
     profile = source.read_text(encoding="utf-8")
@@ -1436,7 +1493,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline reopening, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
