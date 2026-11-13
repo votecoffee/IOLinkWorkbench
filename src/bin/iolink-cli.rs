@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use iolink_workbench::{
     archive,
     capture::{self, Options, Stop},
-    decode, diagnostics, iodd,
+    decode, diagnostics, iodd, parameter_snapshot,
     profile::{LogSelection, Profile},
     transport,
 };
@@ -78,7 +78,12 @@ enum Command {
         id: String,
         #[arg(long, default_value_t = 0)]
         subindex: u8,
+        /// Save the raw response and its context to a new JSON snapshot file.
+        #[arg(long)]
+        snapshot: Option<PathBuf>,
     },
+    /// Reopen a saved parameter snapshot offline, using its embedded profile.
+    ReviewParameter { snapshot: PathBuf },
     /// Decode a recorded ISDU payload offline, using the saved IODD catalog.
     DecodeParameter {
         profile: PathBuf,
@@ -316,11 +321,30 @@ fn main() -> Result<()> {
             profile,
             id,
             subindex,
+            snapshot,
         } => {
             let profile = Profile::load(&profile)?;
-            print!(
-                "{}",
-                toml::to_string_pretty(&transport::read_parameter_at(&profile, &id, subindex)?)?
+            if let Some(path) = snapshot {
+                parameter_snapshot::check_destination(&path)?;
+                let (snapshot, reading) = parameter_snapshot::read(&profile, &id, subindex)?;
+                print!("{}", toml::to_string_pretty(&reading)?);
+                snapshot.save(&path)?;
+                eprintln!("Saved snapshot {}", path.display());
+            } else {
+                print!(
+                    "{}",
+                    toml::to_string_pretty(&transport::read_parameter_at(
+                        &profile, &id, subindex
+                    )?)?
+                );
+            }
+        }
+        Command::ReviewParameter { snapshot } => {
+            let review = parameter_snapshot::Snapshot::load(&snapshot)?.review()?;
+            print!("{}", toml::to_string_pretty(&review)?);
+            ensure!(
+                !review.decoded.needs_review(),
+                "parameter payload needs decoding review; raw bytes retained above"
             );
         }
         Command::DecodeParameter {
@@ -335,12 +359,7 @@ fn main() -> Result<()> {
             let decoded = parameter.decode(&bytes);
             print!("{}", toml::to_string_pretty(&decoded)?);
             ensure!(
-                decoded.decode_error.is_none()
-                    && decoded
-                        .record_items
-                        .iter()
-                        .chain(&decoded.array_items)
-                        .all(|item| item.value.decode_error.is_none()),
+                !decoded.needs_review(),
                 "parameter payload needs decoding review; raw bytes retained above"
             );
         }

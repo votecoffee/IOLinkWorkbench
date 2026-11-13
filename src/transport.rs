@@ -184,6 +184,14 @@ pub fn read_parameter(profile: &Profile, id: &str) -> Result<ParameterReading> {
 }
 
 pub fn read_parameter_at(profile: &Profile, id: &str, subindex: u8) -> Result<ParameterReading> {
+    Ok(read_parameter_observed(profile, id, subindex)?.0)
+}
+
+pub(crate) fn parameter_target<'a>(
+    profile: &'a Profile,
+    id: &str,
+    subindex: u8,
+) -> Result<&'a crate::iodd::Parameter> {
     let parent = profile.parameter(id)?;
     ensure!(
         subindex == 0 || parent.subindex_access(),
@@ -195,29 +203,42 @@ pub fn read_parameter_at(profile: &Profile, id: &str, subindex: u8) -> Result<Pa
             && parameter.access != crate::iodd::Access::WriteOnly,
         "parameter {id} is write-only in the IODD"
     );
+    Ok(parameter)
+}
+
+pub(crate) fn read_parameter_observed(
+    profile: &Profile,
+    id: &str,
+    subindex: u8,
+) -> Result<(ParameterReading, Status)> {
+    let parameter = parameter_target(profile, id, subindex)?;
+    let parent = profile.parameter(id)?;
     let start = Instant::now();
-    let bytes = read_isdu(profile, parameter.index, subindex)?;
+    let (status, bytes) = read_isdu_observation(profile, parameter.index, subindex)?;
     let host_read_utc = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let read_duration_us = start.elapsed().as_micros().try_into().unwrap_or(u64::MAX);
     let decoded = parameter.decode(&bytes);
-    Ok(ParameterReading {
-        parameter_id: parent.id.clone(),
-        name: if parent.array.is_some() && subindex > 0 {
-            format!("{} [{subindex}]", parent.name)
-        } else {
-            parameter.name.clone()
+    Ok((
+        ParameterReading {
+            parameter_id: parent.id.clone(),
+            name: if parent.array.is_some() && subindex > 0 {
+                format!("{} [{subindex}]", parent.name)
+            } else {
+                parameter.name.clone()
+            },
+            index: parameter.index,
+            subindex,
+            host_read_utc,
+            read_duration_us,
+            raw_hex: decoded.raw_hex,
+            raw_value: decoded.raw_value,
+            displays: decoded.displays,
+            preferred_display: decoded.preferred_display,
+            choice_name: decoded.choice_name,
+            decode_error: decoded.decode_error,
+            record_items: decoded.record_items,
+            array_items: decoded.array_items,
         },
-        index: parameter.index,
-        subindex,
-        host_read_utc,
-        read_duration_us,
-        raw_hex: decoded.raw_hex,
-        raw_value: decoded.raw_value,
-        displays: decoded.displays,
-        preferred_display: decoded.preferred_display,
-        choice_name: decoded.choice_name,
-        decode_error: decoded.decode_error,
-        record_items: decoded.record_items,
-        array_items: decoded.array_items,
-    })
+        status,
+    ))
 }

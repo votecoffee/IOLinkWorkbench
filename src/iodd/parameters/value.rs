@@ -24,6 +24,15 @@ pub struct RecordValue {
 }
 
 impl DecodedParameter {
+    pub fn needs_review(&self) -> bool {
+        self.decode_error.is_some()
+            || self
+                .record_items
+                .iter()
+                .chain(&self.array_items)
+                .any(|item| item.value.needs_review())
+    }
+
     pub(super) fn error(payload: &[u8], error: impl ToString) -> Self {
         Self {
             raw_hex: hex(payload),

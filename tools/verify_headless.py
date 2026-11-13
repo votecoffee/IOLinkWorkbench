@@ -34,6 +34,7 @@ class Gateway(BaseHTTPRequestHandler):
     fail_detailed = False
     change_serial_after_status = False
     payload = "03C9"
+    threshold_payload = "01F4"
     parameter_entered = threading.Event()
     parameter_release = threading.Event()
     port = "/iolinkmaster/port[1]"
@@ -92,7 +93,7 @@ class Gateway(BaseHTTPRequestHandler):
                 if not self.parameter_release.wait(timeout=3):
                     response["code"] = 500
             response["data"] = {"value": {
-                (19, 0): "53494D2D53454E534F52", (64, 0): "01F4", (65, 0): "666978747572652073656E736F72",
+                (19, 0): "53494D2D53454E534F52", (64, 0): self.threshold_payload, (65, 0): "666978747572652073656E736F72",
                 (36, 0): "02", (37, 0): "E48DFE000000",
                 (66, 0): "FFEC010A54455354", (66, 1): "FFEC", (66, 2): "01", (66, 3): "0A", (66, 4): "54455354",
                 (67, 0): "02C495F0", (67, 1): "02", (67, 2): "FC", (67, 3): "04", (67, 4): "F9", (67, 5): "05", (67, 6): "FF", (67, 7): "00",
@@ -288,7 +289,8 @@ def parallel_parameter_read(cli, fixture, output, diagnostics=False):
             assert sampling.poll() is None, "capture exited before the parallel read"
             time.sleep(0.01)
         assert Gateway.polls >= 5
-        reading = subprocess.Popen([cli, "read-diagnostics", fixture] if diagnostics else [cli, "read-parameter", fixture, "V_SIM_Threshold"],
+        snapshot_path = output.with_suffix(".json")
+        reading = subprocess.Popen([cli, "read-diagnostics", fixture] if diagnostics else [cli, "read-parameter", fixture, "V_SIM_Threshold", "--snapshot", snapshot_path],
                                    cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8", env=environment)
         processes.append(reading)
         assert Gateway.parameter_entered.wait(timeout=1)
@@ -305,6 +307,7 @@ def parallel_parameter_read(cli, fixture, output, diagnostics=False):
             assert tomllib.loads(stdout)["detailed_status"]["events"][0]["code"] == 36350
         else:
             assert tomllib.loads(stdout)["raw_value"] == "500"
+            assert json.loads(snapshot_path.read_text(encoding="utf-8"))["raw_hex"] == "01F4"
         stdout, stderr = sampling.communicate(timeout=5)
         assert sampling.returncode == 0, (stdout, stderr)
         report = tomllib.loads(stdout)
@@ -372,6 +375,69 @@ def verify_display_preferences(cli, source, output):
     assert "preferred_display" not in decoded and len(decoded["displays"]) == 3
     assert source.read_bytes() == original
     return preferred
+
+
+def verify_parameter_snapshots(cli, profile, output, loopback=False):
+    output.mkdir()
+    original = profile.read_bytes()
+    preferred = output / "preferred.toml"
+    run(cli, "select-display", profile, "V_SIM_Threshold", preferred, "--display", "M_SIM_Threshold/2")
+    for variable, subindex in [("V_SIM_Threshold", 0), ("V_SIM_Record", 0), ("V_SIM_Record", 1), ("V_SIM_History", 0), ("V_SIM_History", 2)]:
+        path = output / f"{variable}-{subindex}.json"
+        before_reads = Gateway.isdu_reads
+        reading = tomllib.loads(run(cli, "read-parameter", preferred, variable, "--subindex", subindex, "--snapshot", path))
+        assert not loopback or Gateway.isdu_reads == before_reads + 1
+        saved = json.loads(path.read_text(encoding="utf-8"))
+        assert saved["raw_hex"] == reading["raw_hex"] and saved["subindex"] == subindex
+        assert saved["host_read_utc"] == reading["host_read_utc"] and saved["read_duration_us"] == reading["read_duration_us"]
+        assert saved["observation"]["route"] == ("AL1350 loopback fixture" if loopback else "synthetic simulator")
+        assert saved["observation"]["identity"]["device_id"] == 1
+        pinned = path.read_bytes()
+        before_requests = Gateway.requests
+        review = tomllib.loads(run(cli, "review-parameter", path))
+        assert Gateway.requests == before_requests and path.read_bytes() == pinned
+        for key in ("raw_hex", "raw_value", "displays", "preferred_display", "record_items", "array_items"):
+            assert review["decoded"].get(key) == reading.get(key)
+        run(cli, "read-parameter", preferred, variable, "--subindex", subindex, "--snapshot", path, expected=1)
+        assert Gateway.requests == before_requests and path.read_bytes() == pinned
+    # Reopening never resolves saved paths or endpoints. A decoder error is distinct from corrupt context.
+    document = json.loads((output / "V_SIM_Threshold-0.json").read_text(encoding="utf-8"))
+    document["profile"]["connection"]["endpoint"] = "http://127.0.0.1:1"
+    document["profile"]["iodd"]["source"] = "Z:/missing/vendor.zip"
+    document["raw_hex"] = "FF"
+    short = output / "short.json"
+    short.write_text(json.dumps(document), encoding="utf-8")
+    before_requests = Gateway.requests
+    review = tomllib.loads(run(cli, "review-parameter", short, expected=1))
+    assert review["decoded"]["raw_hex"] == "FF" and review["decoded"]["decode_error"]
+    assert Gateway.requests == before_requests
+    document["index"] = 19
+    bad = output / "wrong-query.json"
+    bad.write_text(json.dumps(document), encoding="utf-8")
+    run(cli, "review-parameter", bad, expected=1)
+    assert Gateway.requests == before_requests
+    denied = output / "write-only.toml"
+    denied.write_text(preferred.read_text(encoding="utf-8").replace('access = "rw"', 'access = "wo"', 1), encoding="utf-8")
+    destination = output / "denied.json"
+    run(cli, "read-parameter", denied, "V_SIM_Threshold", "--snapshot", destination, expected=1)
+    assert Gateway.requests == before_requests and not destination.exists()
+    if loopback:
+        Gateway.threshold_payload = "FF"
+        try:
+            response = tomllib.loads(run(cli, "read-parameter", preferred, "V_SIM_Threshold", "--snapshot", output / "malformed-response.json"))
+            assert response["raw_hex"] == "FF" and response["decode_error"]
+            run(cli, "review-parameter", output / "malformed-response.json", expected=1)
+        finally:
+            Gateway.threshold_payload = "01F4"
+        Gateway.device_id = 99
+        before_reads = Gateway.isdu_reads
+        try:
+            rejected = output / "identity-rejected.json"
+            run(cli, "read-parameter", preferred, "V_SIM_Threshold", "--snapshot", rejected, expected=1)
+            assert not rejected.exists() and Gateway.isdu_reads == before_reads
+        finally:
+            Gateway.device_id = 1
+    assert profile.read_bytes() == original
 
 
 def verify_xsd(cli, scratch):
@@ -552,6 +618,7 @@ def main():
     assert format_array["array_items"][1]["value"]["displays"][1]["value"] == "1111 1100b"
     run(cli, "decode-parameter", formats_profile, "V_SIM_Threshold", "FF", expected=1)
     verify_display_preferences(cli, formats_profile, scratch / "sim-display-preferences")
+    verify_parameter_snapshots(cli, formats_profile, scratch / "sim-parameter-snapshots")
 
     clean, rows = capture(cli, source, scratch / "sim-every", "--seconds", 1)
     assert clean["last_status"]["route"] == "synthetic simulator"
@@ -720,6 +787,7 @@ kind = "bool"
             packed_read = tomllib.loads(run(cli, "read-parameter", format_fixture, "V_SIM_History"))
             assert packed_read["array_items"][1]["value"]["displays"][0]["value"] == "FCh"
             verify_display_preferences(cli, format_fixture, scratch / "ifm-display-preferences")
+            verify_parameter_snapshots(cli, format_fixture, scratch / "ifm-parameter-snapshots", loopback=True)
             parallel_parameter_read(cli, parameter_fixture, scratch / "ifm-parallel-parameter")
             parallel_parameter_read(cli, parameter_fixture, scratch / "ifm-parallel-diagnostics", diagnostics=True)
             Gateway.fail_detailed = True
@@ -775,7 +843,7 @@ kind = "bool"
 
     print("PASS: ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
-          "named scalar/record/array reads, binary/hex/plain-decimal parameter views and saved display preferences, array and localized CSV fields, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling, and read-only AL1350 loopback")
+          "named scalar/record/array reads, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline reopening, array and localized CSV fields, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 
 

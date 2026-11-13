@@ -100,6 +100,8 @@ struct App {
     selected_parameter: Option<String>,
     selected_subindex: u8,
     offline_parameter: parameters::Offline,
+    parameter_snapshot_path: String,
+    saved_parameter: parameters::Saved,
     offline_diagnostics: diagnostics::Offline,
 }
 
@@ -131,6 +133,8 @@ impl App {
             selected_parameter: None,
             selected_subindex: 0,
             offline_parameter: parameters::Offline::default(),
+            parameter_snapshot_path: ".local/parameter.json".into(),
+            saved_parameter: parameters::Saved::default(),
             offline_diagnostics: diagnostics::Offline::default(),
         }
     }
@@ -497,14 +501,38 @@ impl App {
             &mut self.selected_subindex,
             self.isdu_worker.is_none() && !self.setup.pending && !self.setup.busy(),
             self.worker.is_none(),
+            &mut self.parameter_snapshot_path,
         );
         if let Some(selection) = parameter_actions.display {
             self.select_parameter_display(selection);
         }
-        if let Some((id, subindex)) = parameter_actions.read {
+        let request = parameter_actions
+            .read
+            .map(|(id, subindex)| (id, subindex, None))
+            .or_else(|| {
+                parameter_actions
+                    .snapshot
+                    .map(|(id, subindex, path)| (id, subindex, Some(path)))
+            });
+        if let Some((id, subindex, snapshot_path)) = request {
             let profile = self.profile.clone();
             match background("acyclic-iodd-parameter", move || {
-                let reading = transport::read_parameter_at(&profile, &id, subindex)?;
+                let (reading, save_message) = if let Some(path) = snapshot_path {
+                    let path = Path::new(&path);
+                    iolink_workbench::parameter_snapshot::check_destination(path)?;
+                    let (snapshot, reading) =
+                        iolink_workbench::parameter_snapshot::read(&profile, &id, subindex)?;
+                    let message = match snapshot.save(path) {
+                        Ok(()) => format!("\nSaved snapshot {}", path.display()),
+                        Err(error) => format!("\nSnapshot save failed: {error}"),
+                    };
+                    (reading, message)
+                } else {
+                    (
+                        transport::read_parameter_at(&profile, &id, subindex)?,
+                        String::new(),
+                    )
+                };
                 let mut text = format!(
                     "{} · index {}:{}\nRaw bytes {}",
                     reading.name, reading.index, reading.subindex, reading.raw_hex
@@ -548,6 +576,7 @@ impl App {
                     "\nHost read {} · query {} µs",
                     reading.host_read_utc, reading.read_duration_us
                 ));
+                text.push_str(&save_message);
                 Ok(text)
             }) {
                 Ok(worker) => {
@@ -636,6 +665,8 @@ impl App {
         ) {
             self.select_parameter_display(selection);
         }
+        ui.separator();
+        self.saved_parameter.show(ui);
         ui.separator();
         self.offline_diagnostics.show(ui, &self.profile);
         ui.separator();

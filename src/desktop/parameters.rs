@@ -221,6 +221,7 @@ fn preference(
 pub struct Actions {
     pub read: Option<(String, u8)>,
     pub display: Option<DisplaySelection>,
+    pub snapshot: Option<(String, u8, String)>,
 }
 
 pub fn show(
@@ -230,6 +231,7 @@ pub fn show(
     subindex: &mut u8,
     available: bool,
     preferences_available: bool,
+    snapshot_path: &mut String,
 ) -> Actions {
     let mut actions = Actions::default();
     ui.collapsing("IODD parameters", |ui| {
@@ -242,6 +244,11 @@ pub fn show(
                 if ui.add_enabled(allowed, egui::Button::new("Read named parameter")).clicked() {
                     actions.read = Some((parent.id.clone(), *subindex));
                 }
+                ui.add(egui::TextEdit::singleline(snapshot_path).hint_text("New snapshot JSON path"));
+                if ui.add_enabled(allowed && !snapshot_path.trim().is_empty(), egui::Button::new("Read and save snapshot")).clicked() {
+                    actions.snapshot = Some((parent.id.clone(), *subindex, snapshot_path.clone()));
+                }
+                ui.small("Saves one explicit read and its profile to a new file. Choose a new path for each read.");
             }
         });
         if let Some(imported) = &profile.iodd && !imported.standard_parameter_refs.is_empty() {
@@ -304,5 +311,74 @@ impl Offline {
             }
         }
         selection
+    }
+}
+
+pub struct Saved {
+    path: String,
+    worker: Option<super::Worker<iolink_workbench::parameter_snapshot::Review>>,
+    result: Option<iolink_workbench::parameter_snapshot::Review>,
+    error: String,
+}
+
+impl Default for Saved {
+    fn default() -> Self {
+        Self {
+            path: ".local/parameter.json".into(),
+            worker: None,
+            result: None,
+            error: String::new(),
+        }
+    }
+}
+
+impl Saved {
+    pub fn show(&mut self, ui: &mut Ui) {
+        if let Some(result) = super::completed(&mut self.worker) {
+            match result {
+                Ok(review) => {
+                    self.result = Some(review);
+                    self.error.clear();
+                }
+                Err(error) => {
+                    self.result = None;
+                    self.error = error.to_string();
+                }
+            }
+        }
+        ui.heading("Saved parameter snapshot");
+        ui.small("Reopen a JSON snapshot using its embedded profile. This checks local consistency; the file does not prove acquisition origin or physical bench acceptance.");
+        ui.add(egui::TextEdit::singleline(&mut self.path).hint_text("Snapshot JSON path"));
+        if ui
+            .add_enabled(
+                self.worker.is_none() && !self.path.trim().is_empty(),
+                egui::Button::new("Open parameter snapshot offline"),
+            )
+            .clicked()
+        {
+            let path = self.path.clone();
+            match super::background("offline-parameter-snapshot", move || {
+                iolink_workbench::parameter_snapshot::Snapshot::load(std::path::Path::new(&path))?
+                    .review()
+            }) {
+                Ok(worker) => {
+                    self.worker = Some(worker);
+                    self.result = None;
+                    self.error.clear();
+                }
+                Err(error) => self.error = error.to_string(),
+            }
+        }
+        if self.worker.is_some() {
+            ui.label("Opening snapshot…");
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(50));
+        }
+        if !self.error.is_empty() {
+            ui.colored_label(WARNING, &self.error);
+        }
+        if let Some(review) = &self.result {
+            ui.monospace(review.text());
+        }
     }
 }
