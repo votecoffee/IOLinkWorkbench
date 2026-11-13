@@ -50,6 +50,10 @@ pub fn show(ui: &mut Ui, review: &Review) {
             .unwrap_or("unavailable")
     ));
     ui.small(signal.numeric_basis);
+    ui.collapsing("Cycle target and declared limits", |ui| {
+        ui.label(signal.cycle_context.text());
+        ui.small("Comparisons use the saved declaration and last accepted connection status. Recorded spacing distributions are shown separately below.");
+    });
     plot(ui, review);
     ui.small("Each independent time bin shows finite minimum–maximum and the last finite value. Amber marks bins containing blank/non-finite cells or multiple generations. No lines join bins; gaps and event ordering inside a bin require the original CSV. Hover for bin details.");
     ui.collapsing("Recorded acquisition timing", |ui| {

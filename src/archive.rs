@@ -63,6 +63,7 @@ struct Manifest {
     terminal_error: Option<String>,
     writer_error: Option<String>,
     requested_poll_us: Option<u64>,
+    iodd_communication: Option<crate::iodd::Communication>,
     simulation_faults: Option<bool>,
     simulated_writer_delay_ms: Option<u64>,
     host_poll_start_spacing: Option<crate::capture::Spacing>,
@@ -329,6 +330,16 @@ impl Summary {
 }
 
 fn check_manifest(manifest: &Manifest, profile: &Profile) -> Result<()> {
+    ensure!(
+        manifest.iodd_communication.as_ref() == profile.communication(),
+        "capture report and profile have different IODD communication declarations"
+    );
+    if let Some(requested) = manifest.requested_poll_us {
+        ensure!(
+            requested == profile.connection.poll_us,
+            "capture report and profile have different requested host poll intervals"
+        );
+    }
     ensure!(
         manifest.format_version == 1,
         "unsupported capture format {}",

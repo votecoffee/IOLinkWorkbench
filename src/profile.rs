@@ -142,6 +142,8 @@ pub struct Imported {
     pub layout: String,
     pub condition: Option<String>,
     pub input_bytes: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub communication: Option<crate::iodd::Communication>,
     #[serde(default)]
     pub needs_input: Vec<String>,
     pub fields: Vec<Field>,
@@ -194,6 +196,11 @@ impl Default for Profile {
 }
 
 impl Profile {
+    pub fn communication(&self) -> Option<&crate::iodd::Communication> {
+        self.iodd
+            .as_ref()
+            .and_then(|iodd| iodd.communication.as_ref())
+    }
     /// Host-only presentation choice. Validate a candidate before replacing the profile.
     pub fn set_parameter_display(
         &mut self,
@@ -346,6 +353,9 @@ impl Profile {
         );
         let mut names = HashSet::new();
         if let Some(imported) = &self.iodd {
+            if let Some(communication) = &imported.communication {
+                communication.validate()?;
+            }
             let mut codes = HashSet::new();
             for event in &imported.events {
                 event.validate()?;

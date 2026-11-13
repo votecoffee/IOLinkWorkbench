@@ -644,6 +644,73 @@ def verify_value_definitions(cli, profile, output, loopback=False):
             Gateway.wide_payload = "FFFFFFFFFFFFFFFF"
 
 
+def verify_cycle_capture(cli, profile, output, expected_port, snapshots=False):
+    report, rows = capture(cli, profile, output, "--seconds", .25)
+    assert report["iodd_communication"]["minimum_cycle_us"] == 2300
+    assert report["last_status"]["port_cycle_us"] == expected_port
+    review = tomllib.loads(run(cli, "review-capture", output, "--buckets", 3))
+    context = review["signal"]["cycle_context"]
+    assert context["iodd_minimum_cycle_us"] == 2300 and context["reported_port_cycle_us"] == expected_port
+    assert context["target_vs_iodd_minimum"] == context["reported_port_vs_iodd_minimum"] == "shorter"
+    if snapshots:
+        assert context["freshness"] == "snapshots" and report["source_update_loss"] == "unknown"
+        assert any("source-update loss remains unknown" in note for note in context["notes"])
+    else:
+        assert context["configured_gateway"] == "simulator" and context["freshness"] == "counter32"
+    review_capture(cli, output, rows, report)
+    return report, rows
+
+
+def verify_communication(cli, output):
+    output.mkdir()
+    xml = ROOT / "samples/sensor-communication.xml"
+    profile = output / "communication.toml"
+    run(cli, "import", xml, profile)
+    saved = tomllib.loads(profile.read_text(encoding="utf-8"))
+    declaration = saved["iodd"]["communication"]
+    assert declaration == {"iolink_revision": "V1.1", "compatible_with": "V1.0", "bitrate": "COM2", "minimum_cycle_us": 2300, "sio_supported": True, "m_sequence_capability": 27}
+    assert "minimum cycle 2300" in run(cli, "validate", profile)
+    before = Gateway.requests
+    context = tomllib.loads(run(cli, "timing", profile))
+    assert Gateway.requests == before
+    assert context["target_us"] == context["requested_host_poll_us"] == 1000
+    assert context["target_vs_iodd_minimum"] == context["host_poll_vs_iodd_minimum"] == "shorter"
+    assert context["target_vs_reported_port"] == "unknown" and "reported_port_cycle_us" not in context
+    assert tomllib.loads(run(cli, "timing", profile, "--target-us", 5000))["target_vs_iodd_minimum"] == "longer"
+    run(cli, "timing", profile, "--target-us", 0, expected=2)
+    unreachable = output / "offline-only.toml"
+    unreachable.write_bytes(profile.read_bytes().replace(b'gateway = "simulator"', b'gateway = "ifm_al1350"').replace(b'endpoint = ""', b'endpoint = "http://127.0.0.1:9"'))
+    assert tomllib.loads(run(cli, "timing", unreachable))["target_vs_reported_port"] == "unknown"
+    assert Gateway.requests == before
+    for minimum, relation in [(0, "unknown"), (1000, "equal"), (6400, "shorter"), (132800, "shorter")]:
+        changed = output / f"minimum-{minimum}.xml"
+        changed.write_bytes(xml.read_bytes().replace(b'minCycleTime="2300"', f'minCycleTime="{minimum}"'.encode()))
+        mapped = output / f"minimum-{minimum}.toml"
+        run(cli, "import", changed, mapped)
+        assert tomllib.loads(run(cli, "timing", mapped))["target_vs_iodd_minimum"] == relation
+    bad = output / "bad-step.xml"
+    bad.write_bytes(xml.read_bytes().replace(b'minCycleTime="2300"', b'minCycleTime="6500"'))
+    original = profile.read_bytes()
+    run(cli, "import", bad, profile, expected=1)
+    assert profile.read_bytes() == original
+    snapshot = output / "parameter.json"
+    run(cli, "read-parameter", profile, "V_SIM_Threshold", "--snapshot", snapshot)
+    assert json.loads(snapshot.read_bytes())["profile"]["iodd"]["communication"] == declaration
+    before = Gateway.requests
+    assert tomllib.loads(run(cli, "review-parameter", snapshot))["decoded"]["raw_value"] == "500"
+    assert Gateway.requests == before
+    verify_cycle_capture(cli, profile, output / "sim-cycle", 1000)
+    corrupt = output / "corrupt-cycle"
+    shutil.copytree(output / "sim-cycle", corrupt)
+    path = corrupt / "capture.toml"
+    original = path.read_bytes()
+    path.write_bytes(original.replace(b'minimum_cycle_us = 2300', b'minimum_cycle_us = 2400'))
+    run(cli, "verify-capture", corrupt, expected=1)
+    path.write_bytes(original.replace(b'requested_poll_us = 1000', b'requested_poll_us = 2000'))
+    run(cli, "verify-capture", corrupt, expected=1)
+    return profile
+
+
 def verify_stamps(cli, output):
     output.mkdir()
     main = ROOT / "samples/sensor-checksum.xml"
@@ -819,6 +886,7 @@ def main():
     scratch = ROOT / ".local" / ("verify-" + uuid.uuid4().hex[:8])
     scratch.mkdir(parents=True)
     verify_stamps(cli, scratch / "stamps")
+    communication_profile = verify_communication(cli, scratch / "communication")
     verify_xsd(cli, scratch)
     source = ROOT / "samples" / "simulator.toml"
     profile = source.read_text(encoding="utf-8")
@@ -1103,6 +1171,12 @@ kind = "bool"
             text = text.replace('port = 1', 'port = 1\nifm_mode = 3\nifm_cycle_unit = "microseconds"')
             parameter_fixture.write_text(text.replace('poll_us = 1000', 'poll_us = 10000'), encoding="utf-8")
             Gateway.device_id = 1
+            cycle_fixture = scratch / "cycle-fixture.toml"
+            cycle_text = communication_profile.read_text(encoding="utf-8").replace('gateway = "simulator"', 'gateway = "ifm_al1350"')
+            cycle_text = cycle_text.replace('endpoint = ""', f'endpoint = "http://127.0.0.1:{server.server_port}"')
+            cycle_text = cycle_text.replace('ifm_firmware = ""', 'ifm_firmware = "3.1.42"').replace('port = 1', 'port = 1\nifm_mode = 3\nifm_cycle_unit = "microseconds"').replace('poll_us = 1000', 'poll_us = 10000')
+            cycle_fixture.write_bytes(cycle_text.encode("utf-8"))
+            verify_cycle_capture(cli, cycle_fixture, scratch / "ifm-cycle", 1200, snapshots=True)
             strings_fixture = scratch / "strings-fixture.toml"
             strings_text = strings_profile.read_text(encoding="utf-8").replace('gateway = "simulator"', 'gateway = "ifm_al1350"')
             strings_text = strings_text.replace('endpoint = ""', f'endpoint = "http://127.0.0.1:{server.server_port}"')
@@ -1195,7 +1269,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: binary IODD main/language checksum receipts, ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline reopening, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")

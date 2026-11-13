@@ -37,6 +37,12 @@ enum Command {
     },
     /// Check a profile and list its effective fields.
     Validate { profile: PathBuf },
+    /// Compare declared cycle limits and a host poll interval offline; no gateway access.
+    Timing {
+        profile: PathBuf,
+        #[arg(long, default_value_t = 1000, value_parser = clap::value_parser!(u64).range(1..))]
+        target_us: u64,
+    },
     /// Validate selected XML or ZIP member against a supplied local XSD closure.
     CheckIodd {
         path: PathBuf,
@@ -437,6 +443,16 @@ fn main() -> Result<()> {
             profile_data.save(&profile)?;
             println!("Saved {}", profile.display());
         }
+        Command::Timing { profile, target_us } => {
+            let profile = Profile::load(&profile)?;
+            let context = iolink_workbench::timing::assess(
+                &profile,
+                Some(profile.connection.poll_us),
+                Default::default(),
+                target_us,
+            )?;
+            print!("{}", toml::to_string_pretty(&context)?);
+        }
         Command::Validate { profile } => {
             let profile = Profile::load(&profile)?;
             println!("{} ({} bytes)", profile.name, profile.input_bytes);
@@ -449,6 +465,15 @@ fn main() -> Result<()> {
                     .collect::<Vec<_>>()
             );
             if let Some(iodd) = &profile.iodd {
+                println!(
+                    "{}",
+                    iodd.communication
+                        .as_ref()
+                        .map(|value| value.summary())
+                        .unwrap_or_else(
+                            || "IODD wired communication declaration unavailable".into()
+                        )
+                );
                 println!("{}", iodd.stamp_validation.as_ref().map(|report| report.summary()).unwrap_or_else(|| "IODD checksum not checked in this saved profile".into()));
                 if let Some(localization) = &iodd.localization {
                     println!("{}", localization.summary());

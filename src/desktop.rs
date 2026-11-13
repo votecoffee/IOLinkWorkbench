@@ -381,6 +381,16 @@ impl App {
                     "Host polls · source-update loss and input age are unknown",
                 );
             }
+            if let Ok(context) = iolink_workbench::timing::assess(
+                &self.profile,
+                Some(self.profile.connection.poll_us),
+                status.into(),
+                1000,
+            ) {
+                ui.collapsing("Cycle target and declared limits", |ui| {
+                    ui.label(context.text());
+                });
+            }
         }
         if running && !self.live.message.is_empty() {
             ui.label(&self.live.message);

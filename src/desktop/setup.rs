@@ -121,8 +121,12 @@ impl Editor {
             changed |= self.iodd(ui, profile, message);
             ui.separator();
             ui.heading("Effective process input");
+            if let Ok(context) = iolink_workbench::timing::assess(profile, Some(profile.connection.poll_us), Default::default(), 1000) {
+                ui.collapsing("Cycle target from the applied profile", |ui| { ui.label(context.text()); });
+            }
             ui.small("Bit 0 is the least significant bit. Big endian counts from the last byte, little endian from the first.");
             if let Some(import) = &profile.iodd {
+                ui.small(import.communication.as_ref().map(|value| value.summary()).unwrap_or_else(|| "IODD wired communication declaration unavailable".into()));
                 ui.small(import.stamp_validation.as_ref().map(|report| report.summary()).unwrap_or_else(|| "IODD checksum not checked in this saved profile".into()));
                 if let Some(localization) = &import.localization { ui.small(localization.summary()); }
                 ui.small(import.schema_validation.as_ref().map(|report| report.summary()).unwrap_or_else(|| "Parser checks only; XSD validation not performed".into()));
@@ -315,6 +319,10 @@ impl Editor {
             }
         });
         if let Some(catalog) = &self.catalog {
+            if let Some(communication) = &catalog.communication {
+                ui.small(communication.summary());
+                ui.small("IODD declarations do not establish the actual port cycle or sensor/gateway update rate.");
+            }
             if let Some(report) = &catalog.stamp_validation {
                 ui.small(report.summary());
                 ui.small("Checksum consistency does not authenticate the vendor or rerun the IODD Checker.");

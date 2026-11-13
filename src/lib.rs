@@ -5,4 +5,5 @@ pub mod diagnostics;
 pub mod iodd;
 pub mod parameter_snapshot;
 pub mod profile;
+pub mod timing;
 pub mod transport;

@@ -17,6 +17,8 @@ const IODD_NAMESPACE: &str = "http://www.io-link.com/IODD/2010/10";
 const XSI: &str = "http://www.w3.org/2001/XMLSchema-instance";
 
 mod array;
+mod communication;
+pub use communication::{Bitrate, Communication};
 mod events;
 pub use events::{EventDefinition, EventType};
 mod parameters;
@@ -49,6 +51,7 @@ pub struct Catalog {
     pub source: String,
     pub vendor_id: u16,
     pub device_id: u32,
+    pub communication: Option<Communication>,
     pub variants: Vec<Variant>,
     pub layouts: Vec<Layout>,
     pub parameters: Vec<Parameter>,
@@ -121,6 +124,7 @@ impl Catalog {
                 standard_parameter_refs: self.standard_parameter_refs.clone(),
                 schema_validation: self.schema_validation.clone(),
                 stamp_validation: self.stamp_validation.clone(),
+                communication: self.communication.clone(),
                 localization: self.localization.clone(),
                 events: self.events.clone(),
                 standard_event_refs: self.standard_event_refs.clone(),
@@ -796,6 +800,7 @@ fn parse_resources(
         source,
         vendor_id,
         device_id,
+        communication: communication::parse(root)?,
         variants,
         layouts,
         parameters,

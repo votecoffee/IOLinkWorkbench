@@ -64,6 +64,7 @@ pub struct SignalReview {
     pub stale_threshold_us: u64,
     pub recorded_logger_overruns: u64,
     pub recorded_timing: RecordedTiming,
+    pub cycle_context: crate::timing::Context,
     pub available_fields: Vec<Field>,
     pub field: Field,
     pub numeric_basis: &'static str,
@@ -118,6 +119,16 @@ impl Collector {
                 requested_poll_us: manifest.requested_poll_us,
                 stale_threshold_us: manifest.stale_threshold_us,
                 recorded_logger_overruns: manifest.counts.logger_overruns,
+                cycle_context: crate::timing::assess(
+                    profile,
+                    manifest.requested_poll_us,
+                    crate::timing::Observation {
+                        port_cycle_us: status.and_then(|status| status.port_cycle_us),
+                        freshness: status.map(|status| status.freshness),
+                        route: status.and_then(|status| status.route.as_deref()),
+                    },
+                    1000,
+                )?,
                 recorded_timing: RecordedTiming {
                     port_cycle_raw: status.and_then(|status| status.port_cycle_raw.clone()),
                     port_cycle_us: status.and_then(|status| status.port_cycle_us),

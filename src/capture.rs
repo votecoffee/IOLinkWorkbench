@@ -170,6 +170,8 @@ pub struct Report {
     pub identity_check: Option<&'static str>,
     pub row_kind: Option<&'static str>,
     pub requested_poll_us: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iodd_communication: Option<crate::iodd::Communication>,
     pub stale_threshold_us: u64,
     pub requested_duration_ms: Option<u64>,
     pub simulation_faults: bool,
@@ -587,6 +589,7 @@ fn run_with_transport(
         identity_check: state.identity_check,
         row_kind: freshness.map(Freshness::row_kind),
         requested_poll_us: profile.connection.poll_us,
+        iodd_communication: profile.communication().cloned(),
         stale_threshold_us: profile.connection.stale_us,
         requested_duration_ms: options.duration.map(|d| d.as_millis() as u64),
         simulation_faults: options.simulate_faults,
