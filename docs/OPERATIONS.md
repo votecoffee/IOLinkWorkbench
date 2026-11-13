@@ -63,6 +63,8 @@ Rotation is checked before the next row. Time rotation uses receive elapsed time
 
 ## Timing, loss and saved evidence
 
+Use `review-interfaces DIRECTORY` for a verified offline view of all recorded interface counters, including raw-only captures. The GUI's Verify capture shows the same diagnostics and timing. Read the [capture review guide](CAPTURE_REVIEW.md) before treating coalescing, retention or socket/commit counts as delivery or source loss. No gateway, broker or mapping is opened by review.
+
 Keep the requested host interval, declared sensor minimum, reported port cycle, gateway update rate, source cadence, host poll/receive spacing and queue/writer timings separate. Treat 1 ms as a target to evaluate. AL1350 snapshots have no verifiable source update counter/timestamp in the supported path: source loss, source age and gateway update cadence are unknown. Host receive age is not sensor age. Simulator counters/timestamps are synthetic. Within-generation counter gaps cannot measure loss during disconnects.
 
 Captures retain UTC start, monotonic host elapsed times, sample indexes, reconnect generations, raw input, validity, staleness, diagnostics, selected typed cells and finalized timing/accounting reports. Inspect p50/p95/p99/longest gaps, invalid/stale/unknown input and logger overruns. Review queue high water, queue wait, service/flush/sync and drain separately from source loss. On-change filtering is intentional selection, not a source gap. Invalid/stale values stay blank in typed cells.

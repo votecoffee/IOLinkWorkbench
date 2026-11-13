@@ -67,7 +67,7 @@ fn logger_metrics_are_verified_and_absent_legacy_measurements_remain_unavailable
     Ok(())
 }
 
-fn fixture(snapshots: bool, backpressure: bool) -> Result<(tempfile::TempDir, PathBuf)> {
+pub(super) fn fixture(snapshots: bool, backpressure: bool) -> Result<(tempfile::TempDir, PathBuf)> {
     fs::create_dir_all(".local")?;
     let scratch = tempfile::tempdir_in(".local")?;
     let path = scratch.path().join("capture");

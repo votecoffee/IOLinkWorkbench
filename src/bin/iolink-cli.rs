@@ -181,6 +181,8 @@ enum Command {
         #[arg(long)]
         joined_csv: Option<PathBuf>,
     },
+    /// Verify all saved rows and review independent interface loss/accounting offline.
+    ReviewInterfaces { directory: PathBuf },
     /// Verify a saved capture and review one logged field without opening a gateway.
     ReviewCapture {
         directory: PathBuf,
@@ -287,6 +289,12 @@ impl IoddOptions {
 
 fn main() -> Result<()> {
     match Cli::parse().command {
+        Command::ReviewInterfaces { directory } => {
+            print!(
+                "{}",
+                toml::to_string_pretty(&archive::review_interfaces(&directory, None)?)?
+            );
+        }
         Command::ReadSharedMemory {
             name,
             wait_ms,

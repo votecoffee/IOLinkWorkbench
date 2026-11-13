@@ -67,9 +67,14 @@ pub fn show(ui: &mut Ui, review: &Review) {
         ui.small("These are the acquisition report's measurements, not timing derived from the selected CSV rows. Change-only logging and dropped rows reduce the recorded row set. A 1 ms target needs the eventual sensor and gateway qualification.");
     });
     crate::desktop::logger_metrics::show(ui, signal.recorded_timing.logger_metrics.as_ref());
+    if let Some(interfaces) = &review.interfaces {
+        super::interfaces::show(ui, interfaces);
+    } else {
+        ui.small("Interface metrics not recorded; disabled and older producer data cannot be distinguished.");
+    }
 }
 
-fn spacing(ui: &mut Ui, name: &str, spacing: Option<&Spacing>) {
+pub(super) fn spacing(ui: &mut Ui, name: &str, spacing: Option<&Spacing>) {
     if let Some(value) = spacing {
         ui.label(format!(
             "{name} · p50 {} · p95 {} · p99 {} · longest {} µs · {:.2} Hz",

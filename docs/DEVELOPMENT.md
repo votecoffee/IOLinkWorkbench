@@ -23,6 +23,8 @@ The [local API](LOCAL_API.md) is optional per acquisition. The sampler offers fi
 
 Capture plans describe saved configuration, never observed transport capabilities. Selected field positions are one-based value order; `csv_columns` contains the actual full header including metadata. Rotation follows receive elapsed timestamps, not writer wall time. Preserve raw payloads and the distinction between source gaps, host polls, intentional filtering, reconnect uncertainty and logger drops. Do not infer sensor freshness from equal/different payloads.
 
+`archive::review_interfaces` uses the same single-pass `inspect` path as verification/review/export, retaining the exact parsed profile/report bytes for hashes. It presents optional recorded interface summaries and availability separately from acquisition/CSV data. Offer totals are checked against acquisition events when receive/disconnect counters exist; legacy absence remains unavailable. The GUI's Verify action and optional field-review diagnostics share this interpretation. No live transport or IPC reader belongs in this path. See [offline review](CAPTURE_REVIEW.md).
+
 ## Local validation
 
 Use a stable x64 MSVC Rust toolchain with Visual Studio C++ Build Tools and Windows SDK. The repository pins dependency resolution through Cargo.lock and static CRT through `.cargo/config.toml`. Run from the checkout root:

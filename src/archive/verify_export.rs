@@ -223,7 +223,7 @@ pub fn verify_export(directory: &Path, source: Option<&Path>) -> Result<ExportVe
             .canonicalize()
             .context("explicit original capture directory")?;
         let mut comparison = Comparison::new(&directory, &mapping, &source_files, &files)?;
-        let (original_summary, _) = inspect(&source, None, None, Some(&mut comparison))?;
+        let original_summary = inspect(&source, None, None, Some(&mut comparison))?.summary;
         ensure!(
             original_summary == summary,
             "original source verification summary differs from the bundle"

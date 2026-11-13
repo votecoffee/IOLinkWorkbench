@@ -111,7 +111,7 @@ impl Store {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Summary {
     pub format_version: u32,
     pub url: String,

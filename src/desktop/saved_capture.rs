@@ -3,10 +3,11 @@ use eframe::egui::{Context, Ui};
 use iolink_workbench::archive;
 use std::{path::PathBuf, time::Duration};
 
+mod interfaces;
 mod review;
 
 enum Outcome {
-    Verified(Box<archive::Summary>),
+    Verified(Box<archive::InterfaceReview>),
     Reviewed(Box<archive::Review>),
     Exported(Box<archive::Redecode>),
     ExportVerified(Box<archive::ExportVerification>),
@@ -26,7 +27,7 @@ pub struct Verifier {
     field: String,
     available_fields: Vec<String>,
     buckets: u16,
-    summary: Option<archive::Summary>,
+    summary: Option<archive::InterfaceReview>,
     message: String,
 }
 
@@ -111,7 +112,7 @@ impl Verifier {
                     self.summary = None;
                     self.review = None;
                     match background("verify-saved-capture", move || {
-                        Ok(Outcome::Verified(Box::new(archive::verify(&directory, joined_csv.as_deref())?)))
+                        Ok(Outcome::Verified(Box::new(archive::review_interfaces(&directory, joined_csv.as_deref())?)))
                     }) {
                         Ok(worker) => {
                             self.worker = Some(worker);
@@ -234,7 +235,7 @@ impl Verifier {
             .review
             .as_ref()
             .map(|review| &review.capture)
-            .or(self.summary.as_ref())
+            .or(self.summary.as_ref().map(|review| &review.capture))
         {
             ui.label(format!("{} · {}", summary.profile, summary.utc_start));
             ui.label(format!(
@@ -271,6 +272,9 @@ impl Verifier {
         }
         if let Some(review) = &self.review {
             review::show(ui, review);
+        }
+        if let Some(review) = &self.summary {
+            interfaces::show_review(ui, review);
         }
         if let Some(check) = &self.checked_export {
             ui.label(format!(

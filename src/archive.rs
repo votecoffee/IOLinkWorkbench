@@ -19,6 +19,8 @@ mod verify_export;
 pub use verify_export::{ExportVerification, verify_export};
 mod review;
 pub use review::{Bucket, NumericSummary, RecordedTiming, Review, SignalReview};
+mod interfaces;
+pub use interfaces::{InterfaceContext, InterfaceFinding, InterfaceReview, RecordedInterfaces};
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -90,6 +92,8 @@ struct ArchivedStatus {
 
 #[derive(Deserialize)]
 struct ArchivedCounts {
+    received: Option<u64>,
+    disconnects: Option<u64>,
     selected: u64,
     logger_overruns: u64,
     reconnects: u64,
@@ -382,13 +386,56 @@ fn check_manifest(manifest: &Manifest, profile: &Profile) -> Result<()> {
     if let Some(shm) = &manifest.shared_memory {
         shm.validate()?;
     }
+    if let Some(expected) = expected_interface_offers(manifest) {
+        for (name, offered) in [
+            (
+                "local API",
+                manifest.local_api.as_ref().map(|v| v.events_offered),
+            ),
+            ("MQTT", manifest.mqtt.as_ref().map(|v| v.events_offered)),
+            (
+                "shared memory",
+                manifest.shared_memory.as_ref().map(|v| v.events_offered),
+            ),
+        ] {
+            if let Some(offered) = offered {
+                ensure!(
+                    u128::from(offered) == expected,
+                    "{name} event-offer count differs from recorded acquisition events"
+                );
+            }
+        }
+    }
     Ok(())
+}
+
+fn expected_interface_offers(manifest: &Manifest) -> Option<u128> {
+    Some(
+        u128::from(manifest.counts.received?)
+            + u128::from(manifest.counts.disconnects?)
+            + u128::from(manifest.counts.reconnects)
+            + u128::from(manifest.last_status.is_some())
+            + 1,
+    )
 }
 
 /// Check a finalized capture using its saved profile and optionally publish a joined CSV.
 /// All rows are checked while streaming. The joined file becomes visible only after success.
 pub fn verify(directory: &Path, joined_csv: Option<&Path>) -> Result<Summary> {
-    Ok(inspect(directory, joined_csv, None, None)?.0)
+    Ok(inspect(directory, joined_csv, None, None)?.summary)
+}
+
+/// Verify every saved CSV row, then review interface claims without opening a transport.
+/// Optional CSV joining uses the same atomic, non-overwriting publication as verify().
+pub fn review_interfaces(directory: &Path, joined_csv: Option<&Path>) -> Result<InterfaceReview> {
+    let inspected = inspect(directory, joined_csv, None, None)?;
+    InterfaceReview::new(
+        inspected.summary,
+        &inspected.profile,
+        &inspected.manifest,
+        &inspected.profile_bytes,
+        &inspected.manifest_bytes,
+    )
 }
 
 /// Review one saved logged field while verifying all capture rows in the same pass.
@@ -398,17 +445,23 @@ pub fn review(directory: &Path, field: Option<&str>, buckets: usize) -> Result<R
         (1..=4096).contains(&buckets),
         "trend buckets must be 1–4096"
     );
-    let (summary, collector) = inspect(directory, None, Some((field, buckets)), None)?;
-    Ok(collector
+    let inspected = inspect(directory, None, Some((field, buckets)), None)?;
+    let interfaces = RecordedInterfaces::new(&inspected.manifest);
+    let mut review = inspected
+        .collector
         .expect("requested review collector")
-        .finish(summary))
+        .finish(inspected.summary);
+    if interfaces.any_recorded() {
+        review.interfaces = Some(interfaces);
+    }
+    Ok(review)
 }
 
 /// Export a new interpretation of verified saved payloads, preserving source files.
 pub fn redecode(directory: &Path, mapping: &Profile, output: &Path) -> Result<Redecode> {
     let mut export = redecode::Exporter::new(directory, mapping, output)?;
-    let (summary, _) = inspect(directory, None, None, Some(&mut export))?;
-    export.finish(summary)
+    let inspected = inspect(directory, None, None, Some(&mut export))?;
+    export.finish(inspected.summary)
 }
 
 trait Observer {
@@ -422,12 +475,21 @@ trait Observer {
     fn source_part(&mut self, file: FileDigest) -> Result<()>;
 }
 
+struct Inspected {
+    summary: Summary,
+    collector: Option<review::Collector>,
+    profile: Profile,
+    manifest: Manifest,
+    profile_bytes: Vec<u8>,
+    manifest_bytes: Vec<u8>,
+}
+
 fn inspect(
     directory: &Path,
     joined_csv: Option<&Path>,
     request: Option<(Option<&str>, usize)>,
     mut export: Option<&mut dyn Observer>,
-) -> Result<(Summary, Option<review::Collector>)> {
+) -> Result<Inspected> {
     let directory = directory
         .canonicalize()
         .with_context(|| directory.display().to_string())?;
@@ -531,7 +593,14 @@ fn inspect(
         file.as_file().sync_all()?;
         file.persist_noclobber(joined_csv.expect("joined output path"))?;
     }
-    Ok((summary, collector))
+    Ok(Inspected {
+        summary,
+        collector,
+        profile,
+        manifest,
+        profile_bytes,
+        manifest_bytes,
+    })
 }
 
 #[cfg(test)]
