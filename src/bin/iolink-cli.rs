@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use iolink_workbench::{
     archive,
     capture::{self, Options, Stop},
-    decode, iodd,
+    decode, diagnostics, iodd,
     profile::Profile,
     transport,
 };
@@ -49,6 +49,17 @@ enum Command {
     Decode { profile: PathBuf, payload: String },
     /// List imported IODD parameters without contacting a gateway.
     Parameters { profile: PathBuf },
+    /// List saved IODD event definitions and unresolved standard event references.
+    Events { profile: PathBuf },
+    /// Explicitly read optional Device Status (36:0) and Detailed Device Status (37:0).
+    ReadDiagnostics { profile: PathBuf },
+    /// Decode a recorded Detailed Device Status payload without opening a transport.
+    DecodeDiagnostics {
+        profile: PathBuf,
+        payload: String,
+        #[arg(long)]
+        device_status: Option<String>,
+    },
     /// Read one named IODD parameter through the independent acyclic client.
     ReadParameter {
         profile: PathBuf,
@@ -132,6 +143,70 @@ impl IoddOptions {
 
 fn main() -> Result<()> {
     match Cli::parse().command {
+        Command::Events { profile } => {
+            let profile = Profile::load(&profile)?;
+            let imported = profile
+                .iodd
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("import an IODD first"))?;
+            #[derive(serde::Serialize)]
+            struct Events<'a> {
+                events: &'a [iodd::EventDefinition],
+                standard_event_refs: &'a [u16],
+            }
+            print!(
+                "{}",
+                toml::to_string_pretty(&Events {
+                    events: &imported.events,
+                    standard_event_refs: &imported.standard_event_refs
+                })?
+            );
+        }
+        Command::ReadDiagnostics { profile } => {
+            let report = diagnostics::read(&Profile::load(&profile)?)?;
+            print!("{}", toml::to_string_pretty(&report)?);
+            ensure!(
+                report.ok(),
+                "diagnostic read is incomplete or observed identity fields changed; retained results are printed above"
+            );
+        }
+        Command::DecodeDiagnostics {
+            profile,
+            payload,
+            device_status,
+        } => {
+            let profile = Profile::load(&profile)?;
+            let detailed =
+                diagnostics::decode_detailed(&profile, &decode::parse_hex_bounded(&payload, 232)?);
+            let status = device_status
+                .as_deref()
+                .map(|text| {
+                    Ok::<_, anyhow::Error>(diagnostics::decode_device_status(
+                        &decode::parse_hex_bounded(text, 232)?,
+                    ))
+                })
+                .transpose()?;
+            #[derive(serde::Serialize)]
+            struct Decoded {
+                device_status: Option<diagnostics::DeviceStatus>,
+                detailed_status: diagnostics::DetailedStatus,
+            }
+            let ok = detailed.decode_error.is_none()
+                && status
+                    .as_ref()
+                    .is_none_or(|status| status.decode_error.is_none());
+            print!(
+                "{}",
+                toml::to_string_pretty(&Decoded {
+                    device_status: status,
+                    detailed_status: detailed
+                })?
+            );
+            ensure!(
+                ok,
+                "diagnostic payload needs decoding review; raw bytes are retained above"
+            );
+        }
         Command::Parameters { profile } => {
             let profile = Profile::load(&profile)?;
             let iodd = profile

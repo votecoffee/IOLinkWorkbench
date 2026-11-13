@@ -139,6 +139,10 @@ pub struct Imported {
     pub schema_validation: Option<crate::iodd::schema::Report>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub localization: Option<crate::iodd::Localization>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub events: Vec<crate::iodd::EventDefinition>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub standard_event_refs: Vec<u16>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -272,6 +276,17 @@ impl Profile {
         );
         let mut names = HashSet::new();
         if let Some(imported) = &self.iodd {
+            let mut codes = HashSet::new();
+            for event in &imported.events {
+                event.validate()?;
+                ensure!(codes.insert(event.code), "duplicate event code");
+            }
+            for code in &imported.standard_event_refs {
+                ensure!(
+                    codes.insert(*code),
+                    "duplicate or resolved standard event reference"
+                );
+            }
             let mut indexes = HashSet::new();
             if let Some(validation) = &imported.schema_validation {
                 validation.validate_receipt()?;

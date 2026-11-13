@@ -7,7 +7,7 @@ use std::{
     path::Path,
 };
 
-pub(in crate::iodd) fn load(path: &Path) -> Result<Vec<Parameter>> {
+pub(in crate::iodd) fn load(path: &Path) -> Result<crate::iodd::Definitions> {
     let xml = crate::iodd::read_xml(path)?;
     parse(
         &xml,
@@ -18,7 +18,7 @@ pub(in crate::iodd) fn load(path: &Path) -> Result<Vec<Parameter>> {
     )
 }
 
-pub(super) fn parse(xml: &str, source: &str) -> Result<Vec<Parameter>> {
+pub(super) fn parse(xml: &str, source: &str) -> Result<crate::iodd::Definitions> {
     let doc = Document::parse(xml)?;
     let root = doc.root_element();
     ensure!(
@@ -69,7 +69,15 @@ pub(super) fn parse(xml: &str, source: &str) -> Result<Vec<Parameter>> {
             array.element.origin = parameter.origin.clone();
         }
     }
-    Ok(parameters)
+    let (mut events, references) = crate::iodd::events::parse(root, &texts)?;
+    ensure!(
+        references.is_empty(),
+        "standard definitions contain unresolved event references"
+    );
+    for event in &mut events {
+        event.origin = Some(format!("{source} · {version}"));
+    }
+    Ok(crate::iodd::Definitions { parameters, events })
 }
 
 pub(super) fn resolve(

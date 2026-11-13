@@ -119,18 +119,26 @@ pub fn open(profile: &Profile, simulate_faults: bool) -> Result<Box<dyn InputTra
 
 /// A separate client and call path, independent of the cyclic poll worker and CSV queue.
 pub fn read_isdu(profile: &Profile, index: u16, subindex: u8) -> Result<Vec<u8>> {
+    Ok(read_isdu_observation(profile, index, subindex)?.1)
+}
+
+pub(crate) fn read_isdu_observation(
+    profile: &Profile,
+    index: u16,
+    subindex: u8,
+) -> Result<(Status, Vec<u8>)> {
     profile.validate()?;
     match profile.connection.gateway {
         Gateway::Simulator => {
             let status = simulator::Simulator::new(profile, false).connect()?;
             profile.expected_identity.verify(&status.identity)?;
-            simulator::read_isdu(index, subindex)
+            Ok((status, simulator::read_isdu(index, subindex)?))
         }
         Gateway::IfmAl1350 => {
             let mut client = ifm::Client::new(&profile.connection)?;
             let status = client.connect()?;
             profile.expected_identity.verify(&status.identity)?;
-            client.read_isdu(index, subindex)
+            Ok((status, client.read_isdu(index, subindex)?))
         }
     }
 }

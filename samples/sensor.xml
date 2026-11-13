@@ -44,6 +44,13 @@
           <ProcessDataIn id="IN" bitLength="16"><DatatypeRef datatypeId="PD"/></ProcessDataIn>
         </ProcessData>
       </ProcessDataCollection>
+      <EventCollection>
+        <StdEventRef code="16912"/>
+        <Event code="36350" type="Warning">
+          <Name textId="event"/>
+          <Description textId="eventdetail"/>
+        </Event>
+      </EventCollection>
       <UserInterface>
         <MenuCollection>
           <Menu id="M_SIM_Settings">
@@ -63,6 +70,8 @@
       <Text id="nominal" value="Nominal setting"/>
       <Text id="sensorlabel" value="Synthetic label"/>
       <Text id="command" value="Synthetic command (write-only)"/>
+      <Text id="event" value="Synthetic range warning"/>
+      <Text id="eventdetail" value="Simulator diagnostic only. Check the configured measurement range."/>
     </PrimaryLanguage>
   </ExternalTextCollection>
 </IODevice>

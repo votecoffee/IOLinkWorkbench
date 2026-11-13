@@ -7,5 +7,7 @@
     <Text id="switch" value="Schalter"/>
     <Text id="threshold" value="Grenzwert"/>
     <Text id="nominal" value="Nennwert"/>
+    <Text id="event" value="Synthetische Bereichswarnung"/>
+    <Text id="eventdetail" value="Simulatordiagnose. Konfigurierten Messbereich prüfen."/>
   </Language>
 </ExternalTextDocument>

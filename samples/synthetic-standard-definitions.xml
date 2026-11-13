@@ -41,6 +41,9 @@
       <Name textId="offset"/>
     </Variable>
   </VariableCollection>
+  <EventCollection>
+    <Event code="16912" type="Error"><Name textId="standardevent"/></Event>
+  </EventCollection>
   <ExternalTextCollection>
     <PrimaryLanguage xml:lang="en">
       <Text id="product" value="Synthetic product ID"/>
@@ -50,6 +53,7 @@
       <Text id="offset" value="Synthetic offset time"/>
       <Text id="record" value="Synthetic direct parameter record"/>
       <Text id="status" value="Synthetic detailed status"/>
+      <Text id="standardevent" value="Synthetic standard alarm"/>
     </PrimaryLanguage>
   </ExternalTextCollection>
 </IODDStandardDefinitions>

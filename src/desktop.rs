@@ -13,6 +13,7 @@ use std::{
     time::Duration,
 };
 
+mod diagnostics;
 mod parameters;
 mod saved_capture;
 mod setup;
@@ -98,6 +99,7 @@ struct App {
     selected_parameter: Option<String>,
     selected_subindex: u8,
     offline_parameter: parameters::Offline,
+    offline_diagnostics: diagnostics::Offline,
 }
 
 impl App {
@@ -128,6 +130,7 @@ impl App {
             selected_parameter: None,
             selected_subindex: 0,
             offline_parameter: parameters::Offline::default(),
+            offline_diagnostics: diagnostics::Offline::default(),
         }
     }
 
@@ -349,7 +352,7 @@ impl App {
                 identity.serial.as_deref().unwrap_or("unavailable")
             ));
             ui.label(format!(
-                "Device status {} · Port event {} · Device event {}",
+                "Connection-time gateway snapshots · status {} · port event {} · device event {}",
                 status.device_status.as_deref().unwrap_or("unavailable"),
                 status.port_event.as_deref().unwrap_or("unavailable"),
                 status.device_event.as_deref().unwrap_or("unavailable")
@@ -468,6 +471,21 @@ impl App {
             }
         }
         ui.separator();
+        ui.collapsing("Device diagnostics (explicit ISDU reads)", |ui| {
+            ui.small("Reads optional 36:0 and 37:0 on independent acyclic clients. These snapshots provide no continuous event history or source-loss count.");
+            let available = self.isdu_worker.is_none() && !self.setup.pending && !self.setup.busy();
+            if ui.add_enabled(available, egui::Button::new("Read device diagnostics")).clicked() {
+                let profile = self.profile.clone();
+                match background("acyclic-device-diagnostics", move || Ok(iolink_workbench::diagnostics::read(&profile)?.text())) {
+                    Ok(worker) => { self.isdu_worker = Some(worker); self.isdu_result = "Reading device diagnostics…".into(); }
+                    Err(error) => self.isdu_result = error.to_string(),
+                }
+            }
+            if let Some(imported) = &self.profile.iodd {
+                ui.small(format!("{} saved event definitions · {} unresolved standard event codes", imported.events.len(), imported.standard_event_refs.len()));
+                for event in &imported.events { ui.label(format!("0x{:04X} · {:?} · {}", event.code, event.event_type, event.name)); }
+            }
+        });
         if let Some((id, subindex)) = parameters::show(
             ui,
             &self.profile,
@@ -577,6 +595,8 @@ impl App {
         ui.separator();
         self.offline_parameter.show(ui, &self.profile);
         ui.separator();
+        self.offline_diagnostics.show(ui, &self.profile);
+        ui.separator();
         self.saved_capture.show(ui);
     }
 }
@@ -633,6 +653,8 @@ impl eframe::App for App {
                                 self.selected_parameter = None;
                                 self.selected_subindex = 0;
                                 self.offline_parameter = parameters::Offline::default();
+                                self.offline_diagnostics = diagnostics::Offline::default();
+                                self.isdu_result.clear();
                             }
                         }
                         Tab::Monitor => self.monitor(ui),

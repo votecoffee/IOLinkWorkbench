@@ -26,6 +26,9 @@ class Gateway(BaseHTTPRequestHandler):
     device_id = 1
     inject_faults = True
     block_parameter = False
+    block_index = 64
+    fail_detailed = False
+    change_serial_after_status = False
     payload = "03C9"
     parameter_entered = threading.Event()
     parameter_release = threading.Event()
@@ -74,20 +77,25 @@ class Gateway(BaseHTTPRequestHandler):
                 # Documented examples use both styles of path key.
                 response["data"][path if self.polls % 2 else path.lstrip("/")] = result
         elif address == self.device + "/iolreadacyclic" and request["data"] in (
-                {"index": 19, "subindex": 0}, {"index": 64, "subindex": 0}, {"index": 65, "subindex": 0},
+                {"index": 19, "subindex": 0}, {"index": 36, "subindex": 0}, {"index": 37, "subindex": 0}, {"index": 64, "subindex": 0}, {"index": 65, "subindex": 0},
                 *({"index": 66, "subindex": subindex} for subindex in range(5)),
                 *({"index": 67, "subindex": subindex} for subindex in range(8))):
             type(self).isdu_reads += 1
             index = request["data"]["index"]
-            if index == 64 and self.block_parameter:
+            if index == self.block_index and self.block_parameter:
                 self.parameter_entered.set()
                 if not self.parameter_release.wait(timeout=3):
                     response["code"] = 500
             response["data"] = {"value": {
                 (19, 0): "53494D2D53454E534F52", (64, 0): "01F4", (65, 0): "666978747572652073656E736F72",
+                (36, 0): "02", (37, 0): "E48DFE000000",
                 (66, 0): "FFEC010A54455354", (66, 1): "FFEC", (66, 2): "01", (66, 3): "0A", (66, 4): "54455354",
                 (67, 0): "02C495F0", (67, 1): "02", (67, 2): "FC", (67, 3): "04", (67, 4): "F9", (67, 5): "05", (67, 6): "FF", (67, 7): "00",
             }[(index, request["data"]["subindex"])]}
+            if index == 37 and self.fail_detailed:
+                response["code"] = 500
+            if index == 36 and self.change_serial_after_status:
+                self.data[self.device + "/serial"] = "CHANGED-SENSOR"
         else:
             self.violations.append(request)
             response["code"] = 400
@@ -134,11 +142,12 @@ def capture(cli, profile, path, *args):
     return report, rows
 
 
-def parallel_parameter_read(cli, fixture, output):
+def parallel_parameter_read(cli, fixture, output, diagnostics=False):
     Gateway.device_id = 1
     Gateway.polls = 0
     Gateway.inject_faults = False
     Gateway.block_parameter = True
+    Gateway.block_index = 37 if diagnostics else 64
     Gateway.parameter_entered.clear()
     Gateway.parameter_release.clear()
     processes = []
@@ -152,7 +161,7 @@ def parallel_parameter_read(cli, fixture, output):
             assert sampling.poll() is None, "capture exited before the parallel read"
             time.sleep(0.01)
         assert Gateway.polls >= 5
-        reading = subprocess.Popen([cli, "read-parameter", fixture, "V_SIM_Threshold"],
+        reading = subprocess.Popen([cli, "read-diagnostics", fixture] if diagnostics else [cli, "read-parameter", fixture, "V_SIM_Threshold"],
                                    cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8", env=environment)
         processes.append(reading)
         assert Gateway.parameter_entered.wait(timeout=1)
@@ -165,7 +174,10 @@ def parallel_parameter_read(cli, fixture, output):
         Gateway.parameter_release.set()
         stdout, stderr = reading.communicate(timeout=5)
         assert reading.returncode == 0, (stdout, stderr)
-        assert tomllib.loads(stdout)["raw_value"] == "500"
+        if diagnostics:
+            assert tomllib.loads(stdout)["detailed_status"]["events"][0]["code"] == 36350
+        else:
+            assert tomllib.loads(stdout)["raw_value"] == "500"
         stdout, stderr = sampling.communicate(timeout=5)
         assert sampling.returncode == 0, (stdout, stderr)
         report = tomllib.loads(stdout)
@@ -175,6 +187,7 @@ def parallel_parameter_read(cli, fixture, output):
     finally:
         Gateway.parameter_release.set()
         Gateway.block_parameter = False
+        Gateway.block_index = 64
         for process in processes:
             if process.poll() is None:
                 process.kill()
@@ -292,12 +305,24 @@ def main():
     assert reading["raw_value"] == "500" and reading["choice_name"] == "Nominal setting"
     assert reading["displays"] == [{"id": "M_SIM_Settings/1", "value": "52.0", "unit": "mm"}]
     run(cli, "read-parameter", imported, "V_SIM_Command", expected=1)
+    events = tomllib.loads(run(cli, "events", imported))
+    assert len(events["events"]) == 1 and events["standard_event_refs"] == [16912]
+    diagnostic = tomllib.loads(run(cli, "decode-diagnostics", imported, "E48DFE000000", "--device-status", "02"))
+    assert diagnostic["device_status"]["meaning"] == "Out of specification"
+    assert diagnostic["detailed_status"]["events"][0]["definition"]["name"] == "Synthetic range warning"
+    assert diagnostic["detailed_status"]["empty_slots"] == 1
+    assert "definition" not in tomllib.loads(run(cli, "decode-diagnostics", imported, "EC8DFE"))["detailed_status"]["events"][0]
+    malformed = tomllib.loads(run(cli, "decode-diagnostics", imported, "E48DFE00", expected=1))
+    assert malformed["detailed_status"]["raw_hex"] == "E48DFE00" and malformed["detailed_status"]["decode_error"]
+    explicit = tomllib.loads(run(cli, "read-diagnostics", imported))
+    assert explicit["observed_identities_equal"] and all(read["status"]["route"] == "synthetic simulator" for read in explicit["reads"])
     resolved = scratch / "resolved.toml"
     definitions = ROOT / "samples" / "synthetic-standard-definitions.xml"
     run(cli, "import", scratch / "iodd.zip", resolved, "--variant", "SIM-SENSOR",
         "--standard-definitions", definitions)
     parameters = tomllib.loads(run(cli, "parameters", resolved))
     assert len(parameters["parameters"]) == 4 and not parameters["standard_parameter_refs"]
+    assert not tomllib.loads(run(cli, "events", resolved))["standard_event_refs"]
     product = tomllib.loads(run(cli, "read-parameter", resolved, "V_ProductID"))
     assert product["raw_value"] == "SIM-SENSOR" and product["index"] == 19
     run(cli, "iodd", ROOT / "samples" / "sensor.xml", "--standard-definitions",
@@ -403,6 +428,19 @@ def main():
             text = text.replace('port = 1', 'port = 1\nifm_mode = 3\nifm_cycle_unit = "microseconds"')
             parameter_fixture.write_text(text.replace('poll_us = 1000', 'poll_us = 10000'), encoding="utf-8")
             parallel_parameter_read(cli, parameter_fixture, scratch / "ifm-parallel-parameter")
+            parallel_parameter_read(cli, parameter_fixture, scratch / "ifm-parallel-diagnostics", diagnostics=True)
+            Gateway.fail_detailed = True
+            partial = tomllib.loads(run(cli, "read-diagnostics", parameter_fixture, expected=1))
+            assert partial["device_status"]["value"] == 2 and "detailed_status" not in partial
+            assert partial["reads"][1]["read_error"]
+            Gateway.fail_detailed = False
+            Gateway.change_serial_after_status = True
+            changed_identity = tomllib.loads(run(cli, "read-diagnostics", parameter_fixture, expected=1))
+            assert not changed_identity["observed_identities_equal"]
+            assert changed_identity["reads"][0]["status"]["identity"]["serial"] == "FIXTURE-SENSOR"
+            assert changed_identity["reads"][1]["status"]["identity"]["serial"] == "CHANGED-SENSOR"
+            Gateway.change_serial_after_status = False
+            Gateway.data[Gateway.device + "/serial"] = "FIXTURE-SENSOR"
             before = Gateway.isdu_reads
             run(cli, "read-parameter", parameter_fixture, "V_SIM_Command", expected=1)
             assert Gateway.isdu_reads == before and not Gateway.violations
@@ -444,7 +482,7 @@ def main():
 
     print("PASS: ZIP and variant selection, offline decoding, equal updates, on-change, rotation, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, CSV joining, "
-          "named scalar/record/array reads, array and localized CSV fields, supplied units, offline ISDU decoding, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling, and read-only AL1350 loopback")
+          "named scalar/record/array reads, array and localized CSV fields, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 
 

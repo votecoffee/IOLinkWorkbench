@@ -180,7 +180,10 @@ fn parameter_raw_decoding_preserves_wide_integers_and_validates_text() -> Result
 }
 
 fn definitions() -> Result<Vec<Parameter>> {
-    parameters::load_standard(Path::new("samples/synthetic-standard-definitions.xml"))
+    Ok(
+        parameters::load_standard(Path::new("samples/synthetic-standard-definitions.xml"))?
+            .parameters,
+    )
 }
 
 #[test]

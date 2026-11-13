@@ -17,6 +17,8 @@ const IODD_NAMESPACE: &str = "http://www.io-link.com/IODD/2010/10";
 const XSI: &str = "http://www.w3.org/2001/XMLSchema-instance";
 
 mod array;
+mod events;
+pub use events::{EventDefinition, EventType};
 mod parameters;
 mod resources;
 pub mod schema;
@@ -52,6 +54,14 @@ pub struct Catalog {
     pub standard_parameter_refs: Vec<String>,
     pub schema_validation: Option<schema::Report>,
     pub localization: Option<Localization>,
+    pub events: Vec<EventDefinition>,
+    pub standard_event_refs: Vec<u16>,
+}
+
+#[derive(Default)]
+pub(super) struct Definitions {
+    pub parameters: Vec<Parameter>,
+    pub events: Vec<EventDefinition>,
 }
 
 impl Catalog {
@@ -108,6 +118,8 @@ impl Catalog {
                 standard_parameter_refs: self.standard_parameter_refs.clone(),
                 schema_validation: self.schema_validation.clone(),
                 localization: self.localization.clone(),
+                events: self.events.clone(),
+                standard_event_refs: self.standard_event_refs.clone(),
             },
         ))
     }
@@ -181,13 +193,21 @@ pub fn load_with_options(path: &Path, options: &LoadOptions<'_>) -> Result<Catal
     let mut catalog = parse_resources(
         &decode_xml(input.bytes)?,
         input.name,
-        &definitions,
+        &definitions.parameters,
         language.as_deref(),
         input.companion.as_ref(),
         &input.languages,
         &units,
     )?;
     catalog.schema_validation = validation;
+    catalog.standard_event_refs.retain(|code| {
+        if let Some(event) = definitions.events.iter().find(|event| event.code == *code) {
+            catalog.events.push(event.clone());
+            false
+        } else {
+            true
+        }
+    });
     Ok(catalog)
 }
 
@@ -579,6 +599,7 @@ fn parse_resources(
         .collect::<HashMap<_, _>>();
     let (parameters, standard_parameter_refs) =
         parameters::parse(function, &types, &texts, &definitions, units)?;
+    let (events, standard_event_refs) = events::parse(function, &texts)?;
     let mut layouts = Vec::new();
     for process in child(function, "ProcessDataCollection")
         .into_iter()
@@ -745,6 +766,8 @@ fn parse_resources(
         standard_parameter_refs,
         schema_validation: None,
         localization: Some(selected.metadata),
+        events,
+        standard_event_refs,
     })
 }
 
