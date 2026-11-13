@@ -911,6 +911,85 @@ def verify_mapping_settings(cli, output):
     assert Gateway.requests == requests and source.read_bytes() == original and edited.read_bytes() == saved
 
 
+def verify_logging_settings(cli, output):
+    output.mkdir()
+    imported = output / "imported.toml"
+    preferred = output / "preferred.toml"
+    source = output / "source.toml"
+    run(cli, "import", ROOT / "samples/sensor-formats.xml", imported)
+    run(cli, "select-display", imported, "V_SIM_Threshold", preferred, "--display", "M_SIM_Threshold/2")
+    auxiliary = "aux, µm"
+    run(cli, "set-field", preferred, source, auxiliary, "--bit-offset", 0, "--bits", 1, "--kind", "bool")
+    source.write_bytes(b'# Original logging source stays unchanged\n' + source.read_bytes())
+    original = source.read_bytes()
+    before = tomllib.loads(original.decode("utf-8"))
+    field = before["iodd"]["fields"][0]["name"]
+    requests = Gateway.requests
+    ordered = output / "ordered.toml"
+    run(cli, "set-logging", source, ordered, "--mode", "on-change", "--queue-capacity", 64,
+        "--rotate-rows", 7, "--rotate-seconds", 0, "--field", auxiliary, "--field", field)
+    changed = tomllib.loads(ordered.read_text(encoding="utf-8"))
+    assert {k: v for k, v in changed.items() if k != "logging"} == {k: v for k, v in before.items() if k != "logging"}
+    assert changed["logging"] == dict(before["logging"], mode="on_change", queue_capacity=64,
+                                      rotate_rows=7, rotate_seconds=0, fields=[auxiliary, field])
+    plan = tomllib.loads(run(cli, "logging", ordered))
+    assert plan["settings"] == changed["logging"] and plan["selection"] == "explicit_order"
+    assert plan["configured_row_kind"] == "source_update" and "no gateway accessed" in plan["basis"]
+    assert [f["mapping"]["name"] for f in plan["selected_fields"]] == [auxiliary, field]
+    assert [f["origin"] for f in plan["selected_fields"]] == ["manual", "IODD"]
+
+    def check_headers(directory, columns):
+        for part in directory.glob("capture-*.csv"):
+            with part.open(encoding="utf-8", newline="") as stream:
+                assert next(csv.reader(stream)) == columns
+
+    report, _ = capture(cli, ordered, output / "capture", "--seconds", .25)
+    assert report["csv_parts"] > 1
+    check_headers(output / "capture", plan["csv_columns"])
+    raw = output / "raw.toml"
+    run(cli, "set-logging", ordered, raw, "--mode", "every-update", "--queue-capacity", 128,
+        "--raw-only", "--rotate-rows", 0, "--rotate-seconds", 1)
+    raw_plan = tomllib.loads(run(cli, "logging", raw))
+    assert raw_plan["selection"] == "raw_only" and not raw_plan["selected_fields"]
+    assert len(raw_plan["csv_columns"]) == 12
+    report, _ = capture(cli, raw, output / "time-rotation", "--seconds", 1.2)
+    assert report["csv_parts"] >= 2
+    check_headers(output / "time-rotation", raw_plan["csv_columns"])
+    all_fields = output / "all.toml"
+    run(cli, "set-logging", raw, all_fields, "--all-fields", "--rotate-seconds", 0)
+    assert tomllib.loads(run(cli, "logging", all_fields))["selection"] == "all_mapped"
+    run(cli, "remove-field", all_fields, output / "removed.toml", auxiliary)
+    retained = output / "retained.toml"
+    run(cli, "set-logging", ordered, retained, "--queue-capacity", 100)
+    assert tomllib.loads(retained.read_text(encoding="utf-8"))["logging"]["fields"] == [auxiliary, field]
+    invalid = output / "must-not-exist.toml"
+    for options in [["--queue-capacity", 0], ["--queue-capacity", 1000001], ["--field", "missing"],
+                    ["--field", field, "--field", field], ["--rotate-rows", 18446744073709551615],
+                    ["--rotate-seconds", 18446744073709551615]]:
+        run(cli, "set-logging", source, invalid, *options, expected=1)
+        assert not invalid.exists()
+    for options in [[], ["--mode", "bad"], ["--raw-only", "--all-fields"], ["--raw-only", "--field", field]]:
+        run(cli, "set-logging", source, invalid, *options, expected=2)
+        assert not invalid.exists()
+    saved = ordered.read_bytes()
+    run(cli, "set-logging", source, ordered, "--mode", "on-change", expected=1)
+    run(cli, "set-logging", source, source, "--mode", "on-change", expected=1)
+    assert ordered.read_bytes() == saved
+    route = output / "unreachable.toml"
+    run(cli, "set-connection", source, route, "--gateway", "ifm-al1350", "--endpoint", "http://127.0.0.1:9")
+    offline = output / "offline.toml"
+    run(cli, "set-logging", route, offline, "--mode", "on-change")
+    route_plan = tomllib.loads(run(cli, "logging", offline))
+    assert route_plan["configured_row_kind"] == "host_poll" and route_plan["source_update_loss"].startswith("unknown")
+    snapshots = output / "snapshots.toml"
+    snapshots.write_bytes(source.read_bytes().replace(b'simulate_snapshots = false', b'simulate_snapshots = true'))
+    assert tomllib.loads(run(cli, "logging", snapshots))["configured_row_kind"] == "host_poll"
+    snapshot = output / "parameter.json"
+    reading = tomllib.loads(run(cli, "read-parameter", ordered, "V_SIM_Threshold", "--snapshot", snapshot))
+    assert reading["raw_value"] == "500" and reading["preferred_display"] == tomllib.loads(run(cli, "review-parameter", snapshot))["decoded"]["preferred_display"]
+    assert source.read_bytes() == original and Gateway.requests == requests
+
+
 def verify_temporal_defaults(cli, output):
     output.mkdir()
     profile = output / "time-defaults.toml"
@@ -1246,6 +1325,7 @@ def main():
     verify_connection_settings(cli, scratch / "connection-settings")
     verify_identity_settings(cli, scratch / "identity-settings")
     verify_mapping_settings(cli, scratch / "mapping-settings")
+    verify_logging_settings(cli, scratch / "logging-settings")
     verify_xsd(cli, scratch)
     source = ROOT / "samples" / "simulator.toml"
     profile = source.read_text(encoding="utf-8")
@@ -1634,7 +1714,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline reopening, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")

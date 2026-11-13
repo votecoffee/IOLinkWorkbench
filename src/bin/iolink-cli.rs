@@ -13,6 +13,8 @@ use std::{path::PathBuf, time::Duration};
 mod connection;
 #[path = "iolink-cli/identity.rs"]
 mod identity;
+#[path = "iolink-cli/logging.rs"]
+mod logging;
 #[path = "iolink-cli/mapping.rs"]
 mod mapping;
 
@@ -44,6 +46,15 @@ enum Command {
     },
     /// Check a profile and list its effective fields.
     Validate { profile: PathBuf },
+    /// Review configured row semantics, settings and CSV columns offline; no gateway access.
+    Logging { profile: PathBuf },
+    /// Save logging mode, queue, rotation and CSV selection to a new profile offline.
+    SetLogging {
+        profile: PathBuf,
+        output: PathBuf,
+        #[command(flatten)]
+        changes: logging::Arguments,
+    },
     /// Save a cyclic manual field or IODD override to a new profile offline.
     SetField {
         profile: PathBuf,
@@ -256,6 +267,23 @@ impl IoddOptions {
 
 fn main() -> Result<()> {
     match Cli::parse().command {
+        Command::Logging { profile } => {
+            let profile = Profile::load(&profile)?;
+            print!("{}", toml::to_string_pretty(&profile.logging_plan()?)?);
+        }
+        Command::SetLogging {
+            profile,
+            output,
+            changes,
+        } => {
+            let source = Profile::load(&profile)?;
+            let candidate = changes.apply(&source)?;
+            candidate.save_new(&output)?;
+            println!(
+                "Saved host logging settings to {}. No gateway access or device configuration was performed.",
+                output.display()
+            );
+        }
         Command::SetField {
             profile,
             output,

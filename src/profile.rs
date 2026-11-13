@@ -5,8 +5,10 @@ use std::{collections::HashSet, fs, io::Write, path::Path};
 
 mod connection;
 mod identity;
+mod logging;
 mod mapping;
 pub use identity::IdentityDraft;
+pub use logging::{CapturePlan, PlannedField};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]

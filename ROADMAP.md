@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Saved logging edits and offline capture plans share validated candidates across GUI/CLI. Plans expose configured freshness meaning, ordered typed mappings/origins and exact CSV headers without transport access. Headless checks cover scalar/selection preservation, row/time rotation, source/destination preservation, unreachable endpoints and clearing selections before manual-field removal. Operator/developer guides, repository instructions and a discoverable Codex skill accompany the portable package.
+
 - GUI cyclic-field editing and offline CLI set-field/remove-field share complete-profile validation. Controls expose bit layout, type, byte order, engineering conversion and decimal precision, with a full-payload offline preview. Imported fields remain intact beneath overrides; removal restores them and rejects dangling CSV selections. New profiles preserve source bytes and all other settings. Tests cover bounds/invalid types, exact wide values, endian/sign/scaling, order/selection preservation, snapshots and CSV capture. Native offscreen Setup cases include the active field editor. No transport or device configuration path is added.
 - A standalone GUI self-test creates a hidden native Windows OpenGL context and paints 24 built-in profile/tab views offscreen in 48 passes. Native visibility, framebuffer, geometry, GL errors, applied-profile preservation and background-worker denial have explicit checks and a new non-overwriting JSON receipt. The developer verifier refuses older binaries without the capability marker. Cargo tests cover view construction and safety guards without native windows. No input injection, screenshots, pixel readback or gateway access is used. Visible-window interaction, DPI behavior and physical bench acceptance remain pending.
 - GUI expected-device identity fields and offline CLI set-identity support decimal/hex IDs, exact text pins, explicit clears, and separate unset/empty states. Pending drafts share the acquisition guard; IODD Product ID conflicts remain visible without changing the mapping. New profiles preserve all other settings and source bytes, with no overwrite or gateway access. Tests cover ID bounds, incomplete drafts, full/partial/unavailable matches, mismatch rejection, old storage, saved snapshots and cyclic capture. These are configured expectations; observed and physical identity acceptance remain separate.
@@ -45,6 +47,12 @@
 4. Record a separate capture with an explicit ISDU read on its own worker and measure any gateway-side effect on host timing. Keep real bench results separate from simulator and loopback results.
 
 ## Follow-on work
+
+- Add a read-only local API with bounded history, explicit eviction/cursors, status/schema and clock semantics. No consumer may block acquisition; test slow/disconnected clients and independent loss/freshness counters.
+- Add optional MQTT publishing with documented QoS/retention/reconnect semantics, bounded independent buffering and visible drops/age. Latest-value delivery must declare skipped updates; source loss remains separate.
+- Add a versioned Windows shared-memory latest raw snapshot with coherent status/identity/timing, sequence and reader-consistency/lifecycle contracts. Account for overwritten observations independently of source and logger loss.
+- Evaluate optional C-compatible FFI for C# embedding, including whether the C# host must own the hardware connection. Define ABI lifetime/thread/error/cancellation/panic boundaries before implementation. FFI is discussed future work, not implemented here or in the EthernetIPWorkbench reference when this item was added.
+- Maintain operational/developer documentation, AGENTS.md and the Codex skill as public workflows evolve. See [interface design and acceptance criteria](docs/INTERFACES.md); all live interfaces above remain future work.
 
 - Add one documented source-counter or timestamp transport once selected hardware exposes it. Qualify timestamp clock, counter wrap, update semantics and firmware-specific behavior.
 - Add multiple independent port sessions with per-port identity, status, and capture accounting.

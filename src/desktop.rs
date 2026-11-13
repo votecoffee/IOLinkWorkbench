@@ -265,36 +265,44 @@ impl App {
                 ui.small("0 = manual stop");
             });
             ui.horizontal_wrapped(|ui| {
-                let old = self.profile.logging.clone();
+                let mut logging = self.profile.logging.clone();
                 ui.selectable_value(
-                    &mut self.profile.logging.mode,
+                    &mut logging.mode,
                     LogMode::EveryUpdate,
                     "Every update / poll",
                 );
-                ui.selectable_value(
-                    &mut self.profile.logging.mode,
-                    LogMode::OnChange,
-                    "On change",
-                );
+                ui.selectable_value(&mut logging.mode, LogMode::OnChange, "On change");
                 ui.add(
-                    egui::DragValue::new(&mut self.profile.logging.queue_capacity)
+                    egui::DragValue::new(&mut logging.queue_capacity)
                         .range(1..=1_000_000)
                         .prefix("Queue "),
                 );
-                ui.add(
-                    egui::DragValue::new(&mut self.profile.logging.rotate_rows)
-                        .prefix("Rotate rows "),
-                );
-                ui.add(
-                    egui::DragValue::new(&mut self.profile.logging.rotate_seconds)
-                        .prefix("Rotate seconds "),
-                );
-                if old != self.profile.logging {
-                    self.setup.sync(&self.profile);
+                ui.add(egui::DragValue::new(&mut logging.rotate_rows).prefix("Rotate rows "));
+                ui.add(egui::DragValue::new(&mut logging.rotate_seconds).prefix("Rotate seconds "));
+                if logging != self.profile.logging {
+                    match self.profile.with_logging(logging) {
+                        Ok(candidate) => {
+                            self.profile = candidate;
+                            self.setup.sync(&self.profile);
+                        }
+                        Err(error) => self.message = format!("{error:#}"),
+                    }
                 }
             });
             if logging_fields::show(ui, &mut self.profile, &mut self.message) {
                 self.setup.sync(&self.profile);
+            }
+            if available {
+                ui.collapsing("Configured capture plan (offline)", |ui| {
+                    match self.profile.logging_plan() {
+                        Ok(plan) => {
+                            ui.label(plan.text());
+                        }
+                        Err(error) => {
+                            ui.colored_label(WARNING, format!("{error:#}"));
+                        }
+                    }
+                });
             }
             if self.profile.connection.gateway == Gateway::Simulator {
                 ui.checkbox(
