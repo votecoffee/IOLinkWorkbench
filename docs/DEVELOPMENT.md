@@ -49,10 +49,13 @@ python tools/verify_headless.py target/x86_64-pc-windows-msvc/release/iolink-cli
 python tools/verify_local_api.py target/x86_64-pc-windows-msvc/release/iolink-cli.exe
 python tools/verify_mqtt.py target/x86_64-pc-windows-msvc/release/iolink-cli.exe
 python tools/verify_shared_memory.py target/x86_64-pc-windows-msvc/release/iolink-cli.exe
+python tools/verify_cli_shutdown.py target/x86_64-pc-windows-msvc/release/iolink-cli.exe
 python tools/verify_gui.py target/x86_64-pc-windows-msvc/release/iolink-workbench.exe --output .local/gui-check-NEW.json
 ```
 
 Use a new GUI receipt path. The headless suite creates a fresh ignored directory and exercises synthetic IODDs, recorded decoding, localhost HTTP responses, stale/invalid data, reconnects, independent held acyclic reads, writer backpressure, rotations and offline verification. It does not contact a physical bench. New command tests should verify observable preservation/rejection/CSV behavior rather than mirror implementation text.
+
+The [CLI interruption suite](CLI_LIFECYCLE.md) creates a new hidden Windows console and contains its worker/CLI descendants in a kill-on-close job before allowing test dispatch. Exact owned-PID and hidden-window checks precede each console event. It verifies actual Ctrl+C and repeated Ctrl+Break, rotated/pressured writer drain, an in-flight loopback timeout, and writer-failure exit precedence. It sends no desktop input or event to an existing console. A passing private receipt requires normal process exits, report/CSV accounting and original-profile/destination preservation. Terminal keyboard routing, console close, shutdown, crash and physical acceptance remain separate.
 
 The GUI verifier checks a capability marker before launching, then creates a hidden native GL context and paints built-in profile/tab views offscreen. It verifies its own HWND stays hidden, worker denial, framebuffer/GL state and a non-overwriting receipt. It sends no input, takes no screenshot and reads no pixels. It does not establish visible interaction, DPI, presentation or hardware acceptance. Older GUI binaries may ignore arguments; never launch them to probe self-test support.
 

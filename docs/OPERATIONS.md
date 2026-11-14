@@ -63,6 +63,8 @@ Rotation is checked before the next row. Time rotation uses receive elapsed time
 
 ## Timing, loss and saved evidence
 
+CLI Ctrl+C/Windows Ctrl+Break requests stop and drain; a successful interrupted capture saves/prints its report and returns 130. A capture/writer/integration failure takes precedence and returns 1. Wait for completion, then verify the saved directory. An in-flight gateway read finishes under its timeout. Repeated interruption does not force termination. See [CLI lifecycle and test scope](CLI_LIFECYCLE.md); closing the console or forcing process termination is outside the clean-drain guarantee.
+
 Normal GUI close waits for [pending operations and capture flush](GUI_LIFECYCLE.md). Controls are disabled while closing. If capture completion fails during closing, the window stays open with the error; inspect the preserved output before retrying. Hidden-tab reviews are polled globally and cannot strand close waiting on an unread result. The linked operator checklist covers visible acceptance still to run.
 
 Saved verification also applies [quality consistency checks](CAPTURE_REVIEW.md#validity-staleness-and-classification-consistency). Counts describe received responses, not necessarily selected CSV rows. Invalidity and staleness can overlap. A new mapping does not replace the saved acquisition stale policy. Missing metrics or age data are not filled with zero.
