@@ -3,7 +3,7 @@ use iolink_workbench::{
     capture::{self, Live, LiveQueue, Options, Report, Stop},
     decode, iodd,
     profile::{Gateway, LogMode, Profile},
-    transport::{self, Freshness, Validity},
+    transport::{self, Freshness},
 };
 use std::{
     fs, io,
@@ -16,6 +16,7 @@ use std::{
 mod diagnostics;
 mod logger_metrics;
 mod logging_fields;
+mod observation;
 mod parameters;
 mod saved_capture;
 pub mod self_test;
@@ -314,7 +315,7 @@ impl App {
             shutdown::CloseAction::Idle => {}
         }
         if self.pending_jobs() != 0 {
-            ctx.request_repaint_after(Duration::from_millis(80));
+            ctx.request_repaint_after(capture::LIVE_REFRESH_INTERVAL);
         }
     }
 
@@ -503,7 +504,13 @@ impl App {
             });
             ui.label(format!(
                 "{} · Generation {} · {}",
-                if running && self.live.connected {
+                if !running {
+                    if self.live.connected {
+                        "Session stopped · last observation connected"
+                    } else {
+                        "Session stopped · last observation disconnected"
+                    }
+                } else if self.live.connected {
                     "Connected"
                 } else {
                     "Disconnected"
@@ -541,7 +548,7 @@ impl App {
             if status.freshness == Freshness::Snapshots {
                 ui.colored_label(
                     WARNING,
-                    "Host polls · source-update loss and input age are unknown",
+                    "Host polls · source-update loss unknown; value changes do not establish freshness",
                 );
             }
             if let Ok(context) = iolink_workbench::timing::assess(
@@ -558,41 +565,55 @@ impl App {
         if running && !self.live.message.is_empty() {
             ui.label(&self.live.message);
         }
-        if let Some(input) = self.live.input {
-            let host_age = input.received.elapsed();
-            let source_age = input.source_age_us;
+        if let (Some(input), Some(observation)) = (
+            self.live.input,
+            observation::Observation::at(
+                &self.live,
+                running,
+                std::time::Instant::now(),
+                &self.profile.connection,
+            ),
+        ) {
+            // Held observations keep aging even after acquisition has stopped.
+            ui.ctx().request_repaint_after(Duration::from_millis(100));
             ui.horizontal_wrapped(|ui| {
                 ui.label(format!(
-                    "Validity {} · last received {} ms ago",
+                    "Validity at receipt {} · last received {} ms ago",
                     input.validity.label(),
-                    host_age.as_millis()
+                    observation.receive_age.as_millis()
                 ));
-                if let Some(age) = source_age {
+                if let Some(age) = observation.source_age_at_receipt_us {
                     ui.label(format!(
-                        "Input age at receipt {:.2} ms",
+                        "Gateway input age at receipt {:.2} ms",
                         age as f64 / 1000.0
                     ));
-                } else if let Some(last) = self.live.last_new_at {
+                } else {
+                    ui.label("Gateway input age unknown");
+                }
+                if let Some(age) = observation.observed_update_age {
                     ui.label(format!(
                         "Time since last observed update {} ms",
-                        input.received.saturating_duration_since(last).as_millis()
+                        age.as_millis()
                     ));
-                } else {
-                    ui.label("Input age unknown");
                 }
                 if let Some(code) = input.diagnostic_code {
                     ui.label(format!("Gateway code {code}"));
                 }
             });
-            let stale = self.live.stale == Some(true);
-            if stale {
-                ui.colored_label(WARNING, "Stale input");
+            if observation.show_typed() {
+                ui.label(observation.state.label());
+            } else {
+                ui.colored_label(WARNING, observation.state.label());
             }
+            ui.small(format!(
+                "Host display age limit {} ms · includes GUI update allowance; source quality above is from receipt",
+                observation.display_limit.as_millis()
+            ));
             payload_view(
                 ui,
                 &self.profile,
                 input.payload.bytes(),
-                input.validity == Validity::Valid && !stale,
+                observation.show_typed(),
             );
         }
         let counts = self.live.counts;

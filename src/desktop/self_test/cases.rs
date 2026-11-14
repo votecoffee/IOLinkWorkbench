@@ -1,11 +1,20 @@
-use super::super::{App, Tab, configure_context};
-use anyhow::{Result, ensure};
+use super::super::{
+    App, Tab, configure_context,
+    observation::{Observation, State},
+};
+use anyhow::{Context as _, Result, ensure};
 use eframe::egui::{self, Context};
 use iolink_workbench::{
+    capture::{Live, Report},
     iodd,
     profile::{Gateway, Profile},
+    transport::{Freshness, Input, Payload, Status, Validity},
 };
 use serde::Serialize;
+use std::{
+    sync::mpsc,
+    time::{Duration, Instant},
+};
 
 pub(super) const SIZE: [u32; 2] = [1130, 3200];
 
@@ -62,6 +71,89 @@ fn profiles() -> Result<Vec<(&'static str, Profile)>> {
     Ok(profiles)
 }
 
+fn observation_fixture(
+    state: State,
+    snapshots: bool,
+) -> Result<(App, Option<mpsc::Sender<Result<Report>>>)> {
+    let mut app = App::new();
+    app.tab = Tab::Monitor;
+    app.profile.connection.stale_us = 60_000_000;
+    app.setup.sync(&app.profile);
+    let now = Instant::now();
+    let received = match state {
+        State::HostSilence => now - Duration::from_secs(120),
+        State::UpdateOld => now - Duration::from_secs(2),
+        _ => now,
+    };
+    let last_new = if state == State::UpdateOld {
+        // At receipt the update was 59 s old, under stale_us=60 s.
+        now - Duration::from_secs(61)
+    } else {
+        received
+    };
+    app.live = Live {
+        connected: true,
+        generation: 1,
+        status: Some(Status {
+            route: "Synthetic GUI observation",
+            model: "Synthetic GUI master".into(),
+            firmware: "offline fixture".into(),
+            master_serial: None,
+            port: 1,
+            port_mode: "IO-Link (modeled)".into(),
+            device_status: None,
+            port_event: None,
+            device_event: None,
+            port_cycle_raw: None,
+            port_cycle_us: None,
+            identity: app.profile.expected_identity.clone(),
+            freshness: if snapshots {
+                Freshness::Snapshots
+            } else {
+                Freshness::Counter32
+            },
+        }),
+        input: Some(Input {
+            received,
+            payload: Payload::new(&[0x03, 0xe9])?,
+            validity: if state == State::InvalidAtReceipt {
+                Validity::Invalid
+            } else {
+                Validity::Valid
+            },
+            counter: (!snapshots).then_some(1),
+            source_time_us: (!snapshots).then_some(1000),
+            source_age_us: (!snapshots).then_some(0),
+            diagnostic_code: None,
+        }),
+        last_new_at: (!snapshots).then_some(last_new),
+        stale: (!snapshots).then_some(false),
+        ..Default::default()
+    };
+    let gate = if state == State::Stopped {
+        None
+    } else {
+        // A held completion channel models session state without dispatching a
+        // thread, transport, listener or sampler. Keep its sender for both frames.
+        let (sender, receiver) = mpsc::channel();
+        app.worker = Some(receiver);
+        Some(sender)
+    };
+    Ok((app, gate))
+}
+
+fn text_shapes<'a>(shape: &'a egui::Shape, texts: &mut Vec<&'a str>) {
+    match shape {
+        egui::Shape::Text(text) => texts.push(&text.galley.job.text),
+        egui::Shape::Vec(shapes) => {
+            for shape in shapes {
+                text_shapes(shape, texts);
+            }
+        }
+        _ => {}
+    }
+}
+
 pub(super) fn render(
     ctx: &Context,
     mut paint: impl FnMut([u32; 2], &egui::FullOutput, &[egui::ClippedPrimitive]) -> Result<()>,
@@ -69,7 +161,7 @@ pub(super) fn render(
     configure_context(ctx);
     // Exercise collapsed parameter/diagnostic/review controls without input events.
     ctx.memory_mut(|memory| memory.set_everything_is_visible(true));
-    let mut cases = Vec::new();
+    let mut views = Vec::new();
     for (name, profile) in profiles()? {
         ensure!(
             profile.connection.gateway == Gateway::Simulator,
@@ -93,77 +185,124 @@ pub(super) fn render(
             app.api_enabled = tab == Tab::Monitor;
             app.mqtt_enabled = tab == Tab::Monitor;
             app.shared_memory_enabled = tab == Tab::Monitor;
-            let before = app.profile.clone();
-            let mut case = Case {
-                profile: name,
-                tab: label,
-                width: SIZE[0],
-                height: SIZE[1],
-                passes: 0,
-                shapes: 0,
-                meshes: 0,
-                triangles: 0,
+            views.push((name, label, app, None, None));
+        }
+    }
+    for (name, state, snapshots) in [
+        ("observation-recent", State::Recent, false),
+        ("observation-held", State::HostSilence, false),
+        ("observation-stopped", State::Stopped, false),
+        ("observation-invalid", State::InvalidAtReceipt, false),
+        ("observation-update-old", State::UpdateOld, false),
+        ("observation-snapshot-unknown", State::Recent, true),
+    ] {
+        let (app, gate) = observation_fixture(state, snapshots)?;
+        views.push((name, "monitor", app, gate, Some(state)));
+    }
+    let mut cases = Vec::new();
+    for (name, label, mut app, _gate, expected_observation) in views {
+        let gated_session = app.worker.is_some();
+        let before = app.profile.clone();
+        let mut case = Case {
+            profile: name,
+            tab: label,
+            width: SIZE[0],
+            height: SIZE[1],
+            passes: 0,
+            shapes: 0,
+            meshes: 0,
+            triangles: 0,
+        };
+        for pass in 0..2 {
+            let mut input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(SIZE[0] as f32, SIZE[1] as f32),
+                )),
+                time: Some(cases.len() as f64 + f64::from(pass) / 60.0),
+                focused: false,
+                ..Default::default()
             };
-            for pass in 0..2 {
-                let mut input = egui::RawInput {
-                    screen_rect: Some(egui::Rect::from_min_size(
-                        egui::Pos2::ZERO,
-                        egui::vec2(SIZE[0] as f32, SIZE[1] as f32),
-                    )),
-                    time: Some(cases.len() as f64 + f64::from(pass) / 60.0),
-                    focused: false,
-                    ..Default::default()
-                };
-                input
-                    .viewports
-                    .entry(egui::ViewportId::ROOT)
-                    .or_default()
-                    .native_pixels_per_point = Some(1.0);
+            input
+                .viewports
+                .entry(egui::ViewportId::ROOT)
+                .or_default()
+                .native_pixels_per_point = Some(1.0);
+            ensure!(
+                input.events.is_empty(),
+                "self-test must not inject input events"
+            );
+            let output = ctx.run(input, |ctx| app.render(ctx));
+            if let Some(expected) = expected_observation {
+                let observation = Observation::at(
+                    &app.live,
+                    gated_session,
+                    Instant::now(),
+                    &app.profile.connection,
+                )
+                .context("missing synthetic observation")?;
                 ensure!(
-                    input.events.is_empty(),
-                    "self-test must not inject input events"
+                    observation.state == expected,
+                    "unexpected observation state in {name}"
                 );
-                let output = ctx.run(input, |ctx| app.render(ctx));
-                ensure!(
-                    output.pixels_per_point == 1.0,
-                    "self-test requires nominal one-pixel-per-point rendering"
-                );
-                let shapes = output.shapes.len();
-                let primitives = ctx.tessellate(output.shapes.clone(), output.pixels_per_point);
-                let mut meshes = 0;
-                let mut triangles = 0;
-                for primitive in &primitives {
-                    match &primitive.primitive {
-                        egui::epaint::Primitive::Mesh(mesh) => {
-                            ensure!(mesh.is_valid(), "GUI produced an invalid mesh");
-                            meshes += 1;
-                            triangles += mesh.indices.len() / 3;
-                        }
-                        egui::epaint::Primitive::Callback(_) => {
-                            anyhow::bail!("unexpected native callback in offscreen GUI self-test")
-                        }
-                    }
+                let mut texts = Vec::new();
+                for shape in &output.shapes {
+                    text_shapes(&shape.shape, &mut texts);
                 }
                 ensure!(
-                    shapes > 0 && meshes > 0 && triangles > 0,
-                    "GUI view produced no drawable geometry"
+                    texts.contains(&"RAW  03E9"),
+                    "raw observation missing in {name}"
                 );
                 ensure!(
-                    app.profile == before,
-                    "rendering changed the applied profile"
+                    texts.contains(&"50.0") == observation.show_typed(),
+                    "typed observation visibility differs in {name}"
                 );
                 ensure!(
-                    app.worker.is_none() && app.isdu_worker.is_none() && !app.setup.busy(),
-                    "rendering dispatched a worker"
+                    texts.contains(&expected.label()),
+                    "observation label missing in {name}"
                 );
-                paint(SIZE, &output, &primitives)?;
-                case.passes += 1;
-                case.shapes += shapes;
-                case.meshes += meshes;
-                case.triangles += triangles;
             }
-            cases.push(case);
+            ensure!(
+                output.pixels_per_point == 1.0,
+                "self-test requires nominal one-pixel-per-point rendering"
+            );
+            let shapes = output.shapes.len();
+            let primitives = ctx.tessellate(output.shapes.clone(), output.pixels_per_point);
+            let mut meshes = 0;
+            let mut triangles = 0;
+            for primitive in &primitives {
+                match &primitive.primitive {
+                    egui::epaint::Primitive::Mesh(mesh) => {
+                        ensure!(mesh.is_valid(), "GUI produced an invalid mesh");
+                        meshes += 1;
+                        triangles += mesh.indices.len() / 3;
+                    }
+                    egui::epaint::Primitive::Callback(_) => {
+                        anyhow::bail!("unexpected native callback in offscreen GUI self-test")
+                    }
+                }
+            }
+            ensure!(
+                shapes > 0 && meshes > 0 && triangles > 0,
+                "GUI view produced no drawable geometry"
+            );
+            ensure!(
+                app.profile == before,
+                "rendering changed the applied profile"
+            );
+            ensure!(
+                app.worker.is_some() == gated_session
+                    && app.isdu_worker.is_none()
+                    && !app.setup.busy(),
+                "rendering dispatched a worker"
+            );
+            paint(SIZE, &output, &primitives)?;
+            case.passes += 1;
+            case.shapes += shapes;
+            case.meshes += meshes;
+            case.triangles += triangles;
         }
+        cases.push(case);
     }
     Ok(cases)
 }
@@ -174,7 +313,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 24);
+        assert_eq!(cases.len(), 30);
         assert!(
             cases
                 .iter()

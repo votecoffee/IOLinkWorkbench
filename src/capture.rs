@@ -23,6 +23,9 @@ mod logger;
 mod writer;
 pub use logger::{Latency, LoggerMetrics};
 
+/// Cyclic-to-GUI publication cadence. This is not the input sampling interval.
+pub const LIVE_REFRESH_INTERVAL: Duration = Duration::from_millis(80);
+
 pub(crate) const CSV_METADATA: &[&str] = &[
     "capture_utc_start",
     "host_elapsed_us",
@@ -663,7 +666,7 @@ fn run_with_transport(
                 shm.sample(state.generation, sample);
             }
         }
-        if stamp.saturating_duration_since(last_ui) >= Duration::from_millis(80) {
+        if stamp.saturating_duration_since(last_ui) >= LIVE_REFRESH_INTERVAL {
             if let Some(live) = live {
                 live.force_push(state.clone());
             }

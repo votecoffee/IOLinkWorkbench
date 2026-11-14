@@ -35,6 +35,8 @@ Capture plans describe saved configuration, never observed transport capabilitie
 
 `desktop::shutdown` counts every GUI worker domain and models idle/wait/cancel/close decisions before controls render. The normal-close path requests cyclic stop, polls all owners even with their tabs hidden, and emits close only after completion. Capture failures during close cancel exit for error inspection. `parameters::Saved` completion belongs in the frame-wide update path, not only its view. Run `cargo test --locked --bin iolink-workbench desktop::shutdown`; tests use logical requests and empty egui input, plus an actual simulator capture/flush. The GUI-worker test mutex isolates real test dispatch from the self-test denial guard. See [scope and operator checks](GUI_LIFECYCLE.md); visible/native close routing remains unverified.
 
+`desktop::observation` assesses the held GUI observation using a supplied monotonic instant. Keep receipt quality/age unchanged, advance host timers, and include both publication/repaint intervals in the display-age allowance so fast source thresholds do not create false UI silence. `capture::LIVE_REFRESH_INTERVAL` preserves the existing 80 ms publication cadence and supplies the UI repaint interval. Stopped/held/unusable observations retain raw bytes while hiding typed values; snapshots never acquire an invented source timer. Five deterministic tests and six synthetic text/geometry cases cover these decisions; see [live view](LIVE_VIEW.md).
+
 ## Local validation
 
 Use a stable x64 MSVC Rust toolchain with Visual Studio C++ Build Tools and Windows SDK. The repository pins dependency resolution through Cargo.lock and static CRT through `.cargo/config.toml`. Run from the checkout root:

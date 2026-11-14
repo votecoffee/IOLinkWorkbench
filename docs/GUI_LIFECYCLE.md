@@ -17,7 +17,7 @@ python tools/verify_gui.py target/x86_64-pc-windows-msvc/release/iolink-workbenc
 
 The shutdown tests use internal logical close requests, channel gates and egui output commands. They cover all six worker domains, hidden-tab completion, lost worker senders, refusal of new sessions, capture-error cancellation and app-drop stop signaling. A real simulator session is started through the GUI controller, stopped, drained, and its rotated saved CSV bundle is verified by the common archive reader. Tests serialize their real GUI-worker dispatch with the self-test worker-denial guard. They send no desktop keyboard/pointer input, create no native test window and take no screenshots.
 
-The separate native verifier still checks hidden OpenGL initialization and offscreen painting of 24 built-in views. It denies background dispatch and performs no input injection or pixel readback. Neither suite establishes native window-manager close routing, visible interactions, DPI/multi-monitor behavior, file-entry usability or physical IO-Link operation.
+The separate native verifier still checks hidden OpenGL initialization and offscreen painting of 30 profile/tab and [synthetic observation views](LIVE_VIEW.md). It denies background dispatch and performs no input injection or pixel readback. Neither suite establishes native window-manager close routing, visible interactions, DPI/multi-monitor behavior, file-entry usability or physical IO-Link operation.
 
 ## Operator acceptance checklist
 

@@ -163,7 +163,7 @@ pub fn run(path: &Path) -> Result<()> {
         started_utc,
         elapsed_ms: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
         status: if error.is_none() { "pass" } else { "fail" },
-        scope: "hidden native OpenGL initialization and offscreen painting of built-in GUI views; no gateway access, desktop input, screenshots or pixel readback",
+        scope: "hidden native OpenGL initialization and offscreen painting of built-in GUI views and synthetic observation states; no gateway access, desktop input, screenshots or pixel readback",
         background_attempts: attempts,
         native,
         error,

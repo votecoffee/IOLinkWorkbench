@@ -10,6 +10,8 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 CAPABILITY = "IOLINK_WORKBENCH_OFFSCREEN_SELF_TEST_V1"
 PROFILES = {"bundled-simulator", "formats", "records", "arrays", "strings", "time", "values", "defaults"}
+OBSERVATIONS = {"observation-recent", "observation-held", "observation-stopped", "observation-invalid",
+                "observation-update-old", "observation-snapshot-unknown"}
 
 
 def unique_keys(pairs):
@@ -57,7 +59,9 @@ def verify(gui, output):
     assert not native["ordinary_frame_loop_entered"] and not native["pixel_readback_performed"]
     assert (native["framebuffer_width"], native["framebuffer_height"]) == (1130, 3200)
     cases = native["cases"]
-    assert len(cases) == 24 and {(case["profile"], case["tab"]) for case in cases} == {(profile, tab) for profile in PROFILES for tab in ("setup", "monitor", "offline")}
+    expected = {(profile, tab) for profile in PROFILES for tab in ("setup", "monitor", "offline")}
+    expected.update((name, "monitor") for name in OBSERVATIONS)
+    assert len(cases) == len(expected) == 30 and {(case["profile"], case["tab"]) for case in cases} == expected
     for case in cases:
         assert case["passes"] == 2 and case["shapes"] > 0 and case["meshes"] > 0 and case["triangles"] > 0
         assert (case["width"], case["height"]) == (1130, 3200)

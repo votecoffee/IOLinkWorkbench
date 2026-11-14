@@ -63,6 +63,8 @@ Rotation is checked before the next row. Time rotation uses receive elapsed time
 
 ## Timing, loss and saved evidence
 
+The [live observation guide](LIVE_VIEW.md) distinguishes receipt quality, advancing host ages and the GUI display-age budget. Typed values hide for held/stopped/disconnected or unusable observations; raw input remains. The budget includes GUI handoff delay and does not reclassify saved data or establish freshness for snapshots. Use offline decode/review for historical typed values.
+
 CLI Ctrl+C/Windows Ctrl+Break requests stop and drain; a successful interrupted capture saves/prints its report and returns 130. A capture/writer/integration failure takes precedence and returns 1. Wait for completion, then verify the saved directory. An in-flight gateway read finishes under its timeout. Repeated interruption does not force termination. See [CLI lifecycle and test scope](CLI_LIFECYCLE.md); closing the console or forcing process termination is outside the clean-drain guarantee.
 
 Normal GUI close waits for [pending operations and capture flush](GUI_LIFECYCLE.md). Controls are disabled while closing. If capture completion fails during closing, the window stays open with the error; inspect the preserved output before retrying. Hidden-tab reviews are polled globally and cannot strand close waiting on an unread result. The linked operator checklist covers visible acceptance still to run.
