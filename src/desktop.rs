@@ -664,6 +664,7 @@ impl App {
                 report.csv_rows_flushed, report.csv_parts
             ));
             logger_metrics::show(ui, report.logger_metrics.as_ref());
+            logger_metrics::receive_tail(ui, report.time_since_last_receive_us);
             if report.csv_rows_unconfirmed != 0 {
                 ui.colored_label(
                     WARNING,

@@ -4,6 +4,16 @@ use crate::transport::Freshness;
 use anyhow::{Context, Result, ensure};
 
 pub(super) fn validate(manifest: &Manifest) -> Result<()> {
+    if let Some(age) = manifest.time_since_last_receive_us {
+        ensure!(
+            age <= manifest.elapsed_us,
+            "time_since_last_receive_us exceeds the host acquisition window"
+        );
+        ensure!(
+            manifest.counts.received != Some(0),
+            "time_since_last_receive_us is recorded without received input"
+        );
+    }
     for (name, spacing, observations, host_clock) in [
         (
             "host_poll_start_spacing",
@@ -84,5 +94,25 @@ pub(super) fn validate(manifest: &Manifest) -> Result<()> {
     Ok(())
 }
 
+pub(super) fn finish_csv(manifest: &Manifest, last_host_us: Option<u64>) -> Result<()> {
+    // Only complete receive coverage identifies the final receive in CSV.
+    // Filtered/dropped rows cannot reconstruct the acquisition's terminal age.
+    if manifest.counts.logger_overruns == 0
+        && manifest.counts.received == Some(manifest.counts.selected)
+        && let (Some(age), Some(last)) = (manifest.time_since_last_receive_us, last_host_us)
+    {
+        let total = u128::from(last) + u128::from(age);
+        let end = u128::from(manifest.elapsed_us);
+        // Each duration is independently truncated to whole microseconds.
+        ensure!(
+            total <= end && end - total <= 1,
+            "time_since_last_receive_us disagrees with the complete received CSV population"
+        );
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod terminal_tests;
 #[cfg(test)]
 mod tests;

@@ -1,6 +1,16 @@
 use eframe::egui::Ui;
 use iolink_workbench::capture::{Latency, LoggerMetrics};
 
+pub fn receive_tail(ui: &mut Ui, age_us: Option<u64>) {
+    ui.label(match age_us {
+        Some(age) => format!("Host receive age at acquisition end · {age} µs"),
+        None => "Host receive age at acquisition end · unavailable".into(),
+    });
+    ui.small(
+        "Terminal host silence ends before writer drain; source-update age and loss are separate.",
+    );
+}
+
 pub fn show(ui: &mut Ui, metrics: Option<&LoggerMetrics>) {
     ui.collapsing("Recorded logger pressure and timing", |ui| {
         let Some(metrics) = metrics else {
@@ -32,6 +42,34 @@ fn latency(ui: &mut Ui, label: &str, value: Option<&Latency>) {
         }
         None => {
             ui.label(format!("{label} · no measured operations"));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn terminal_receive_age_renders_known_zero_value_and_unavailable_without_io() {
+        for age in [Some(0), Some(123456), None] {
+            let context = eframe::egui::Context::default();
+            let output = context.run(Default::default(), |ctx| {
+                eframe::egui::CentralPanel::default().show(ctx, |ui| receive_tail(ui, age));
+            });
+            let text = output
+                .shapes
+                .iter()
+                .filter_map(|shape| match &shape.shape {
+                    eframe::egui::Shape::Text(text) => Some(text.galley.job.text.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            let expected = age
+                .map(|v| format!("{v} µs"))
+                .unwrap_or_else(|| "unavailable".into());
+            assert!(text.contains(&expected));
+            assert_eq!(text.contains("unavailable"), age.is_none());
         }
     }
 }

@@ -352,6 +352,14 @@ pub fn compare_captures(left: &Path, right: &Path) -> Result<CaptureComparison> 
     );
     let a = &left.acquisition.recorded_timing;
     let b = &right.acquisition.recorded_timing;
+    metrics.push(metric(
+        "acquisition",
+        "terminal_receive_age".into(),
+        "us",
+        a.time_since_last_receive_us,
+        b.time_since_last_receive_us,
+        count_context,
+    ));
     for (name, a, b) in [
         (
             "host_poll_start",
@@ -431,7 +439,7 @@ pub fn compare_captures(left: &Path, right: &Path) -> Result<CaptureComparison> 
     Ok(CaptureComparison {
         format_version: 1,
         basis: "offline descriptive comparison of two verified saved captures; recorded configuration/route is not physical-origin proof; no live endpoint or IPC opened; independent clocks are not aligned; no combined loss score or performance verdict",
-        delta_policy: "right relative to left, only for available metrics with matching required recorded settings; counts also require identical elapsed_us; unknown stays unknown; no rate normalization, interpolation, significance test or 1 ms acceptance",
+        delta_policy: "right relative to left, only for available metrics with matching required recorded settings; counts and terminal receive-age deltas also require identical elapsed_us; unknown stays unknown; no rate normalization, interpolation, significance test or 1 ms acceptance",
         timing_context,
         count_context,
         settings,

@@ -63,6 +63,8 @@ Rotation is checked before the next row. Time rotation uses receive elapsed time
 
 ## Timing, loss and saved evidence
 
+Final-run timing and saved review retain [terminal host receive age](CAPTURE_REVIEW.md#terminal-host-receive-age): the interval from the final accepted receive to acquisition end, before writer drain. It is separate from source age and current GUI cache age. Missing measurements stay unavailable. Exact last-row checks require complete received-input coverage; filtered/dropped CSV does not identify the final receive.
+
 The [live observation guide](LIVE_VIEW.md) distinguishes receipt quality, advancing host ages and the GUI display-age budget. Typed values hide for held/stopped/disconnected or unusable observations; raw input remains. The budget includes GUI handoff delay and does not reclassify saved data or establish freshness for snapshots. Use offline decode/review for historical typed values.
 
 CLI Ctrl+C/Windows Ctrl+Break requests stop and drain; a successful interrupted capture saves/prints its report and returns 130. A capture/writer/integration failure takes precedence and returns 1. Wait for completion, then verify the saved directory. An in-flight gateway read finishes under its timeout. Repeated interruption does not force termination. See [CLI lifecycle and test scope](CLI_LIFECYCLE.md); closing the console or forcing process termination is outside the clean-drain guarantee.
@@ -77,7 +79,7 @@ Saved reviews also expose [recorded identity evidence](CAPTURE_REVIEW.md#recorde
 
 All saved capture operations share [recorded timing consistency checks](CAPTURE_REVIEW.md#recorded-timing-consistency). A failure identifies the affected timing domain; preserve the original bundle for inspection rather than editing it to pass. Missing old measurements remain unavailable. Verification checks recorded consistency and does not remeasure device timing.
 
-Use `compare-captures LEFT RIGHT` or GUI **Compare two saved captures offline** to verify and compare finalized folders. Read the [comparison policy](CAPTURE_REVIEW.md#compare-two-captures): required settings must match before arithmetic differences appear, and counts additionally require equal recorded duration. Both complete reviews remain available even when deltas are suppressed. This never remeasures timing or follows saved endpoints.
+Use `compare-captures LEFT RIGHT` or GUI **Compare two saved captures offline** to verify and compare finalized folders. Read the [comparison policy](CAPTURE_REVIEW.md#compare-two-captures): required settings must match before arithmetic differences appear, and counts and terminal receive-age deltas additionally require equal recorded duration. Both complete reviews remain available even when deltas are suppressed. This never remeasures timing or follows saved endpoints.
 
 Use `review-interfaces DIRECTORY` for a verified offline view of all recorded interface counters, including raw-only captures. The GUI's Verify capture shows the same diagnostics and timing. Read the [capture review guide](CAPTURE_REVIEW.md) before treating coalescing, retention or socket/commit counts as delivery or source loss. No gateway, broker or mapping is opened by review.
 

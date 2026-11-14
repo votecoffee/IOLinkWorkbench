@@ -58,6 +58,12 @@ fn differing_exposure_blocks_counts_but_not_spacing() -> Result<()> {
     edit(&other.join("capture.toml"), |v| {
         let elapsed = v["elapsed_us"].as_integer().unwrap();
         v["elapsed_us"] = (elapsed + 1).into();
+        if let Some(age) = v
+            .get("time_since_last_receive_us")
+            .and_then(toml::Value::as_integer)
+        {
+            v["time_since_last_receive_us"] = (age + 1).into();
+        }
     })?;
     let result = compare_captures(&path, &other)?;
     assert_eq!(result.timing_context, "matching_recorded_context");
@@ -66,7 +72,7 @@ fn differing_exposure_blocks_counts_but_not_spacing() -> Result<()> {
         result
             .metrics
             .iter()
-            .filter(|v| v.unit == "count")
+            .filter(|v| v.unit == "count" || v.name == "terminal_receive_age")
             .all(|v| v.magnitude.is_none())
     );
     assert!(

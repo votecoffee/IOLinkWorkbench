@@ -43,6 +43,8 @@ pub struct RecordedTiming {
     pub host_receive_spacing: Option<Spacing>,
     pub host_new_update_spacing: Option<Spacing>,
     pub gateway_update_spacing: Option<Spacing>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time_since_last_receive_us: Option<u64>,
     pub logger_metrics: Option<crate::capture::LoggerMetrics>,
 }
 
@@ -140,6 +142,7 @@ impl Collector {
                     host_receive_spacing: manifest.host_receive_spacing.clone(),
                     host_new_update_spacing: manifest.host_new_update_spacing.clone(),
                     gateway_update_spacing: manifest.gateway_update_spacing.clone(),
+                    time_since_last_receive_us: manifest.time_since_last_receive_us,
                     logger_metrics: manifest.logger_metrics.clone(),
                 },
                 available_fields: fields.iter().map(|field| (*field).clone()).collect(),

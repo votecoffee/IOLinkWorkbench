@@ -83,6 +83,7 @@ struct Manifest {
     host_receive_spacing: Option<crate::capture::Spacing>,
     host_new_update_spacing: Option<crate::capture::Spacing>,
     gateway_update_spacing: Option<crate::capture::Spacing>,
+    time_since_last_receive_us: Option<u64>,
     logger_metrics: Option<crate::capture::LoggerMetrics>,
     local_api: Option<crate::local_api::Summary>,
     mqtt: Option<crate::mqtt::Summary>,
@@ -190,6 +191,12 @@ fn validate_row(row: &Row<'_>, previous: Option<&Row<'_>>, manifest: &Manifest) 
         row.host_elapsed_us <= manifest.elapsed_us,
         "receive timestamp is beyond capture end"
     );
+    if let Some(age) = manifest.time_since_last_receive_us {
+        ensure!(
+            u128::from(row.host_elapsed_us) + u128::from(age) <= u128::from(manifest.elapsed_us),
+            "time_since_last_receive_us places the final receive before a logged row"
+        );
+    }
     ensure!(
         row.generation != 0
             && u128::from(row.generation) <= u128::from(manifest.counts.reconnects) + 1,

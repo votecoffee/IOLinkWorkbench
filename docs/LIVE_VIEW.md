@@ -10,6 +10,8 @@ Source staleness is assessed independently at acquisition using the configured s
 
 Snapshot adapters still expose host polls. Without source freshness metadata, source age/cadence/loss remain unknown. A recently received valid snapshot may be decoded, but it does not prove a new sensor update. Repeated equal or different values cannot supply that missing evidence. A late/out-of-order input still cannot replace the capture engine's displayed payload.
 
+Final-run timing separately shows the recorded [host receive age at acquisition end](CAPTURE_REVIEW.md#terminal-host-receive-age). That fixed measurement stops before writer drain. The held GUI receive age continues advancing after stop; it is a different observation and is not copied into the finalized report.
+
 ## Offline and native test scope
 
 `cargo test --locked --bin iolink-workbench desktop::observation` tests monotonic age advancement, unchanged receipt metadata/counters, GUI handoff allowance and exact boundaries, configured slow polling, invalid/unknown/stale quality, stopped/disconnected sessions, old observed updates, snapshot uncertainty and missing input.

@@ -169,7 +169,7 @@ def review_capture(cli, path, rows, report):
     assert sum(bucket["finite_values"] for bucket in signal["buckets"]) == len(finite)
     assert signal["recorded_logger_overruns"] == report["counts"]["logger_overruns"]
     assert review["capture"]["recorded_source_update_loss"] == report["source_update_loss"]
-    for key in ("host_poll_start_spacing", "host_receive_spacing", "host_new_update_spacing", "gateway_update_spacing", "logger_metrics"):
+    for key in ("host_poll_start_spacing", "host_receive_spacing", "host_new_update_spacing", "gateway_update_spacing", "time_since_last_receive_us", "logger_metrics"):
         assert signal["recorded_timing"].get(key) == report.get(key)
     explicit = tomllib.loads(run(cli, "review-capture", path, "--field", field["name"], "--buckets", 1))
     assert explicit["signal"]["numeric"] == numeric

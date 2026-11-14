@@ -74,9 +74,12 @@ def verify(cli, captures, output):
     spacing = [m for m in shifted["metrics"] if m["domain"] == "host_receive" and m["unit"] == "us"]
     assert len(spacing) == 4 and all(m["change"] == "increase" and m["magnitude"] == 1000 for m in spacing)
     root_patch(report, "elapsed_us", data["elapsed_us"] + 1)
+    if "time_since_last_receive_us" in data:
+        root_patch(report, "time_since_last_receive_us", data["time_since_last_receive_us"] + 1)
     longer = compare(source, other)
     assert longer["timing_context"] == "matching_recorded_context" and longer["count_context"] == "settings_differ"
     assert all("magnitude" not in m for m in longer["metrics"] if m["unit"] == "count")
+    assert all("magnitude" not in m for m in longer["metrics"] if m["name"] == "terminal_receive_age")
     root_patch(report, "requested_poll_us", None)
     missing = compare(source, other)
     assert missing["timing_context"] == "settings_unavailable"

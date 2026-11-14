@@ -39,6 +39,8 @@ Capture plans describe saved configuration, never observed transport capabilitie
 
 ## Local validation
 
+`Manifest.time_since_last_receive_us` retains the existing producer field as optional. Common timing validation checks host-window/zero-receive contradictions; row validation applies the final-receive upper bound. `accounting::Rows` retains the final host row time and invokes the timing coverage check for complete received populations, including local exports. Preserve the one-microsecond truncation allowance and avoid exact reconstruction from filtered/dropped/legacy populations. Review exposes the optional age; its comparison metric uses duration-gated context. Run `tools/verify_terminal_age.py CLI COMPLETE FILTERED DROPPED SNAPSHOT` with explicit saved fixtures; see [terminal receive age](CAPTURE_REVIEW.md#terminal-host-receive-age).
+
 Use a stable x64 MSVC Rust toolchain with Visual Studio C++ Build Tools and Windows SDK. The repository pins dependency resolution through Cargo.lock and static CRT through `.cargo/config.toml`. Run from the checkout root:
 
 ```powershell
