@@ -8,6 +8,14 @@ If cyclic capture fails in the completion frame while closing is pending or requ
 
 Dropping the app also requests the sampler stop token as a fallback. Normal close waits through the UI lifecycle; abrupt process termination, a crash, or OS shutdown that bypasses that lifecycle is outside the clean-close guarantee.
 
+## Starting a session
+
+Start monitor and Start CSV capture use one shared availability check. The start method repeats that check before filesystem preparation or state changes: closing, an owned cyclic completion channel, pending profile edits, or unfinished IODD inspection blocks a new session. A completed worker remains owned until its result is consumed, so a second start cannot replace an unread completion or its stop token. Independent acyclic reads and saved reviews remain eligible to run alongside acquisition.
+
+Each accepted session gets a fresh stop token and a fresh bounded GUI display queue. The controller prepares these locally and publishes the new worker/state only after thread launch succeeds. A rejected/failed launch preserves the previous in-memory report, live observations, queued observations and stop state. An accepted worker's subsequent transport/writer failure belongs to the new session and is reported through its normal completion path. Capture destinations must be new; existing files remain protected.
+
+`cargo test --locked --bin iolink-workbench desktop::self_test::start_tests` covers rejected launch with the existing worker-denial guard, pending and completed-but-unconsumed ownership, pending drafts/inspection, and two consecutive GUI-controlled simulator CSV captures. The positive test keeps acyclic/review completion channels pending, verifies both captures, checks fresh sample indexes and stop/queue isolation, rejects destination reuse and preserves the first capture's bytes. Held channels model unrelated work; only the cyclic simulator capture actually runs. No desktop input or native window is used, and these checks do not establish visible interaction or physical gateway concurrency.
+
 ## Automated evidence
 
 ```powershell

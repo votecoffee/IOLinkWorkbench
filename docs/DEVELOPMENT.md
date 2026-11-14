@@ -39,6 +39,8 @@ Capture plans describe saved configuration, never observed transport capabilitie
 
 ## Local validation
 
+GUI `start_block_reason` supplies both button availability and the start method's preflight check. Keep owned cyclic results (including ready but unread completions), closing and pending Setup work fenced before state/output preparation. Prepare fresh stop/display queues locally and commit them only after worker launch succeeds; independent acyclic/review jobs must not become sampler admission locks. Run `desktop::self_test::start_tests` for guard-denied dispatch, completion ownership, draft/inspection guards and consecutive simulator capture/byte-preservation checks. See [session startup](GUI_LIFECYCLE.md#starting-a-session).
+
 `Manifest.time_since_last_receive_us` retains the existing producer field as optional. Common timing validation checks host-window/zero-receive contradictions; row validation applies the final-receive upper bound. `accounting::Rows` retains the final host row time and invokes the timing coverage check for complete received populations, including local exports. Preserve the one-microsecond truncation allowance and avoid exact reconstruction from filtered/dropped/legacy populations. Review exposes the optional age; its comparison metric uses duration-gated context. Run `tools/verify_terminal_age.py CLI COMPLETE FILTERED DROPPED SNAPSHOT` with explicit saved fixtures; see [terminal receive age](CAPTURE_REVIEW.md#terminal-host-receive-age).
 
 Use a stable x64 MSVC Rust toolchain with Visual Studio C++ Build Tools and Windows SDK. The repository pins dependency resolution through Cargo.lock and static CRT through `.cargo/config.toml`. Run from the checkout root:

@@ -175,11 +175,26 @@ impl App {
         }
     }
 
+    fn start_block_reason(&self) -> Option<&'static str> {
+        if self.closing {
+            Some("Application is closing; new sessions are disabled")
+        } else if self.worker.is_some() {
+            Some(
+                "An acquisition session is already active; wait for its completion before starting another",
+            )
+        } else if self.setup.pending() {
+            Some("Apply or discard pending profile edits before starting a session")
+        } else if self.setup.busy() {
+            Some("Wait for IODD inspection to complete before starting a session")
+        } else {
+            None
+        }
+    }
+
     fn start(&mut self, record: bool) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            !self.closing,
-            "Application is closing; new sessions are disabled"
-        );
+        if let Some(reason) = self.start_block_reason() {
+            anyhow::bail!(reason);
+        }
         self.profile.validate()?;
         let output = if record {
             anyhow::ensure!(
@@ -239,14 +254,19 @@ impl App {
                 }),
             ..Options::default()
         };
-        self.stop = Stop::default();
+        let stop = Stop::default();
+        let queue = Arc::new(crossbeam_queue::ArrayQueue::new(1));
+        let worker_stop = stop.clone();
+        let worker_queue = queue.clone();
+        let worker = background("cyclic-input", move || {
+            capture::run(&profile, &options, &worker_stop, Some(&worker_queue))
+        })?;
+        // A failed dispatch leaves the previous evidence and control token intact.
+        self.stop = stop;
+        self.queue = queue;
         self.report = None;
         self.live = Live::default();
-        let stop = self.stop.clone();
-        let queue = self.queue.clone();
-        self.worker = Some(background("cyclic-input", move || {
-            capture::run(&profile, &options, &stop, Some(&queue))
-        })?);
+        self.worker = Some(worker);
         self.message = if record {
             "Starting capture…"
         } else {
@@ -322,7 +342,7 @@ impl App {
     fn monitor(&mut self, ui: &mut Ui) {
         ui.heading("Process input and capture");
         let running = self.worker.is_some();
-        let available = !running && !self.closing && !self.setup.pending() && !self.setup.busy();
+        let available = self.start_block_reason().is_none();
         ui.add_enabled_ui(available, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.checkbox(

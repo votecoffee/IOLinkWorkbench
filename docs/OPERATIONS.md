@@ -71,6 +71,8 @@ CLI Ctrl+C/Windows Ctrl+Break requests stop and drain; a successful interrupted 
 
 Normal GUI close waits for [pending operations and capture flush](GUI_LIFECYCLE.md). Controls are disabled while closing. If capture completion fails during closing, the window stays open with the error; inspect the preserved output before retrying. Hidden-tab reviews are polled globally and cannot strand close waiting on an unread result. The linked operator checklist covers visible acceptance still to run.
 
+GUI session starts also enforce [single ownership and launch completion](GUI_LIFECYCLE.md#starting-a-session). Wait for the previous cyclic result and apply/discard pending Setup edits before starting. Each new run uses fresh display/stop state; failed thread launch preserves the previous report and observations. Independent parameter reads and saved reviews can remain pending during acquisition.
+
 Saved verification also applies [quality consistency checks](CAPTURE_REVIEW.md#validity-staleness-and-classification-consistency). Counts describe received responses, not necessarily selected CSV rows. Invalidity and staleness can overlap. A new mapping does not replace the saved acquisition stale policy. Missing metrics or age data are not filled with zero.
 
 All offline capture paths also share [selection/reconnect/source-gap accounting checks](CAPTURE_REVIEW.md#selection-reconnect-and-source-gap-accounting). Preserve a contradictory bundle for inspection. Missing legacy counters are not zero, and selected-row counter jumps are not a source-loss measurement when filtering or writer drops occurred.

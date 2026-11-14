@@ -81,6 +81,11 @@ impl Editor {
     }
 
     #[cfg(test)]
+    pub(super) fn mark_pending_for_test(&mut self) {
+        self.pending = true;
+    }
+
+    #[cfg(test)]
     pub(super) fn gate_for_test(&mut self) -> super::TestCompletion {
         let (sender, receiver) = std::sync::mpsc::channel();
         self.inspect_worker = Some(receiver);
