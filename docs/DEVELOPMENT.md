@@ -82,3 +82,13 @@ python tools/package_windows.py C:/path/to/new-output-directory
 ```
 
 The packager builds Windows x64, checks PE architecture/subsystems/static CRT imports, includes samples/docs/skill and dependency notices, and writes build provenance plus ZIP SHA256. Test extracted executables and included documentation, run capture/snapshot compatibility checks with the previous CLI, and verify hashes/source preservation. Never use old GUI binaries for compatibility probes. Keep release receipts private and report simulation/loopback/native-offscreen evidence separately from unperformed physical/visible-GUI checks.
+
+## Artifact retention and cleanup
+
+Use the [research checkpoint](RESEARCH.md) instead of repeating research dumps. Keep source/samples, read-only references, original vendor files and the local Rust toolchain/dependency sources. Retain the newest portable release plus one rollback/previous reader, their receipts and representative regression evidence. Keep legacy-format fixtures in a small explicitly indexed private set.
+
+`target/` is rebuildable Cargo output; `cargo clean` from this checkout removes it. Before cleanup, check active process ownership and verify resolved paths remain inside the intended project/workspace. Never stop an unrelated process or delete an uncertain owner to reclaim space. Do not rebuild merely to verify documentation-only cleanup.
+
+Compress older unique captures, profiles, snapshots, audits and notes with per-file hashes before removing loose copies. Verify archive CRC and each restored byte hash. Only omit an old extracted distribution when its files match its original delivered ZIP; preserve any modified or additional files as evidence. Record deliberately removed build/installer caches and their provenance. Keep the current portable package's original bytes and checksum.
+
+Use maintained verifiers with explicit fixture paths for future work. Avoid new version-specific copies of private release scripts and long chains of historical absolute paths. Historical archives are evidence, not an assertion that their one-off scripts still run without restoring inputs. Private cleanup manifests, source paths, vendor bytes and raw captures stay in ignored `.local/`.

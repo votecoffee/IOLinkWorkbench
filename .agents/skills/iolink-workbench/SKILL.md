@@ -38,6 +38,8 @@ Changes to port mode/configuration, device commands, ISDU writes and process out
 
 ## Changes and delivery
 
+For research/cleanup, start with `docs/RESEARCH.md` and the artifact retention section of `docs/DEVELOPMENT.md`. Preserve original vendor inputs, read-only references and current/previous releases. Verify active ownership, resolved boundaries and archive hashes before removing loose evidence or rebuildable output. Use maintained verifiers with explicit fixtures instead of new copied private release scripts. Cleanup receipts and raw/source material remain ignored; cleanup alone does not require a new application build.
+
 Use `docs/DEVELOPMENT.md` for actual commands: Cargo formatting/tests/Clippy, CLI-only build, `tools/verify_headless.py`, capability-checked `tools/verify_gui.py` and `tools/package_windows.py`. Keep simulator, HTTP loopback, hidden native GUI and physical results distinct. Do not launch old GUI binaries to probe arguments. Test extracted portable binaries and prior CLI compatibility when changing stored schemas.
 
 The opt-in local HTTP API runs only during acquisition: GUI Read-only local API or CLI capture `--api-listen 127.0.0.1:PORT` (0 chooses a port). Read `docs/LOCAL_API.md` for schema/status/history, numeric Host policy, session cursors, bounds and independent loss/age. It exports all normalized responses before CSV filtering, including duplicate/late classifications. Never equate API sequence, receive index and CSV sample index. Use `tools/verify_local_api.py` for synthetic/loopback checks. Runtime API options are not profile keys.

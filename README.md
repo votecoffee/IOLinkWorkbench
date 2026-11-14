@@ -392,6 +392,8 @@ See the [roadmap](ROADMAP.md) for physical acceptance.
 
 ## Contributing
 
+For a compact index of retained research, open [Research checkpoint](docs/RESEARCH.md). Development artifact retention and cleanup are documented in [Development](docs/DEVELOPMENT.md#artifact-retention-and-cleanup).
+
 Build a portable ZIP from a clean checkout with **python tools/package_windows.py .local/dist**. Packaging checks the two PE subsystems and static C runtime imports, includes the dependency notices, and writes the archive SHA-256.
 
 Run **cargo test --locked**, **cargo clippy --locked --all-targets -- -D warnings**, and **python tools/verify_headless.py target/x86_64-pc-windows-msvc/release/iolink-cli.exe** after building. The headless suite covers synthetic source updates and an AL1350 JSON fixture on loopback. It keeps generated profiles, ZIP fixtures, reports and CSV under ignored **.local/**. Keep vendor IODDs, installed configuration, and raw bench captures there too.
