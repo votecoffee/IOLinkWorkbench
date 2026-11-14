@@ -80,6 +80,15 @@ impl Editor {
         self.inspect_worker.is_some()
     }
 
+    #[cfg(test)]
+    pub(super) fn gate_for_test(&mut self) -> super::TestCompletion {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        self.inspect_worker = Some(receiver);
+        Box::new(move || {
+            let _ = sender.send(Err(anyhow::anyhow!("synthetic IODD completion")));
+        })
+    }
+
     pub fn update(&mut self, ctx: &egui::Context, message: &mut String) {
         if let Some(result) = completed(&mut self.inspect_worker) {
             match result {

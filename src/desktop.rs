@@ -20,6 +20,12 @@ mod parameters;
 mod saved_capture;
 pub mod self_test;
 mod setup;
+mod shutdown;
+
+#[cfg(test)]
+static WORKER_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+#[cfg(test)]
+type TestCompletion = Box<dyn FnOnce()>;
 
 const ACCENT: Color32 = Color32::from_rgb(111, 219, 202);
 const WARNING: Color32 = Color32::from_rgb(253, 196, 111);
@@ -169,6 +175,10 @@ impl App {
     }
 
     fn start(&mut self, record: bool) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !self.closing,
+            "Application is closing; new sessions are disabled"
+        );
         self.profile.validate()?;
         let output = if record {
             anyhow::ensure!(
@@ -246,7 +256,9 @@ impl App {
     }
 
     fn update_workers(&mut self, ctx: &Context) {
+        let mut capture_failed = false;
         self.saved_capture.update(ctx);
+        self.saved_parameter.update();
         self.setup.update(ctx, &mut self.message);
         if let Some(live) = self.queue.pop() {
             self.live = live;
@@ -264,17 +276,25 @@ impl App {
             }
             match result {
                 Ok(report) => {
+                    capture_failed = !report.success();
                     self.message = report
                         .terminal_error
                         .as_ref()
                         .or(report.writer_error.as_ref())
                         .cloned()
                         .unwrap_or_else(|| {
-                            format!("Stopped · {} CSV rows flushed", report.csv_rows_flushed)
+                            if report.success() {
+                                format!("Stopped · {} CSV rows flushed", report.csv_rows_flushed)
+                            } else {
+                                "Capture worker failed; review the final report".into()
+                            }
                         });
                     self.report = Some(report);
                 }
-                Err(error) => self.message = format!("{error:#}"),
+                Err(error) => {
+                    capture_failed = true;
+                    self.message = format!("{error:#}");
+                }
             }
         }
         if let Some(result) = completed(&mut self.isdu_worker) {
@@ -283,16 +303,17 @@ impl App {
                 Err(error) => format!("{error:#}"),
             };
         }
-        if self.worker.is_some() {
-            if ctx.input(|input| input.viewport().close_requested()) {
-                self.closing = true;
-                self.stop.request();
+        match self.settle_close(
+            ctx.input(|input| input.viewport().close_requested()),
+            capture_failed,
+        ) {
+            shutdown::CloseAction::Wait | shutdown::CloseAction::Cancel => {
                 ctx.send_viewport_cmd(ViewportCommand::CancelClose);
             }
-        } else if self.closing {
-            ctx.send_viewport_cmd(ViewportCommand::Close);
+            shutdown::CloseAction::Close => ctx.send_viewport_cmd(ViewportCommand::Close),
+            shutdown::CloseAction::Idle => {}
         }
-        if self.worker.is_some() || self.isdu_worker.is_some() {
+        if self.pending_jobs() != 0 {
             ctx.request_repaint_after(Duration::from_millis(80));
         }
     }
@@ -842,6 +863,9 @@ impl App {
     fn render(&mut self, ctx: &Context) {
         self.update_workers(ctx);
         egui::TopBottomPanel::top("navigation").show(ctx, |ui| {
+            if self.closing {
+                ui.disable();
+            }
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 ui.label(RichText::new("IO-Link Workbench").size(24.0).strong());
@@ -851,7 +875,9 @@ impl App {
                 ui.selectable_value(&mut self.tab, Tab::Monitor, "Monitor & CSV");
                 ui.selectable_value(&mut self.tab, Tab::Offline, "Offline decode");
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(if self.worker.is_some() {
+                    ui.label(if self.closing {
+                        "CLOSING"
+                    } else if self.worker.is_some() {
                         "SESSION ACTIVE"
                     } else {
                         "OFFLINE"
@@ -872,6 +898,9 @@ impl App {
             ui.add_space(4.0);
         });
         egui::CentralPanel::default().show(ctx, |ui| {
+            if self.closing {
+                ui.disable();
+            }
             egui::ScrollArea::vertical()
                 .id_salt(self.tab as u8)
                 .show(ui, |ui| {
@@ -905,6 +934,12 @@ impl App {
 impl eframe::App for App {
     fn update(&mut self, ctx: &Context, _: &mut eframe::Frame) {
         self.render(ctx);
+    }
+}
+
+impl Drop for App {
+    fn drop(&mut self) {
+        self.stop.request();
     }
 }
 

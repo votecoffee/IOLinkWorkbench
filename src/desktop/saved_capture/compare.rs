@@ -14,6 +14,17 @@ pub(super) struct Comparer {
 }
 
 impl Comparer {
+    #[cfg(test)]
+    pub(super) fn gate_for_test(&mut self) -> crate::desktop::TestCompletion {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        self.worker = Some(receiver);
+        Box::new(move || {
+            let _ = sender.send(Err(anyhow::anyhow!("synthetic comparison completion")));
+        })
+    }
+    pub(super) fn busy(&self) -> bool {
+        self.worker.is_some()
+    }
     pub fn update(&mut self, ctx: &Context) {
         if let Some(result) = completed(&mut self.worker) {
             match result {

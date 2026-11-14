@@ -33,6 +33,8 @@ Capture plans describe saved configuration, never observed transport capabilitie
 
 `archive::quality` validates optional received-input quality/classification counters and the captured source stale threshold. Its constant-memory row accumulator is composed into `accounting::Rows`, so original inspection and local export verification share subset/equality rules. Never add validity and staleness together: they overlap. Equality requires zero logger overruns and recorded received count equal to selected count. Apply source age/threshold checks using the saved source profile, not revised mapping preferences. Run `python tools/verify_quality.py CLI FAULT_CAPTURE FILTERED DROPPED SNAPSHOTS`; the first needs typed fields, invalid rows and an explicitly aged valid/not-stale row.
 
+`desktop::shutdown` counts every GUI worker domain and models idle/wait/cancel/close decisions before controls render. The normal-close path requests cyclic stop, polls all owners even with their tabs hidden, and emits close only after completion. Capture failures during close cancel exit for error inspection. `parameters::Saved` completion belongs in the frame-wide update path, not only its view. Run `cargo test --locked --bin iolink-workbench desktop::shutdown`; tests use logical requests and empty egui input, plus an actual simulator capture/flush. The GUI-worker test mutex isolates real test dispatch from the self-test denial guard. See [scope and operator checks](GUI_LIFECYCLE.md); visible/native close routing remains unverified.
+
 ## Local validation
 
 Use a stable x64 MSVC Rust toolchain with Visual Studio C++ Build Tools and Windows SDK. The repository pins dependency resolution through Cargo.lock and static CRT through `.cargo/config.toml`. Run from the checkout root:

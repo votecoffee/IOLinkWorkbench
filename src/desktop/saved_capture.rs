@@ -35,6 +35,21 @@ pub struct Verifier {
 }
 
 impl Verifier {
+    #[cfg(test)]
+    pub(super) fn gates_for_test(&mut self) -> Vec<super::TestCompletion> {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        self.worker = Some(receiver);
+        vec![
+            Box::new(move || {
+                let _ = sender.send(Err(anyhow::anyhow!("synthetic export completion")));
+            }),
+            self.comparer.gate_for_test(),
+        ]
+    }
+
+    pub fn pending_jobs(&self) -> usize {
+        usize::from(self.worker.is_some()) + usize::from(self.comparer.busy())
+    }
     pub fn update(&mut self, ctx: &Context) {
         self.comparer.update(ctx);
         if let Some(result) = completed(&mut self.worker) {

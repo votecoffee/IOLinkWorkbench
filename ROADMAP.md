@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- GUI close now waits for cyclic drain/flush and all pending acyclic/inspection/review/export workers, including hidden-tab parameter results. New work is disabled during closing; a capture completion failure cancels exit and remains visible. In-process tests cover six worker domains, worker failure/disconnection, new-session refusal and an actual GUI-controlled simulator capture with verified rotated CSV. An operator checklist separates these modeled results and native offscreen startup from still-pending visible/DPI/window-manager/hardware acceptance.
+
 - Saved-quality validation checks available validity/staleness/source-classification populations, source-profile stale thresholds, and selected-row age/flag consistency. Streamed category counts use subset bounds unless recorded complete receive coverage supports equality. Validity and staleness remain independent overlapping domains; missing older metrics stay unknown. Tests cover unknown flags, invalid/stale overlap, filtered/dropped rows, bounds, rehashed export corruption and source-policy preservation during re-decoding. Review/capture/CSV formats are unchanged.
 
 - Shared saved-capture accounting now checks available reconnect/end-state, poll/receive and eligible/selected/unchanged populations. Complete, unfiltered counter CSVs crosscheck recorded within-generation source gaps; filtered/dropped/legacy populations do not imply complete coverage. Tests include counter wrap, equal payloads, empty generations, snapshot uncertainty, header-only contradictions, safe arithmetic, non-published failed outputs and rehashed export corruption. Existing valid formats and review output shapes are unchanged.

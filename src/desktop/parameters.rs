@@ -366,7 +366,20 @@ impl Default for Saved {
 }
 
 impl Saved {
-    pub fn show(&mut self, ui: &mut Ui) {
+    #[cfg(test)]
+    pub(super) fn gate_for_test(&mut self) -> super::TestCompletion {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        self.worker = Some(receiver);
+        Box::new(move || {
+            let _ = sender.send(Err(anyhow::anyhow!("synthetic snapshot completion")));
+        })
+    }
+
+    pub fn busy(&self) -> bool {
+        self.worker.is_some()
+    }
+
+    pub fn update(&mut self) {
         if let Some(result) = super::completed(&mut self.worker) {
             match result {
                 Ok(review) => {
@@ -379,6 +392,9 @@ impl Saved {
                 }
             }
         }
+    }
+
+    pub fn show(&mut self, ui: &mut Ui) {
         ui.heading("Saved parameter snapshot");
         ui.small("Reopen a JSON snapshot using its embedded profile. This checks local consistency; the file does not prove acquisition origin or physical bench acceptance.");
         if ui

@@ -199,6 +199,7 @@ mod tests {
 
     #[test]
     fn worker_guard_rejects_a_job_before_dispatch() -> Result<()> {
+        let _serial = super::super::WORKER_TEST_LOCK.lock().unwrap();
         let guard = Guard::enter()?;
         let called = Arc::new(AtomicBool::new(false));
         let flag = called.clone();
