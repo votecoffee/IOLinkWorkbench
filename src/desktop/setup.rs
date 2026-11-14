@@ -10,7 +10,29 @@ mod connection;
 mod identity;
 mod mapping;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub(super) enum Page {
+    #[default]
+    Connection,
+    Identity,
+    Iodd,
+    Advanced,
+}
+impl Page {
+    pub(super) const ALL: [Self; 4] =
+        [Self::Connection, Self::Identity, Self::Iodd, Self::Advanced];
+    pub(super) fn label(self) -> &'static str {
+        match self {
+            Self::Connection => "Connection",
+            Self::Identity => "Identity expectations",
+            Self::Iodd => "IODD import",
+            Self::Advanced => "Advanced TOML",
+        }
+    }
+}
+
 pub struct Editor {
+    pub(super) page: Page,
     path: String,
     toml: String,
     pending: bool,
@@ -35,6 +57,7 @@ pub struct Editor {
 impl Editor {
     pub fn new(profile: &Profile) -> Self {
         Self {
+            page: Page::default(),
             path: String::new(),
             toml: serialize(profile),
             pending: false,
@@ -80,6 +103,10 @@ impl Editor {
         self.inspect_worker.is_some()
     }
 
+    pub(super) fn mapping_opened(&self) -> bool {
+        self.mapping.opened()
+    }
+
     #[cfg(test)]
     pub(super) fn mark_pending_for_test(&mut self) {
         self.pending = true;
@@ -123,7 +150,21 @@ impl Editor {
         }
     }
 
-    pub fn show(
+    pub fn reveal_pending(&mut self) -> bool {
+        if self.mapping.pending() {
+            return true;
+        }
+        self.page = if self.pending {
+            Page::Advanced
+        } else if self.identity.pending() {
+            Page::Identity
+        } else {
+            Page::Connection
+        };
+        false
+    }
+
+    pub fn show_profiles(
         &mut self,
         ui: &mut Ui,
         profile: &mut Profile,
@@ -131,12 +172,20 @@ impl Editor {
         editable: bool,
     ) -> bool {
         let mut changed = false;
-        ui.heading("Profiles and device mapping");
-        ui.label("The applied profile controls Monitor & CSV and Offline decode. Start with the built-in simulator or load a TOML profile.");
+        ui.label("Load a saved host profile, or save the applied settings. Loading a profile does not connect to a gateway.");
+        if self.pending() {
+            ui.colored_label(
+                WARNING,
+                "Apply or discard pending edits before loading or saving a profile.",
+            );
+        }
         ui.add_enabled_ui(editable, |ui| {
             ui.horizontal_wrapped(|ui| {
                 path_entry(ui, &mut self.path, "Profile path (.toml)");
-                if ui.add_enabled(!self.pending(), egui::Button::new("Load profile")).clicked() {
+                if ui
+                    .add_enabled(!self.pending(), egui::Button::new("Load profile"))
+                    .clicked()
+                {
                     match Profile::load(Path::new(self.path.trim())) {
                         Ok(loaded) => {
                             *profile = loaded;
@@ -148,26 +197,91 @@ impl Editor {
                         Err(error) => *message = format!("{error:#}"),
                     }
                 }
-                if ui.add_enabled(!self.pending(), egui::Button::new("Save / replace profile")).clicked() {
+                if ui
+                    .add_enabled(!self.pending(), egui::Button::new("Save / replace profile"))
+                    .clicked()
+                {
                     *message = match profile.save(Path::new(self.path.trim())) {
                         Ok(()) => "Profile saved".into(),
                         Err(error) => format!("{error:#}"),
                     };
                 }
             });
-            ui.separator();
+        });
+        changed
+    }
+
+    pub fn show(
+        &mut self,
+        ui: &mut Ui,
+        profile: &mut Profile,
+        message: &mut String,
+        editable: bool,
+    ) -> bool {
+        ui.heading("Device setup");
+        ui.label("Choose the host connection, then import the sensor description. Settings apply to this PC's profile.");
+        let mut changed = false;
+        ui.add_enabled_ui(editable, |ui| match self.page {
+            Page::Connection => {
             if ui.add_enabled_ui(!self.pending && !self.identity.pending() && !self.mapping.pending(), |ui| self.connection.show(ui, profile, message)).inner {
                 self.sync(profile);
                 changed = true;
             }
-            ui.separator();
+            }
+            Page::Identity => {
             if ui.add_enabled_ui(!self.pending && !self.connection.pending() && !self.mapping.pending(), |ui| self.identity.show(ui, profile, message)).inner {
                 self.sync(profile);
                 changed = true;
             }
-            ui.separator();
-            changed |= self.iodd(ui, profile, message);
-            ui.separator();
+            }
+            Page::Iodd => { changed |= self.iodd(ui, profile, message); }
+            Page::Advanced => {
+            ui.heading("Advanced profile settings");
+            ui.small("Edit the host connection, expected identity, and named fields here. A matching field name overrides an imported field. Choose CSV values in Logging, or set logging.fields / logging.raw_only here.");
+            ui.horizontal(|ui| {
+                if ui.add_enabled(self.pending, egui::Button::new("Apply edits")).clicked() {
+                    match Profile::parse(&self.toml) {
+                        Ok(edited) => {
+                            *profile = edited;
+                            self.sync(profile);
+                            changed = true;
+                            *message = "Profile changes applied".into();
+                        }
+                        Err(error) => *message = format!("{error:#}"),
+                    }
+                }
+                if ui.add_enabled(self.pending, egui::Button::new("Discard edits")).clicked() {
+                    self.sync(profile);
+                    message.clear();
+                }
+                if self.pending { ui.colored_label(WARNING, "Pending edits"); }
+            });
+            if ui.add_enabled(!self.connection.pending() && !self.identity.pending() && !self.mapping.pending(), egui::TextEdit::multiline(&mut self.toml).code_editor()
+                .desired_rows(16).desired_width(f32::INFINITY)).changed()
+            { self.pending = true; }
+            }
+        });
+        changed
+    }
+
+    pub fn show_mappings(
+        &mut self,
+        ui: &mut Ui,
+        profile: &mut Profile,
+        message: &mut String,
+        editable: bool,
+    ) -> bool {
+        ui.heading("Process input mappings");
+        ui.label("Review imported fields or edit a host decoding override. Values to log are selected in Logging.");
+        let mut changed = false;
+        ui.add_enabled_ui(editable, |ui| {
+            if self.mapping.opened() {
+                if ui.add_enabled_ui(!self.pending && !self.connection.pending() && !self.identity.pending(), |ui| self.mapping.show(ui, profile, message)).inner {
+                    self.sync(profile); changed = true;
+                }
+                return;
+            }
+
             ui.heading("Effective process input");
             if let Ok(context) = iolink_workbench::timing::assess(profile, Some(profile.connection.poll_us), Default::default(), 1000) {
                 ui.collapsing("Cycle target from the applied profile", |ui| { ui.label(context.text()); });
@@ -204,34 +318,6 @@ impl Editor {
             if ui.add_enabled(!self.pending(), egui::Button::new("Add manual field")).clicked() {
                 self.mapping.new_field(profile);
             }
-            if ui.add_enabled_ui(!self.pending && !self.connection.pending() && !self.identity.pending(), |ui| self.mapping.show(ui, profile, message)).inner {
-                self.sync(profile);
-                changed = true;
-            }
-            ui.separator();
-            ui.heading("Advanced profile settings");
-            ui.small("Edit the host connection, expected identity, and named fields here. A matching field name overrides an imported field. Choose CSV values in Monitor & CSV, or set logging.fields / logging.raw_only here.");
-            ui.horizontal(|ui| {
-                if ui.add_enabled(self.pending, egui::Button::new("Apply edits")).clicked() {
-                    match Profile::parse(&self.toml) {
-                        Ok(edited) => {
-                            *profile = edited;
-                            self.sync(profile);
-                            changed = true;
-                            *message = "Profile changes applied".into();
-                        }
-                        Err(error) => *message = format!("{error:#}"),
-                    }
-                }
-                if ui.add_enabled(self.pending, egui::Button::new("Discard edits")).clicked() {
-                    self.sync(profile);
-                    message.clear();
-                }
-                if self.pending { ui.colored_label(WARNING, "Pending edits"); }
-            });
-            if ui.add_enabled(!self.connection.pending() && !self.identity.pending() && !self.mapping.pending(), egui::TextEdit::multiline(&mut self.toml).code_editor()
-                .desired_rows(16).desired_width(f32::INFINITY)).changed()
-            { self.pending = true; }
         });
         changed
     }
@@ -250,6 +336,8 @@ impl Editor {
             self.unit_definitions.clone(),
         );
         ui.heading("IODD import");
+        ui.label("Inspect a local XML or ZIP, select its device variant and input layout, then apply it.");
+        ui.collapsing("Language, standard resources and validation", |ui| {
         ui.checkbox(
             &mut self.require_stamp,
             "Require matching main and selected-language checksums",
@@ -284,6 +372,7 @@ impl Editor {
             &mut self.standard_language_file,
             "Optional standard language XML (requires language tag and definitions)",
         );
+        });
         ui.horizontal_wrapped(|ui| {
             path_entry(ui, &mut self.iodd_path, "IODD XML or ZIP");
             ui.add(

@@ -4,7 +4,7 @@ An optional Windows interface exports the latest acquired state to local readers
 
 ## Enable and read
 
-In Monitor & CSV, enable **Windows shared-memory snapshot**, choose a name and requested interval. From the portable package:
+In Integration → Windows shared memory, enable **Windows shared-memory snapshot**, choose a name and requested interval. From the portable package:
 
 ```powershell
 .\iolink-cli.exe capture samples/simulator.toml trial-shm --seconds 30 --shared-memory input

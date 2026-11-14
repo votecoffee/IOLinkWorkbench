@@ -4,7 +4,7 @@ The GUI and CLI optionally export one acquisition through HTTP/1.1 on numeric IP
 
 ## Start and discover
 
-In Monitor & CSV, enable **Read-only local API**, choose a free port (default 8765), then start monitoring or CSV capture. From an extracted portable package:
+In Integration → Local HTTP API, enable **Read-only local API**, choose a free port (default 8765), then start monitoring or CSV capture. From an extracted portable package:
 
 ```powershell
 .\iolink-cli.exe capture samples/simulator.toml trial-api --seconds 30 --api-listen 127.0.0.1:8765

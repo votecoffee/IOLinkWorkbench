@@ -33,6 +33,10 @@ impl Form {
         self.create_override = false;
     }
 
+    pub fn opened(&self) -> bool {
+        self.draft.is_some()
+    }
+
     pub fn pending(&self) -> bool {
         self.draft.is_some() && (self.create_override || self.draft != self.baseline)
     }

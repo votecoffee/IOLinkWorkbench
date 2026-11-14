@@ -16,7 +16,9 @@ Run these commands from the extracted package directory. Use new output names: p
 .\iolink-cli.exe review-capture trial
 ```
 
-These commands use a synthetic device. They establish software behavior, not physical timing or identity. The GUI starts offline; Setup edits the applied host profile, Monitor & CSV starts explicit acquisition, and the review tools reopen saved evidence without connecting.
+These commands use a synthetic device. They establish software behavior, not physical timing or identity. The GUI starts offline; Device edits the applied host profile, Inputs displays monitoring, Logging starts CSV acquisition, and the review tools reopen saved evidence without connecting.
+
+See the [GUI workflow](GUI_WORKFLOW.md) for the tab map, persistent controls, review/profile windows and first session.
 
 ## Descriptions, identity and manual mapping
 
@@ -30,7 +32,7 @@ Keep vendor XML/ZIP and raw bench captures in ignored `.local/` when using a sou
 
 Use `iodd` output to choose the exact variant and, when ambiguous, `--layout`. Inspect `import --help` for local standard/language/unit resources, ZIP entry selection, stamp requirements and optional XSD checks. Missing resources and unsupported layouts/types need review; importing a description does not observe a device. Check IODD provenance, declared communication limits, input width and selected layout against the actual sensor. CRC/stamp consistency is separate from vendor authenticity and a full IODD Checker pass.
 
-In Setup, select the IODD variant/layout and apply it. Effective fields show IODD, override or manual origin. Use Edit mapping/Add manual field for bit offset, width, signedness/type, byte order, scale, offset, units and decimal precision, then preview a full recorded payload. Bit zero is in the first byte for little endian and the last byte for big endian. Raw bytes are always retained. For a standalone host field:
+In Device → IODD import, select the IODD variant/layout and apply it. Effective fields show IODD, override or manual origin. Use Mappings → Edit mapping/Add manual field for bit offset, width, signedness/type, byte order, scale, offset, units and decimal precision, then preview a full recorded payload. Bit zero is in the first byte for little endian and the last byte for big endian. Raw bytes are always retained. For a standalone host field:
 
 ```powershell
 .\iolink-cli.exe set-field samples/simulator.toml mapped.toml signal --bit-offset 0 --bits 16 --kind signed --byte-order big-endian --scale 0.1 --unit mm
@@ -55,9 +57,9 @@ Changing port mode/configuration, device commands, ISDU writes or process output
 .\iolink-cli.exe logging logging.toml
 ```
 
-`set-logging INPUT OUTPUT` preserves unspecified settings and saves a new file. Choose one selection option: repeated `--field NAME` in CSV order, `--all-fields`, or `--raw-only`. Modes are `every-update` and `on-change`; zero disables each rotation limit. Queue capacity is 1–1,000,000 rows. Edited rotation limits must fit TOML's signed 64-bit integer range. GUI controls share candidate validation; apply/discard pending Setup drafts before acquiring or saving.
+`set-logging INPUT OUTPUT` preserves unspecified settings and saves a new file. Choose one selection option: repeated `--field NAME` in CSV order, `--all-fields`, or `--raw-only`. Modes are `every-update` and `on-change`; zero disables each rotation limit. Queue capacity is 1–1,000,000 rows. Edited rotation limits must fit TOML's signed 64-bit integer range. GUI controls share candidate validation; apply/discard pending profile drafts before acquiring or saving.
 
-`logging PROFILE` is an offline plan with configured row semantics, selected field mappings/origins and exact CSV headers. It contacts no gateway and verifies no rate/freshness. In Monitor & CSV, expand Configured capture plan while idle for the summary. Every-update retains equal consecutive payloads when a new source update is verifiable. Snapshot adapters instead record host polls. On-change selects the first eligible row per connection generation and changes in the complete raw payload, validity, stale flag or diagnostic code; field selection/scaling does not change that decision.
+`logging PROFILE` is an offline plan with configured row semantics, selected field mappings/origins and exact CSV headers. It contacts no gateway and verifies no rate/freshness. In Logging, expand Configured capture plan while idle for the summary. Every-update retains equal consecutive payloads when a new source update is verifiable. Snapshot adapters instead record host polls. On-change selects the first eligible row per connection generation and changes in the complete raw payload, validity, stale flag or diagnostic code; field selection/scaling does not change that decision.
 
 Rotation is checked before the next row. Time rotation uses receive elapsed timestamps from the first row in each part; either enabled threshold rotates. Silence creates no empty timed files. Stop and flush the capture before treating its report as finalized.
 
@@ -71,7 +73,7 @@ CLI Ctrl+C/Windows Ctrl+Break requests stop and drain; a successful interrupted 
 
 Normal GUI close waits for [pending operations and capture flush](GUI_LIFECYCLE.md). Controls are disabled while closing. If capture completion fails during closing, the window stays open with the error; inspect the preserved output before retrying. Hidden-tab reviews are polled globally and cannot strand close waiting on an unread result. The linked operator checklist covers visible acceptance still to run.
 
-GUI session starts also enforce [single ownership and launch completion](GUI_LIFECYCLE.md#starting-a-session). Wait for the previous cyclic result and apply/discard pending Setup edits before starting. Each new run uses fresh display/stop state; failed thread launch preserves the previous report and observations. Independent parameter reads and saved reviews can remain pending during acquisition.
+GUI session starts also enforce [single ownership and launch completion](GUI_LIFECYCLE.md#starting-a-session). Wait for the previous cyclic result and apply/discard pending profile edits before starting. Each new run uses fresh display/stop state; failed thread launch preserves the previous report and observations. Independent parameter reads and saved reviews can remain pending during acquisition.
 
 Saved verification also applies [quality consistency checks](CAPTURE_REVIEW.md#validity-staleness-and-classification-consistency). Counts describe received responses, not necessarily selected CSV rows. Invalidity and staleness can overlap. A new mapping does not replace the saved acquisition stale policy. Missing metrics or age data are not filled with zero.
 
@@ -93,4 +95,4 @@ Captures retain UTC start, monotonic host elapsed times, sample indexes, reconne
 
 ## Integrations and support evidence
 
-Integration includes CLI, saved TOML/JSON/CSV and an opt-in [read-only local HTTP API](LOCAL_API.md). Enable it per acquisition in Monitor & CSV or use capture `--api-listen 127.0.0.1:8765`; it stops with acquisition. Optional [MQTT publishing](MQTT.md) runs on its own bounded handoff with intentional latest-state coalescing and separate loss accounting. Optional [Windows shared-memory snapshots](SHARED_MEMORY.md) run independently with bounded queues and a named mutex; CLI `read-shared-memory` reads without a gateway. C FFI remains [future work](INTERFACES.md). Keep simulation/loopback reports apart from physical results. For a bench issue, retain firmware, identity, profile, capture report and raw bytes in private storage; publish only sanitized reproductions.
+Integration includes CLI, saved TOML/JSON/CSV and an opt-in [read-only local HTTP API](LOCAL_API.md). Enable it per acquisition in Integration or use capture `--api-listen 127.0.0.1:8765`; it stops with acquisition. Optional [MQTT publishing](MQTT.md) runs on its own bounded handoff with intentional latest-state coalescing and separate loss accounting. Optional [Windows shared-memory snapshots](SHARED_MEMORY.md) run independently with bounded queues and a named mutex; CLI `read-shared-memory` reads without a gateway. C FFI remains [future work](INTERFACES.md). Keep simulation/loopback reports apart from physical results. For a bench issue, retain firmware, identity, profile, capture report and raw bytes in private storage; publish only sanitized reproductions.

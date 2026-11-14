@@ -2,6 +2,8 @@
 
 Start with the repository skill at [.agents/skills/iolink-workbench/SKILL.md](.agents/skills/iolink-workbench/SKILL.md). Use [operations](docs/OPERATIONS.md) for setup and CLI workflows, [development](docs/DEVELOPMENT.md) for ownership and verification, and [interfaces](docs/INTERFACES.md) for integration plans.
 
+Keep GUI workflow conventions aligned with the read-only EthernetIPWorkbench reference; see [GUI workflow](docs/GUI_WORKFLOW.md). Navigation must not dispatch workers, and completion polling/Stop-and-flush must remain independent of the active page.
+
 ## Scope
 
 - Keep transport acquisition separate from IODD/manual decoding and CSV writing. Explicit acyclic reads use an independent client/worker; they must not hold the cyclic sampler's locks.

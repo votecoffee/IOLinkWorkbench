@@ -41,7 +41,7 @@ fn idle_close_and_pending_close_are_distinct_without_input_injection() {
 #[test]
 fn every_worker_domain_delays_close_and_completes_with_its_tab_hidden() {
     let mut app = App::new();
-    app.tab = Tab::Monitor;
+    app.tab = Tab::Inputs;
     let before = app.profile.clone();
     let (capture_sender, capture_receiver) = mpsc::channel();
     app.worker = Some(capture_receiver);

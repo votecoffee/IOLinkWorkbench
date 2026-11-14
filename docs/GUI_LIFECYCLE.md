@@ -31,7 +31,7 @@ The separate native verifier still checks hidden OpenGL initialization and offsc
 
 These are pending visible checks, not results claimed by the automated suites. Start with the bundled **Simulator** profile and a new output directory; select bench hardware only under the session's authorized read-only scope.
 
-1. Open the GUI normally. Check Setup, Monitor & CSV and Offline decode at the default size, minimum size and Windows display scaling used on the workstation. Check scroll access and long-path/Unicode text readability.
+1. Open the GUI normally. Check Device, Inputs, Logging, Mappings, Parameters, Integration, Diagnostics and Offline at the default size, minimum size and Windows display scaling used on the workstation. Check scroll access and long-path/Unicode text readability.
 2. Enter or paste a new profile/capture path. Check empty and existing destinations, source preservation, save/reload and pending-edit guards. A new output must never silently replace an existing file or folder.
 3. Start a manual-duration simulator CSV capture. Use **Stop and flush**, then verify the finalized directory with `verify-capture`. Repeat using the window close action while sampling and confirm the resulting bundle verifies after the window leaves.
 4. Begin a saved-capture review/export or saved-parameter review, switch tabs and request close while it is pending. Confirm the window remains responsive until completion and any published output verifies. Repeat with a configured acyclic read only after bench authorization; check that waiting is separate from cyclic sampling.

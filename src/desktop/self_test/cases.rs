@@ -16,7 +16,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub(super) const SIZE: [u32; 2] = [1130, 3200];
+pub(super) const SIZE: [u32; 2] = [1130, 790];
 
 #[derive(Serialize)]
 pub(super) struct Case {
@@ -76,7 +76,7 @@ fn observation_fixture(
     snapshots: bool,
 ) -> Result<(App, Option<mpsc::Sender<Result<Report>>>)> {
     let mut app = App::new();
-    app.tab = Tab::Monitor;
+    app.tab = Tab::Inputs;
     app.profile.connection.stale_us = 60_000_000;
     app.setup.sync(&app.profile);
     let now = Instant::now();
@@ -167,27 +167,103 @@ pub(super) fn render(
             profile.connection.gateway == Gateway::Simulator,
             "GUI self-test profile must stay offline"
         );
-        for (tab, label) in [
-            (Tab::Setup, "setup"),
-            (Tab::Monitor, "monitor"),
-            (Tab::Offline, "offline"),
-        ] {
+        for tab in Tab::ALL {
             let mut app = App::new();
             app.profile = profile.clone();
             app.setup.sync(&app.profile);
-            if tab == Tab::Setup
-                && let Some((field, origin)) = app.profile.effective_fields().first()
-            {
-                app.setup.edit_field((*field).clone(), *origin != "IODD");
-            }
             app.tab = tab;
-            // Render enabled API controls without starting acquisition or a listener.
-            app.api_enabled = tab == Tab::Monitor;
-            app.mqtt_enabled = tab == Tab::Monitor;
-            app.shared_memory_enabled = tab == Tab::Monitor;
-            views.push((name, label, app, None, None));
+            app.api_enabled = tab == Tab::Integration;
+            app.mqtt_enabled = tab == Tab::Integration;
+            app.shared_memory_enabled = tab == Tab::Integration;
+            views.push((name, tab.label(), app, None, None));
+        }
+        if name == "formats" {
+            for label in [
+                "device-identity",
+                "device-iodd",
+                "device-advanced",
+                "mapping-editor",
+                "parameters-raw",
+                "integration-mqtt",
+                "integration-shared-memory",
+                "diagnostics-timing",
+                "diagnostics-events",
+                "offline-compare",
+                "offline-process",
+                "offline-parameter",
+                "offline-snapshot",
+                "offline-events",
+                "profiles-dialog",
+                "connection-dialog",
+            ] {
+                let mut app = App::new();
+                app.profile = profile.clone();
+                app.setup.sync(&app.profile);
+                use super::super::{
+                    setup::Page,
+                    workspace::{DiagnosticsPage, IntegrationPage, OfflinePage, ParameterPage},
+                };
+                match label {
+                    "device-identity" => app.setup.page = Page::Identity,
+                    "device-iodd" => app.setup.page = Page::Iodd,
+                    "device-advanced" => app.setup.page = Page::Advanced,
+                    "mapping-editor" => {
+                        app.tab = Tab::Mappings;
+                        if let Some((field, origin)) = app.profile.effective_fields().first() {
+                            app.setup.edit_field((*field).clone(), *origin != "IODD");
+                        }
+                    }
+                    "parameters-raw" => {
+                        app.tab = Tab::Parameters;
+                        app.workspace.parameter = ParameterPage::Raw;
+                    }
+                    "integration-mqtt" => {
+                        app.tab = Tab::Integration;
+                        app.workspace.integration = IntegrationPage::Mqtt;
+                        app.mqtt_enabled = true;
+                    }
+                    "integration-shared-memory" => {
+                        app.tab = Tab::Integration;
+                        app.workspace.integration = IntegrationPage::SharedMemory;
+                        app.shared_memory_enabled = true;
+                    }
+                    "diagnostics-timing" => {
+                        app.tab = Tab::Diagnostics;
+                        app.workspace.diagnostics = DiagnosticsPage::Timing;
+                    }
+                    "diagnostics-events" => {
+                        app.tab = Tab::Diagnostics;
+                        app.workspace.diagnostics = DiagnosticsPage::Events;
+                    }
+                    "offline-compare" => {
+                        app.tab = Tab::Offline;
+                        app.saved_capture.open_comparison();
+                    }
+                    "offline-process" => {
+                        app.tab = Tab::Offline;
+                        app.workspace.offline = OfflinePage::Process;
+                    }
+                    "offline-parameter" => {
+                        app.tab = Tab::Offline;
+                        app.workspace.offline = OfflinePage::Parameter;
+                    }
+                    "offline-snapshot" => {
+                        app.tab = Tab::Offline;
+                        app.workspace.offline = OfflinePage::Snapshot;
+                    }
+                    "offline-events" => {
+                        app.tab = Tab::Offline;
+                        app.workspace.offline = OfflinePage::Events;
+                    }
+                    "profiles-dialog" => app.workspace.profile_dialog = true,
+                    "connection-dialog" => app.workspace.connect_dialog = true,
+                    _ => unreachable!(),
+                }
+                views.push((name, label, app, None, None));
+            }
         }
     }
+
     for (name, state, snapshots) in [
         ("observation-recent", State::Recent, false),
         ("observation-held", State::HostSilence, false),
@@ -197,7 +273,7 @@ pub(super) fn render(
         ("observation-snapshot-unknown", State::Recent, true),
     ] {
         let (app, gate) = observation_fixture(state, snapshots)?;
-        views.push((name, "monitor", app, gate, Some(state)));
+        views.push((name, "Inputs", app, gate, Some(state)));
     }
     let mut cases = Vec::new();
     for (name, label, mut app, _gate, expected_observation) in views {
@@ -313,7 +389,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 30);
+        assert_eq!(cases.len(), 86);
         assert!(
             cases
                 .iter()

@@ -90,45 +90,6 @@ impl Form {
                         .hint_text("http(s)://master-address"),
                 );
                 ui.end_row();
-                ui.label("Expected firmware (optional)");
-                ui.add_enabled(
-                    ifm,
-                    egui::TextEdit::singleline(&mut self.draft.ifm_firmware),
-                );
-                ui.end_row();
-                ui.label("Expected numeric IO-Link mode");
-                ui.add_enabled_ui(ifm, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.mode)
-                                .hint_text("Confirmed code, or blank"),
-                        );
-                    });
-                });
-                ui.end_row();
-                ui.label("Confirmed port cycle unit");
-                ui.add_enabled_ui(ifm, |ui| {
-                    egui::ComboBox::from_id_salt("host-cycle-unit")
-                        .selected_text(match self.draft.ifm_cycle_unit {
-                            None => "Unknown",
-                            Some(CycleUnit::Microseconds) => "Microseconds",
-                            Some(CycleUnit::Milliseconds) => "Milliseconds",
-                        })
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.draft.ifm_cycle_unit, None, "Unknown");
-                            ui.selectable_value(
-                                &mut self.draft.ifm_cycle_unit,
-                                Some(CycleUnit::Microseconds),
-                                "Microseconds",
-                            );
-                            ui.selectable_value(
-                                &mut self.draft.ifm_cycle_unit,
-                                Some(CycleUnit::Milliseconds),
-                                "Milliseconds",
-                            );
-                        });
-                });
-                ui.end_row();
                 ui.label("Requested host poll interval");
                 ui.add(
                     egui::DragValue::new(&mut self.draft.poll_us)
@@ -136,33 +97,87 @@ impl Form {
                         .suffix(" µs"),
                 );
                 ui.end_row();
-                ui.label("Request timeout");
-                ui.add(
-                    egui::DragValue::new(&mut self.draft.timeout_ms)
-                        .range(1..=30_000)
-                        .suffix(" ms"),
-                );
-                ui.end_row();
-                ui.label("Stale threshold");
-                ui.add(egui::DragValue::new(&mut self.draft.stale_us).suffix(" µs"));
-                ui.end_row();
-                ui.label("Reconnect delay");
-                ui.add(
-                    egui::DragValue::new(&mut self.draft.reconnect_ms)
-                        .range(1..=60_000)
-                        .suffix(" ms"),
-                );
-                ui.end_row();
-                ui.label("Simulator freshness");
-                ui.add_enabled(
-                    !ifm,
-                    egui::Checkbox::new(
-                        &mut self.draft.simulate_snapshots,
-                        "Expose snapshots instead of synthetic counters",
-                    ),
-                );
-                ui.end_row();
             });
+        ui.collapsing(
+            "Firmware expectations, quality and reconnect settings",
+            |ui| {
+                egui::Grid::new("advanced-host-settings")
+                    .num_columns(2)
+                    .spacing([16.0, 6.0])
+                    .show(ui, |ui| {
+                        let ifm = self.draft.gateway == Gateway::IfmAl1350;
+                        ui.label("Expected firmware (optional)");
+                        ui.add_enabled(
+                            ifm,
+                            egui::TextEdit::singleline(&mut self.draft.ifm_firmware),
+                        );
+                        ui.end_row();
+                        ui.label("Expected numeric IO-Link mode");
+                        ui.add_enabled_ui(ifm, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.mode)
+                                        .hint_text("Confirmed code, or blank"),
+                                );
+                            });
+                        });
+                        ui.end_row();
+                        ui.label("Confirmed port cycle unit");
+                        ui.add_enabled_ui(ifm, |ui| {
+                            egui::ComboBox::from_id_salt("host-cycle-unit")
+                                .selected_text(match self.draft.ifm_cycle_unit {
+                                    None => "Unknown",
+                                    Some(CycleUnit::Microseconds) => "Microseconds",
+                                    Some(CycleUnit::Milliseconds) => "Milliseconds",
+                                })
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(
+                                        &mut self.draft.ifm_cycle_unit,
+                                        None,
+                                        "Unknown",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.draft.ifm_cycle_unit,
+                                        Some(CycleUnit::Microseconds),
+                                        "Microseconds",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.draft.ifm_cycle_unit,
+                                        Some(CycleUnit::Milliseconds),
+                                        "Milliseconds",
+                                    );
+                                });
+                        });
+                        ui.end_row();
+                        ui.label("Request timeout");
+                        ui.add(
+                            egui::DragValue::new(&mut self.draft.timeout_ms)
+                                .range(1..=30_000)
+                                .suffix(" ms"),
+                        );
+                        ui.end_row();
+                        ui.label("Stale threshold");
+                        ui.add(egui::DragValue::new(&mut self.draft.stale_us).suffix(" µs"));
+                        ui.end_row();
+                        ui.label("Reconnect delay");
+                        ui.add(
+                            egui::DragValue::new(&mut self.draft.reconnect_ms)
+                                .range(1..=60_000)
+                                .suffix(" ms"),
+                        );
+                        ui.end_row();
+                        ui.label("Simulator freshness");
+                        ui.add_enabled(
+                            !ifm,
+                            egui::Checkbox::new(
+                                &mut self.draft.simulate_snapshots,
+                                "Expose snapshots instead of synthetic counters",
+                            ),
+                        );
+                        ui.end_row();
+                    });
+            },
+        );
         if self.draft.gateway == Gateway::IfmAl1350 && self.draft.endpoint.trim().is_empty() {
             ui.small("Unfinished bench template: enter the master endpoint before connecting. Numeric mode and cycle units must come from the installed master documentation/configuration.");
         }

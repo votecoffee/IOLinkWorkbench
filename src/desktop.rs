@@ -22,6 +22,8 @@ mod saved_capture;
 pub mod self_test;
 mod setup;
 mod shutdown;
+mod workflows;
+mod workspace;
 
 #[cfg(test)]
 static WORKER_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -58,10 +60,15 @@ fn configure_context(ctx: &Context) {
     ctx.set_style_of(egui::Theme::Dark, style);
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Tab {
-    Setup,
-    Monitor,
+    Device,
+    Inputs,
+    Logging,
+    Mappings,
+    Parameters,
+    Integration,
+    Diagnostics,
     Offline,
 }
 
@@ -97,6 +104,8 @@ fn completed<T>(worker: &mut Option<Worker<T>>) -> Option<anyhow::Result<T>> {
 
 struct App {
     tab: Tab,
+    workspace: workspace::Workspace,
+    recording: bool,
     profile: Profile,
     setup: setup::Editor,
     capture_path: String,
@@ -138,7 +147,9 @@ impl App {
             Profile::parse(include_str!("../samples/simulator.toml")).expect("bundled profile");
         let setup = setup::Editor::new(&profile);
         Self {
-            tab: Tab::Setup,
+            tab: Tab::Device,
+            workspace: workspace::Workspace::default(),
+            recording: false,
             profile,
             setup,
             capture_path: default_capture_path(),
@@ -267,6 +278,7 @@ impl App {
         self.report = None;
         self.live = Live::default();
         self.worker = Some(worker);
+        self.recording = record;
         self.message = if record {
             "Starting capture…"
         } else {
@@ -339,513 +351,6 @@ impl App {
         }
     }
 
-    fn monitor(&mut self, ui: &mut Ui) {
-        ui.heading("Process input and capture");
-        let running = self.worker.is_some();
-        let available = self.start_block_reason().is_none();
-        ui.add_enabled_ui(available, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.checkbox(
-                    &mut self.shared_memory_enabled,
-                    "Windows shared-memory snapshot",
-                );
-                if self.shared_memory_enabled {
-                    ui.label("Name");
-                    ui.text_edit_singleline(&mut self.shared_memory_name);
-                    ui.add(
-                        egui::DragValue::new(&mut self.shared_memory_interval_ms)
-                            .range(1..=1000)
-                            .suffix(" ms"),
-                    );
-                }
-            });
-            ui.horizontal_wrapped(|ui| {
-                ui.checkbox(&mut self.mqtt_enabled, "MQTT latest-state publishing");
-                ui.label("Broker IP:port");
-                ui.text_edit_singleline(&mut self.mqtt_broker);
-            });
-            if self.mqtt_enabled {
-                ui.horizontal_wrapped(|ui| {
-                    ui.label("Topic");
-                    ui.text_edit_singleline(&mut self.mqtt_topic);
-                    ui.add(
-                        egui::DragValue::new(&mut self.mqtt_interval_ms)
-                            .range(10..=60000)
-                            .suffix(" ms"),
-                    );
-                    ui.small("TCP · QoS 0 · not retained · no TLS/auth");
-                });
-            }
-            ui.horizontal_wrapped(|ui| {
-                ui.checkbox(&mut self.api_enabled, "Read-only local API");
-                ui.add_enabled(
-                    self.api_enabled,
-                    egui::DragValue::new(&mut self.api_port)
-                        .range(1..=65535)
-                        .prefix("127.0.0.1:"),
-                );
-                ui.small("Opt-in per session · status, schema, bounded history");
-            });
-            ui.horizontal_wrapped(|ui| {
-                path_entry(ui, &mut self.capture_path, "New capture folder");
-                if ui.small_button("New folder name").clicked() {
-                    self.capture_path = default_capture_path();
-                }
-                ui.add(
-                    egui::DragValue::new(&mut self.duration)
-                        .range(0..=86_400)
-                        .suffix(" s"),
-                );
-                ui.small("0 = manual stop");
-            });
-            ui.horizontal_wrapped(|ui| {
-                let mut logging = self.profile.logging.clone();
-                ui.selectable_value(
-                    &mut logging.mode,
-                    LogMode::EveryUpdate,
-                    "Every update / poll",
-                );
-                ui.selectable_value(&mut logging.mode, LogMode::OnChange, "On change");
-                ui.add(
-                    egui::DragValue::new(&mut logging.queue_capacity)
-                        .range(1..=1_000_000)
-                        .prefix("Queue "),
-                );
-                ui.add(egui::DragValue::new(&mut logging.rotate_rows).prefix("Rotate rows "));
-                ui.add(egui::DragValue::new(&mut logging.rotate_seconds).prefix("Rotate seconds "));
-                if logging != self.profile.logging {
-                    match self.profile.with_logging(logging) {
-                        Ok(candidate) => {
-                            self.profile = candidate;
-                            self.setup.sync(&self.profile);
-                        }
-                        Err(error) => self.message = format!("{error:#}"),
-                    }
-                }
-            });
-            if logging_fields::show(ui, &mut self.profile, &mut self.message) {
-                self.setup.sync(&self.profile);
-            }
-            if available {
-                ui.collapsing("Configured capture plan (offline)", |ui| {
-                    match self.profile.logging_plan() {
-                        Ok(plan) => {
-                            ui.label(plan.text());
-                        }
-                        Err(error) => {
-                            ui.colored_label(WARNING, format!("{error:#}"));
-                        }
-                    }
-                });
-            }
-            if self.profile.connection.gateway == Gateway::Simulator {
-                ui.checkbox(
-                    &mut self.simulate_faults,
-                    "Simulate stale input, invalid input, and a disconnect",
-                );
-            }
-        });
-        if self.setup.pending() {
-            ui.colored_label(WARNING, "Apply or discard pending profile edits in Setup.");
-        }
-        if running && self.api_enabled {
-            ui.label(format!("Local API requested at http://127.0.0.1:{}/v1/status · API drops are separate from CSV/source loss", self.api_port));
-        }
-        if running && self.shared_memory_enabled {
-            ui.label(format!(
-                "Shared memory requested · Local\\IOLinkWorkbench.Snapshot.{} · latest state",
-                self.shared_memory_name
-            ));
-        }
-        if let Some(shm) = self
-            .report
-            .as_ref()
-            .and_then(|report| report.shared_memory.as_ref())
-        {
-            ui.label(format!("Shared memory stopped · {} commits · {} queue drops · {} coalesced · {} busy skips · final snapshot: {}",shm.snapshots_written,shm.queue_dropped,shm.coalesced,shm.busy_skips,shm.final_snapshot_written));
-        }
-        if running && self.mqtt_enabled {
-            ui.label(format!(
-                "MQTT requested at {} · {} · latest-state; broker delivery unknown",
-                self.mqtt_broker, self.mqtt_topic
-            ));
-        }
-        if let Some(mqtt) = self.report.as_ref().and_then(|report| report.mqtt.as_ref()) {
-            ui.label(format!("MQTT stopped · {} socket writes · {} coalesced · {} queue drops · {} write failures · worker failed: {}",mqtt.socket_writes_completed,mqtt.coalesced,mqtt.queue_dropped,mqtt.publish_write_failures,mqtt.worker_failed));
-        }
-        if let Some(api) = self
-            .report
-            .as_ref()
-            .and_then(|report| report.local_api.as_ref())
-        {
-            ui.label(format!("Local API stopped · {} events ingested · {} queue drops · {} history evictions · worker failed: {}", api.events_ingested, api.queue_dropped, api.history_evicted, api.worker_failed));
-        }
-        ui.horizontal(|ui| {
-            if ui
-                .add_enabled(available, egui::Button::new("Start monitor"))
-                .clicked()
-                && let Err(error) = self.start(false)
-            {
-                self.message = format!("{error:#}");
-            }
-            if ui
-                .add_enabled(
-                    available,
-                    egui::Button::new(RichText::new("Start CSV capture").color(ACCENT)),
-                )
-                .clicked()
-                && let Err(error) = self.start(true)
-            {
-                self.message = format!("{error:#}");
-            }
-            if ui
-                .add_enabled(
-                    running && !self.stop.requested(),
-                    egui::Button::new("Stop and flush"),
-                )
-                .clicked()
-            {
-                self.stop.request();
-                self.message = "Stopping and flushing…".into();
-            }
-        });
-        ui.separator();
-        if let Some(status) = &self.live.status {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(&status.model).strong());
-                ui.label(format!(
-                    "Firmware {} · Port {} · mode {}",
-                    status.firmware, status.port, status.port_mode
-                ));
-                if let Some(serial) = &status.master_serial {
-                    ui.small(format!("Master S/N {serial}"));
-                }
-                ui.colored_label(ACCENT, status.route);
-            });
-            ui.label(format!(
-                "{} · Generation {} · {}",
-                if !running {
-                    if self.live.connected {
-                        "Session stopped · last observation connected"
-                    } else {
-                        "Session stopped · last observation disconnected"
-                    }
-                } else if self.live.connected {
-                    "Connected"
-                } else {
-                    "Disconnected"
-                },
-                self.live.generation,
-                self.live.identity_check.unwrap_or("identity unchecked")
-            ));
-            let identity = &status.identity;
-            ui.label(format!(
-                "Vendor {} · Device {} · Product ID {} · {} · Device S/N {}",
-                optional_number(identity.vendor_id),
-                optional_number(identity.device_id),
-                identity.product_id.as_deref().unwrap_or("unavailable"),
-                identity
-                    .product_name
-                    .as_deref()
-                    .unwrap_or("product name unavailable"),
-                identity.serial.as_deref().unwrap_or("unavailable")
-            ));
-            ui.label(format!(
-                "Connection-time gateway snapshots · status {} · port event {} · device event {}",
-                status.device_status.as_deref().unwrap_or("unavailable"),
-                status.port_event.as_deref().unwrap_or("unavailable"),
-                status.device_event.as_deref().unwrap_or("unavailable")
-            ));
-            ui.label(
-                match (status.port_cycle_us, status.port_cycle_raw.as_deref()) {
-                    (Some(us), _) => format!("Master-reported IO-Link port cycle · {us} µs"),
-                    (None, Some(raw)) => {
-                        format!("Master-reported IO-Link port cycle · raw {raw}, confirm unit")
-                    }
-                    _ => "Master-reported IO-Link port cycle · unavailable".into(),
-                },
-            );
-            if status.freshness == Freshness::Snapshots {
-                ui.colored_label(
-                    WARNING,
-                    "Host polls · source-update loss unknown; value changes do not establish freshness",
-                );
-            }
-            if let Ok(context) = iolink_workbench::timing::assess(
-                &self.profile,
-                Some(self.profile.connection.poll_us),
-                status.into(),
-                1000,
-            ) {
-                ui.collapsing("Cycle target and declared limits", |ui| {
-                    ui.label(context.text());
-                });
-            }
-        }
-        if running && !self.live.message.is_empty() {
-            ui.label(&self.live.message);
-        }
-        if let (Some(input), Some(observation)) = (
-            self.live.input,
-            observation::Observation::at(
-                &self.live,
-                running,
-                std::time::Instant::now(),
-                &self.profile.connection,
-            ),
-        ) {
-            // Held observations keep aging even after acquisition has stopped.
-            ui.ctx().request_repaint_after(Duration::from_millis(100));
-            ui.horizontal_wrapped(|ui| {
-                ui.label(format!(
-                    "Validity at receipt {} · last received {} ms ago",
-                    input.validity.label(),
-                    observation.receive_age.as_millis()
-                ));
-                if let Some(age) = observation.source_age_at_receipt_us {
-                    ui.label(format!(
-                        "Gateway input age at receipt {:.2} ms",
-                        age as f64 / 1000.0
-                    ));
-                } else {
-                    ui.label("Gateway input age unknown");
-                }
-                if let Some(age) = observation.observed_update_age {
-                    ui.label(format!(
-                        "Time since last observed update {} ms",
-                        age.as_millis()
-                    ));
-                }
-                if let Some(code) = input.diagnostic_code {
-                    ui.label(format!("Gateway code {code}"));
-                }
-            });
-            if observation.show_typed() {
-                ui.label(observation.state.label());
-            } else {
-                ui.colored_label(WARNING, observation.state.label());
-            }
-            ui.small(format!(
-                "Host display age limit {} ms · includes GUI update allowance; source quality above is from receipt",
-                observation.display_limit.as_millis()
-            ));
-            payload_view(
-                ui,
-                &self.profile,
-                input.payload.bytes(),
-                observation.show_typed(),
-            );
-        }
-        let counts = self.live.counts;
-        ui.label(format!(
-            "{} responses · {} new · {} stale · {} invalid · {} overruns · {} reconnects",
-            counts.received,
-            counts.new_updates_observed,
-            counts.stale,
-            counts.invalid,
-            counts.logger_overruns,
-            counts.reconnects
-        ));
-        if let Some(report) = &self.report {
-            ui.separator();
-            ui.heading("Run timing");
-            for (label, stats) in [
-                (
-                    "Host poll start spacing",
-                    report.host_poll_start_spacing.as_ref(),
-                ),
-                ("Host receive spacing", report.host_receive_spacing.as_ref()),
-                (
-                    "Host observed new update spacing",
-                    report.host_new_update_spacing.as_ref(),
-                ),
-                (
-                    "Gateway update spacing",
-                    report.gateway_update_spacing.as_ref(),
-                ),
-            ] {
-                ui.label(match stats {
-                    Some(stats) => format!(
-                        "{label} · p50 {} / p95 {} / p99 {} / longest {} µs · {:.1} Hz",
-                        stats.p50_us, stats.p95_us, stats.p99_us, stats.longest_us, stats.mean_hz
-                    ),
-                    None => format!("{label} · unavailable"),
-                });
-            }
-            ui.label(format!(
-                "Source-update loss · {}",
-                report.source_update_loss
-            ));
-            if let Some(gaps) = report.source_gaps_observed {
-                ui.label(format!("Observed missing source updates · {gaps}"));
-            }
-            ui.label(format!(
-                "{} rows flushed across {} CSV parts",
-                report.csv_rows_flushed, report.csv_parts
-            ));
-            logger_metrics::show(ui, report.logger_metrics.as_ref());
-            logger_metrics::receive_tail(ui, report.time_since_last_receive_us);
-            if report.csv_rows_unconfirmed != 0 {
-                ui.colored_label(
-                    WARNING,
-                    format!(
-                        "{} queued rows have an unconfirmed CSV write",
-                        report.csv_rows_unconfirmed
-                    ),
-                );
-            }
-        }
-        ui.separator();
-        ui.collapsing("Device diagnostics (explicit ISDU reads)", |ui| {
-            ui.small("Reads optional 36:0 and 37:0 on independent acyclic clients. These snapshots provide no continuous event history or source-loss count.");
-            let available = self.isdu_worker.is_none() && !self.setup.pending() && !self.setup.busy();
-            if ui.add_enabled(available, egui::Button::new("Read device diagnostics")).clicked() {
-                let profile = self.profile.clone();
-                match background("acyclic-device-diagnostics", move || Ok(iolink_workbench::diagnostics::read(&profile)?.text())) {
-                    Ok(worker) => { self.isdu_worker = Some(worker); self.isdu_result = "Reading device diagnostics…".into(); }
-                    Err(error) => self.isdu_result = error.to_string(),
-                }
-            }
-            if let Some(imported) = &self.profile.iodd {
-                ui.small(format!("{} saved event definitions · {} unresolved standard event codes", imported.events.len(), imported.standard_event_refs.len()));
-                for event in &imported.events { ui.label(format!("0x{:04X} · {:?} · {}", event.code, event.event_type, event.name)); }
-            }
-        });
-        let parameter_actions = parameters::show(
-            ui,
-            &self.profile,
-            &mut self.selected_parameter,
-            &mut self.selected_subindex,
-            self.isdu_worker.is_none() && !self.setup.pending() && !self.setup.busy(),
-            self.worker.is_none(),
-            &mut self.parameter_snapshot_path,
-        );
-        if let Some(selection) = parameter_actions.display {
-            self.select_parameter_display(selection);
-        }
-        let request = parameter_actions
-            .read
-            .map(|(id, subindex)| (id, subindex, None))
-            .or_else(|| {
-                parameter_actions
-                    .snapshot
-                    .map(|(id, subindex, path)| (id, subindex, Some(path)))
-            });
-        if let Some((id, subindex, snapshot_path)) = request {
-            let profile = self.profile.clone();
-            match background("acyclic-iodd-parameter", move || {
-                let (reading, save_message) = if let Some(path) = snapshot_path {
-                    let path = Path::new(&path);
-                    iolink_workbench::parameter_snapshot::check_destination(path)?;
-                    let (snapshot, reading) =
-                        iolink_workbench::parameter_snapshot::read(&profile, &id, subindex)?;
-                    let message = match snapshot.save(path) {
-                        Ok(()) => format!("\nSaved snapshot {}", path.display()),
-                        Err(error) => format!("\nSnapshot save failed: {error}"),
-                    };
-                    (reading, message)
-                } else {
-                    (
-                        transport::read_parameter_at(&profile, &id, subindex)?,
-                        String::new(),
-                    )
-                };
-                let mut text = format!(
-                    "{} · index {}:{}\nRaw bytes {}",
-                    reading.name, reading.index, reading.subindex, reading.raw_hex
-                );
-                if let Some(value) = &reading.raw_value {
-                    text.push_str(&format!("\nRaw value {value}"));
-                }
-                if let Some(name) = &reading.choice_name {
-                    text.push_str(&format!(" · {name}"));
-                }
-                if let Some(time) = &reading.time_value {
-                    text.push_str(&format!("\n{}", time.text()));
-                }
-                if let Some(assessment) = &reading.value_assessment {
-                    text.push_str(&format!("\n{}", assessment.text()));
-                }
-                if let Some(error) = &reading.decode_error {
-                    text.push_str(&format!("\nDecode review · {error}"));
-                }
-                for display in &reading.displays {
-                    text.push_str(&format!(
-                        "\nDisplay {}{} · {} {}",
-                        display.id,
-                        if reading
-                            .preferred_display
-                            .as_ref()
-                            .is_some_and(|preferred| preferred.id == display.id)
-                        {
-                            " (preferred)"
-                        } else {
-                            ""
-                        },
-                        display.value,
-                        display.unit
-                    ));
-                }
-                for item in reading.record_items.iter().chain(&reading.array_items) {
-                    text.push_str(&format!(
-                        "\n\n{} · subindex {} · bit {}\n{}",
-                        item.name,
-                        item.subindex,
-                        item.bit_offset,
-                        item.value.text()
-                    ));
-                }
-                text.push_str(&format!(
-                    "\nHost read {} · query {} µs",
-                    reading.host_read_utc, reading.read_duration_us
-                ));
-                text.push_str(&save_message);
-                Ok(text)
-            }) {
-                Ok(worker) => {
-                    self.isdu_worker = Some(worker);
-                    self.isdu_result = "Reading parameter…".into();
-                }
-                Err(error) => self.isdu_result = error.to_string(),
-            }
-        }
-        ui.collapsing("Acyclic ISDU read", |ui| {
-            ui.small("One parameter read on a separate client. Use an index and subindex from the device documentation.");
-            ui.horizontal_wrapped(|ui| {
-                ui.add(egui::DragValue::new(&mut self.isdu_index).prefix("Index "));
-                ui.add(egui::DragValue::new(&mut self.isdu_subindex).prefix("Subindex "));
-                if ui.add_enabled(self.isdu_worker.is_none() && !self.setup.pending() && !self.setup.busy(), egui::Button::new("Read parameter")).clicked() {
-                    let (profile, index, subindex) = (self.profile.clone(), self.isdu_index, self.isdu_subindex);
-                    match background("acyclic-isdu", move || { let bytes = transport::read_isdu(&profile, index, subindex)?;
-                        let hex = decode::hex(&bytes);
-                        Ok(match std::str::from_utf8(&bytes) {
-                            Ok(text) => format!("{hex}  ·  {text:?}"),
-                            Err(_) => hex,
-                        })
-                    }) {
-                        Ok(worker) => { self.isdu_worker = Some(worker); self.isdu_result = "Reading…".into(); }
-                        Err(error) => self.isdu_result = error.to_string(),
-                    }
-                }
-                let can_verify = self.isdu_worker.is_none() && !self.setup.pending() && !self.setup.busy()
-                    && self.profile.expected_identity.product_id.is_some();
-                if ui.add_enabled(can_verify, egui::Button::new("Verify Product ID")).clicked() {
-                    let profile = self.profile.clone();
-                    match background("acyclic-product-id", move || {
-                        let product_id = transport::verify_product_id(&profile)?;
-                        Ok(format!("Matched Product ID {product_id}"))
-                    }) {
-                        Ok(worker) => { self.isdu_worker = Some(worker); self.isdu_result = "Reading Product ID…".into(); }
-                        Err(error) => self.isdu_result = error.to_string(),
-                    }
-                }
-            });
-        });
-        if !self.isdu_result.is_empty() {
-            ui.monospace(&self.isdu_result);
-        }
-    }
-
     fn select_parameter_display(&mut self, selection: parameters::DisplaySelection) {
         match selection.apply(&mut self.profile) {
             Ok(()) => {
@@ -853,13 +358,14 @@ impl App {
                 self.isdu_result =
                     "Display preference updated. Read again to refresh the result.".into();
                 self.message =
-                    "Display preference updated; save the profile in Setup to retain it.".into();
+                    "Display preference updated; save the profile with Profiles… to retain it."
+                        .into();
             }
             Err(error) => self.message = error.to_string(),
         }
     }
 
-    fn offline(&mut self, ui: &mut Ui) {
+    pub(super) fn offline_process(&mut self, ui: &mut Ui) {
         ui.heading("Offline payload decoder");
         ui.label(format!(
             "{} · {} expected bytes",
@@ -877,99 +383,6 @@ impl App {
                 ui.colored_label(WARNING, error.to_string());
             }
         }
-        ui.separator();
-        if let Some(selection) = self.offline_parameter.show(
-            ui,
-            &self.profile,
-            self.worker.is_none()
-                && self.isdu_worker.is_none()
-                && !self.setup.pending()
-                && !self.setup.busy(),
-        ) {
-            self.select_parameter_display(selection);
-        }
-        ui.separator();
-        self.saved_parameter.show(ui);
-        ui.separator();
-        self.offline_diagnostics.show(ui, &self.profile);
-        ui.separator();
-        self.saved_capture.show(
-            ui,
-            &self.profile,
-            !self.setup.pending() && !self.setup.busy(),
-        );
-    }
-}
-
-impl App {
-    fn render(&mut self, ctx: &Context) {
-        self.update_workers(ctx);
-        egui::TopBottomPanel::top("navigation").show(ctx, |ui| {
-            if self.closing {
-                ui.disable();
-            }
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("IO-Link Workbench").size(24.0).strong());
-                ui.colored_label(ACCENT, "READ ONLY");
-                ui.separator();
-                ui.selectable_value(&mut self.tab, Tab::Setup, "Setup");
-                ui.selectable_value(&mut self.tab, Tab::Monitor, "Monitor & CSV");
-                ui.selectable_value(&mut self.tab, Tab::Offline, "Offline decode");
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(if self.closing {
-                        "CLOSING"
-                    } else if self.worker.is_some() {
-                        "SESSION ACTIVE"
-                    } else {
-                        "OFFLINE"
-                    });
-                });
-            });
-            ui.add_space(5.0);
-        });
-        egui::TopBottomPanel::bottom("footer").show(ctx, |ui| {
-            ui.add_space(4.0);
-            ui.horizontal_wrapped(|ui| {
-                ui.colored_label(ACCENT, &self.profile.name);
-                if !self.message.is_empty() {
-                    ui.separator();
-                    ui.label(&self.message);
-                }
-            });
-            ui.add_space(4.0);
-        });
-        egui::CentralPanel::default().show(ctx, |ui| {
-            if self.closing {
-                ui.disable();
-            }
-            egui::ScrollArea::vertical()
-                .id_salt(self.tab as u8)
-                .show(ui, |ui| {
-                    ui.add_space(5.0);
-                    match self.tab {
-                        Tab::Setup => {
-                            let editable = self.worker.is_none()
-                                && self.isdu_worker.is_none()
-                                && !self.setup.busy();
-                            if self
-                                .setup
-                                .show(ui, &mut self.profile, &mut self.message, editable)
-                            {
-                                self.live = Live::default();
-                                self.report = None;
-                                self.selected_parameter = None;
-                                self.selected_subindex = 0;
-                                self.offline_parameter = parameters::Offline::default();
-                                self.offline_diagnostics = diagnostics::Offline::default();
-                                self.isdu_result.clear();
-                            }
-                        }
-                        Tab::Monitor => self.monitor(ui),
-                        Tab::Offline => self.offline(ui),
-                    }
-                });
-        });
     }
 }
 

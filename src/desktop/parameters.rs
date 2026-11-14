@@ -266,7 +266,7 @@ pub fn show(
     snapshot_path: &mut String,
 ) -> Actions {
     let mut actions = Actions::default();
-    ui.collapsing("IODD parameters", |ui| {
+    egui::CollapsingHeader::new("IODD parameters").default_open(true).show(ui, |ui| {
         ui.small("IODD defaults and permitted values describe the device. Reads use a separate acyclic client.");
         ui.small("Numeric/Boolean reads assess unscaled values against declared choices and ranges. This assessment is separate from transport validity and device diagnostics.");
         ui.add_enabled_ui(available, |ui| {

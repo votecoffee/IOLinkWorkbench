@@ -57,14 +57,20 @@ def verify(gui, output):
     native = receipt["native"]
     assert native["opengl_vendor"] and native["opengl_renderer"] and native["opengl_version"]
     assert not native["ordinary_frame_loop_entered"] and not native["pixel_readback_performed"]
-    assert (native["framebuffer_width"], native["framebuffer_height"]) == (1130, 3200)
+    assert (native["framebuffer_width"], native["framebuffer_height"]) == (1130, 790)
     cases = native["cases"]
-    expected = {(profile, tab) for profile in PROFILES for tab in ("setup", "monitor", "offline")}
-    expected.update((name, "monitor") for name in OBSERVATIONS)
-    assert len(cases) == len(expected) == 30 and {(case["profile"], case["tab"]) for case in cases} == expected
+    expected = {(profile, tab) for profile in PROFILES for tab in
+                ("Device", "Inputs", "Logging", "Mappings", "Parameters", "Integration", "Diagnostics", "Offline")}
+    expected.update(("formats", page) for page in (
+        "device-identity", "device-iodd", "device-advanced", "mapping-editor", "parameters-raw",
+        "integration-mqtt", "integration-shared-memory", "diagnostics-timing", "diagnostics-events",
+        "offline-compare", "offline-process", "offline-parameter", "offline-snapshot", "offline-events",
+        "profiles-dialog", "connection-dialog"))
+    expected.update((name, "Inputs") for name in OBSERVATIONS)
+    assert len(cases) == len(expected) == 86 and {(case["profile"], case["tab"]) for case in cases} == expected
     for case in cases:
         assert case["passes"] == 2 and case["shapes"] > 0 and case["meshes"] > 0 and case["triangles"] > 0
-        assert (case["width"], case["height"]) == (1130, 3200)
+        assert (case["width"], case["height"]) == (1130, 790)
     assert native["hidden_window_checks"] == 2 + 2 * sum(case["passes"] for case in cases)
     # Publication refuses a collision without launching the native initializer.
     invoke(gui, "--self-test", output, expected=1)

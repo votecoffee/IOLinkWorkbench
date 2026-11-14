@@ -15,8 +15,16 @@ enum Outcome {
     ExportVerified(Box<archive::ExportVerification>),
 }
 
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum Page {
+    #[default]
+    Review,
+    Compare,
+}
+
 #[derive(Default)]
 pub struct Verifier {
+    page: Page,
     comparer: compare::Comparer,
     directory: String,
     joined_csv: String,
@@ -35,6 +43,9 @@ pub struct Verifier {
 }
 
 impl Verifier {
+    pub(super) fn open_comparison(&mut self) {
+        self.page = Page::Compare;
+    }
     #[cfg(test)]
     pub(super) fn gates_for_test(&mut self) -> Vec<super::TestCompletion> {
         let (sender, receiver) = std::sync::mpsc::channel();
@@ -104,7 +115,15 @@ impl Verifier {
         mapping_available: bool,
     ) {
         ui.heading("Review saved capture");
-        self.comparer.show(ui);
+        ui.horizontal_wrapped(|ui| {
+            ui.selectable_value(&mut self.page, Page::Review, "Review & export");
+            ui.selectable_value(&mut self.page, Page::Compare, "Compare captures");
+        });
+        ui.separator();
+        if self.page == Page::Compare {
+            self.comparer.show(ui);
+            return;
+        }
         let before = (
             self.directory.clone(),
             self.joined_csv.clone(),
@@ -168,7 +187,7 @@ impl Verifier {
                 }
             });
             ui.small("Review uses the saved profile and CSV only. Combined CSV output applies to Verify capture.");
-            ui.collapsing("Re-decode with applied Setup mapping", |ui| {
+            ui.collapsing("Re-decode with applied profile mapping", |ui| {
                 ui.label(format!("Mapping · {} · {} bytes · {} selected fields", mapping.name, mapping.input_bytes, mapping.log_fields().len()));
                 ui.small("Export a new interpretation of saved raw bytes. No gateway access or device identity verification is performed.");
                 ui.horizontal_wrapped(|ui| {
@@ -190,7 +209,7 @@ impl Verifier {
                         }
                     }
                 });
-                if !mapping_available { ui.colored_label(WARNING, "Finish IODD inspection and apply pending Setup edits before exporting."); }
+                if !mapping_available { ui.colored_label(WARNING, "Finish IODD inspection and apply pending profile edits before exporting."); }
             });
             ui.collapsing("Verify re-decoded bundle", |ui| {
                 ui.horizontal_wrapped(|ui| {

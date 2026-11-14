@@ -4,7 +4,7 @@ The GUI/CLI can optionally publish acquired inputs to a numeric TCP broker endpo
 
 ## Enable and connect
 
-In Monitor & CSV, enable **MQTT latest-state publishing**, enter the broker IP:port, exact topic and interval. From the portable package directory:
+In Integration → MQTT, enable **MQTT latest-state publishing**, enter the broker IP:port, exact topic and interval. From the portable package directory:
 
 ```powershell
 .\iolink-cli.exe capture samples/simulator.toml trial-mqtt --seconds 10 --mqtt-broker 127.0.0.1:1883 --mqtt-topic lab/iolink/input --mqtt-interval-ms 100
