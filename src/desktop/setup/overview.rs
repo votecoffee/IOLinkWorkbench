@@ -2,7 +2,10 @@
 use super::{Editor, Page, WARNING};
 use crate::desktop::Tab;
 use eframe::egui::{self, Ui};
-use iolink_workbench::profile::{Gateway, LogMode, Profile};
+use iolink_workbench::{
+    profile::{Gateway, LogMode, Profile},
+    transport,
+};
 
 impl Editor {
     pub(super) fn overview(&mut self, ui: &mut Ui, profile: &Profile, tab: &mut Tab) {
@@ -15,6 +18,8 @@ impl Editor {
                 Gateway::IfmAl1350 => {
                     if profile.connection.endpoint.trim().is_empty() {
                         ui.colored_label(WARNING, "Needs input · master endpoint is empty");
+                    } else if let Err(error) = transport::check_route(profile) {
+                        ui.colored_label(WARNING, format!("{error:#}"));
                     } else {
                         ui.label(format!("ifm AL1350 · {}", profile.connection.endpoint));
                     }

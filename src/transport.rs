@@ -122,6 +122,14 @@ pub fn read_isdu(profile: &Profile, index: u16, subindex: u8) -> Result<Vec<u8>>
     Ok(read_isdu_observation(profile, index, subindex)?.1)
 }
 
+/// Check configured transport address and credential requirements without opening a client.
+pub fn check_route(profile: &Profile) -> Result<()> {
+    match profile.connection.gateway {
+        Gateway::Simulator => Ok(()),
+        Gateway::IfmAl1350 => ifm::check_route(&profile.connection),
+    }
+}
+
 pub(crate) fn read_isdu_observation(
     profile: &Profile,
     index: u16,

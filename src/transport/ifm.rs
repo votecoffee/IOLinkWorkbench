@@ -30,17 +30,11 @@ pub struct Client {
 
 impl Client {
     pub fn new(settings: &Connection) -> Result<Self> {
-        let url = settings.origin()?;
+        let password = configured_password();
+        let url = checked_origin(settings, password.is_some())?;
         let host = url.host_str().unwrap_or_default().trim_matches(['[', ']']);
         let loopback = host.eq_ignore_ascii_case("localhost")
             || host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback());
-        let password = std::env::var("IOLINK_IFM_PASSWORD")
-            .ok()
-            .filter(|s| !s.is_empty());
-        ensure!(
-            password.is_none() || url.scheme() == "https",
-            "AL1350 credentials require HTTPS"
-        );
         let auth = password.map(|pass| {
             json!({
                 "user": STANDARD.encode("administrator"), "passwd": STANDARD.encode(pass)
@@ -166,6 +160,25 @@ impl Client {
             .map(|i| Ok(u8::from_str_radix(&value[i..i + 2], 16)?))
             .collect()
     }
+}
+
+fn configured_password() -> Option<String> {
+    std::env::var("IOLINK_IFM_PASSWORD")
+        .ok()
+        .filter(|value| !value.is_empty())
+}
+
+fn checked_origin(settings: &Connection, credentials: bool) -> Result<Url> {
+    let url = settings.origin()?;
+    ensure!(
+        !credentials || url.scheme() == "https",
+        "AL1350 credentials require HTTPS"
+    );
+    Ok(url)
+}
+
+pub(super) fn check_route(settings: &Connection) -> Result<()> {
+    checked_origin(settings, configured_password().is_some()).map(|_| ())
 }
 
 fn number(value: &Value) -> Option<u64> {

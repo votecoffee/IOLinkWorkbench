@@ -49,6 +49,8 @@ The named-parameter picker shares search and selection logic between live reads 
 
 The GUI has one acyclic worker with an immutable query label and a separate last result for each action. Poll completion globally so switching pages does not affect ownership. Profile replacement clears the results. Keep acyclic admission independent of the cyclic sampler.
 
+Connection review and Logging use the local acquisition route check before presenting Start. The entry point repeats the check before preparing output paths or dispatching a worker. The origin and HTTPS rules are shared with the AL1350 client, and the IODD confirmation check is shared with the capture worker. Keep stored templates loadable while their route is incomplete.
+
 ## Local validation
 
 GUI `start_block_reason` supplies both button availability and the start method's preflight check. Keep owned cyclic results (including ready but unread completions), closing and pending profile work fenced before state/output preparation. Prepare fresh stop/display queues locally and commit them only after worker launch succeeds; independent acyclic/review jobs must not become sampler admission locks. Run `desktop::self_test::start_tests` for guard-denied dispatch, completion ownership, draft/inspection guards and consecutive simulator capture/byte-preservation checks. See [session startup](GUI_LIFECYCLE.md#starting-a-session).

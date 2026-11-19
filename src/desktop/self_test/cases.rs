@@ -202,6 +202,7 @@ pub(super) fn render(
                 "drop-preview",
                 "latest-recording",
                 "connection-dialog",
+                "connection-needs-endpoint",
             ] {
                 let mut app = App::new();
                 app.profile = profile.clone();
@@ -312,6 +313,12 @@ pub(super) fn render(
                         });
                     }
                     "connection-dialog" => app.workspace.connect_dialog = true,
+                    "connection-needs-endpoint" => {
+                        app.profile =
+                            Profile::parse(include_str!("../../../samples/ifm-al1350.toml"))?;
+                        app.setup.sync(&app.profile);
+                        app.workspace.connect_dialog = true;
+                    }
                     _ => unreachable!(),
                 }
                 views.push((name, label, app, None, None));
@@ -445,7 +452,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 93);
+        assert_eq!(cases.len(), 94);
         assert!(
             cases
                 .iter()

@@ -135,6 +135,12 @@ impl Editor {
         self.mapping.opened()
     }
 
+    pub(super) fn show_mapping_list(&mut self) {
+        if !self.mapping.pending() {
+            self.mapping = mapping::Form::default();
+        }
+    }
+
     #[cfg(test)]
     pub(super) fn mark_pending_for_test(&mut self) {
         self.pending = true;

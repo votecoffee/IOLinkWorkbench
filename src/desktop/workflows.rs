@@ -114,11 +114,12 @@ impl App {
         ui.heading("CSV logging");
         ui.label("Choose a new folder, the values to log and when to stop. Raw input and metadata are always retained.");
         let available = self.start_block_reason().is_none();
+        let route = self.check_session_route();
         let mut start_requested = false;
         ui.horizontal_wrapped(|ui| {
             if ui
                 .add_enabled(
-                    available,
+                    available && route.is_ok(),
                     egui::Button::new(RichText::new("Start CSV capture").color(ACCENT)),
                 )
                 .clicked()
@@ -131,6 +132,9 @@ impl App {
                 );
             }
         });
+        if available && let Err(issue) = &route {
+            self.show_route_issue(ui, issue);
+        }
         if let Some(directory) = &self.active_recording {
             ui.label(format!("Recording to {}", directory.display()));
         }

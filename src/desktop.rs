@@ -22,6 +22,7 @@ mod observation;
 mod parameters;
 mod saved_capture;
 pub mod self_test;
+mod session_review;
 mod setup;
 mod shutdown;
 mod workflows;
@@ -220,6 +221,8 @@ impl App {
             anyhow::bail!(reason);
         }
         self.profile.validate()?;
+        self.check_session_route()
+            .map_err(session_review::RouteIssue::into_error)?;
         let output = if record {
             anyhow::ensure!(
                 !self.capture_path.trim().is_empty(),

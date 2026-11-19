@@ -340,12 +340,8 @@ pub fn probe(profile: &Profile) -> Result<(Status, &'static str)> {
     Ok((status, check))
 }
 
-pub fn run(
-    profile: &Profile,
-    options: &Options,
-    stop: &Stop,
-    live: Option<&LiveQueue>,
-) -> Result<Report> {
+/// Check the confirmation required before reading a conditional physical layout.
+pub fn check_layout(profile: &Profile) -> Result<()> {
     if profile.connection.gateway == crate::profile::Gateway::IfmAl1350
         && let Some(condition) = profile
             .iodd
@@ -357,6 +353,16 @@ pub fn run(
             "confirm the active IODD layout condition {condition} before capture"
         );
     }
+    Ok(())
+}
+
+pub fn run(
+    profile: &Profile,
+    options: &Options,
+    stop: &Stop,
+    live: Option<&LiveQueue>,
+) -> Result<Report> {
+    check_layout(profile)?;
     let transport = transport::open(profile, options.simulate_faults)?;
     ensure!(
         profile.connection.gateway == crate::profile::Gateway::Simulator

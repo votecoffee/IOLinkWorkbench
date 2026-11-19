@@ -81,6 +81,88 @@ fn paste(app: &mut App, ctx: &Context, size: egui::Vec2, hint: &str, value: &str
 }
 
 #[test]
+fn session_route_reviews_block_start_and_point_to_the_relevant_settings() -> Result<()> {
+    let _serial = WORKER_TEST_LOCK.lock().unwrap();
+    let mut app = App::new();
+    let ctx = Context::default();
+    let size = egui::vec2(790.0, 530.0);
+    app.profile = Profile::parse(include_str!("../../../samples/ifm-al1350.toml"))?;
+    app.profile.connection.endpoint = "https://synthetic-secret@127.0.0.1:1/".into();
+    app.setup.sync(&app.profile);
+    let path = tempfile::tempdir()?;
+    let destination = path.path().join("no-capture");
+    app.capture_path = destination.display().to_string();
+    app.live.counts.received = 12;
+    let prior_stop = app.stop.clone();
+    prior_stop.request();
+    click(&mut app, &ctx, size, "Connect…");
+    let found = draw(&mut app, &ctx, size);
+    assert!(
+        found
+            .iter()
+            .any(|(text, _)| text.contains("origin without path or credentials"))
+    );
+    assert!(
+        !found
+            .iter()
+            .any(|(text, _)| text.contains("synthetic-secret"))
+    );
+    click(&mut app, &ctx, size, "Start monitor");
+    assert_eq!(app.pending_jobs(), 0);
+    click(&mut app, &ctx, size, "Go to connection settings");
+    assert_eq!(app.tab, Tab::Device);
+    assert_eq!(app.setup.page, setup::Page::Connection);
+    assert!(!app.workspace.connect_dialog);
+    assert!(
+        app.start(true)
+            .unwrap_err()
+            .to_string()
+            .contains("origin without")
+    );
+    assert!(!destination.exists());
+    assert!(app.stop.requested());
+    assert_eq!(app.live.counts.received, 12);
+
+    let catalog = iodd::parse(
+        include_str!("../../../samples/sensor.xml"),
+        "synthetic condition receipt".into(),
+    )?;
+    let (identity, mut imported) = catalog.select(Some("SIM-SENSOR"), None)?;
+    imported.condition = Some("Demo mode 1".into());
+    app.profile.connection.endpoint = "https://127.0.0.1:1".into();
+    app.profile.input_bytes = imported.input_bytes;
+    app.profile.expected_identity = identity;
+    app.profile.iodd = Some(imported);
+    app.setup.sync(&app.profile);
+    click(&mut app, &ctx, size, "Record CSV…");
+    assert_eq!(app.tab, Tab::Logging);
+    let found = draw(&mut app, &ctx, size);
+    assert!(found.iter().any(|(text, _)| text.contains("Demo mode 1")));
+    click(&mut app, &ctx, size, "Start CSV capture");
+    assert_eq!(app.pending_jobs(), 0);
+    assert!(
+        app.start(true)
+            .unwrap_err()
+            .to_string()
+            .contains("Demo mode 1")
+    );
+    assert!(!destination.exists());
+    click(&mut app, &ctx, size, "Review IODD layout");
+    assert_eq!(app.tab, Tab::Mappings);
+    assert!(
+        draw(&mut app, &ctx, size)
+            .iter()
+            .any(|(text, _)| text.contains("Confirmed active condition on the device"))
+    );
+    assert!(!app.profile.confirm_iodd_condition);
+    assert_eq!(app.pending_jobs(), 0);
+    app.profile.confirm_iodd_condition = true;
+    assert!(app.check_session_route().is_ok());
+    assert!(!destination.exists());
+    Ok(())
+}
+
+#[test]
 fn acyclic_results_follow_the_read_action_and_keep_the_original_address() -> Result<()> {
     let _serial = WORKER_TEST_LOCK.lock().unwrap();
     let catalog = iodd::parse(

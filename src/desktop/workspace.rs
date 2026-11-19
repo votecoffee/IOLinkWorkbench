@@ -444,8 +444,10 @@ impl App {
             let mut open = true;
             egui::Window::new("Review connection").open(&mut open).default_width(600.0).vscroll(true).show(ctx, |ui| {
                 ui.heading(&self.profile.name);
+                let route = self.check_session_route();
                 ui.label(match self.profile.connection.gateway {
                     Gateway::Simulator => "Offline simulator · synthetic input".into(),
+                    Gateway::IfmAl1350 if matches!(&route, Err(session_review::RouteIssue::Connection(_))) => "ifm AL1350 · review the configured endpoint".into(),
                     Gateway::IfmAl1350 => format!("ifm AL1350 · {}", self.profile.connection.endpoint),
                 });
                 ui.label(format!("Port {} · host poll {} µs · expected input {} bytes", self.profile.connection.port,
@@ -453,16 +455,17 @@ impl App {
                 ui.label(format!("Expected vendor {} · device {} · Product ID {}",
                     optional_number(self.profile.expected_identity.vendor_id), optional_number(self.profile.expected_identity.device_id),
                     self.profile.expected_identity.product_id.as_deref().unwrap_or("unavailable")));
-                ui.small("Configured expectations are not observed identity. Monitoring reads the existing configured port; it does not log CSV.");
-                ui.small("Port configuration, device commands, ISDU writes and process outputs are not implemented.");
+                ui.small("Monitoring reads the existing configured port. The connection will check reachability and observe device identity.");
                 ui.label(format!("Per-session feeds · HTTP {} · MQTT {} · Shared memory {}", self.api_enabled, self.mqtt_enabled, self.shared_memory_enabled));
-                if let Some(reason) = self.start_block_reason() { ui.colored_label(WARNING, reason); }
-                if ui.add_enabled(self.start_block_reason().is_none(), egui::Button::new("Start monitor")).clicked() {
+                let blocked = self.start_block_reason();
+                if let Some(reason) = blocked { ui.colored_label(WARNING, reason); }
+                if let Err(issue) = &route { self.show_route_issue(ui, issue); }
+                if ui.add_enabled(blocked.is_none() && route.is_ok(), egui::Button::new("Start monitor")).clicked() {
                     match self.start(false) { Ok(()) => { self.tab = Tab::Inputs; }, Err(error) => self.message = format!("{error:#}") }
                 }
                 if !self.message.is_empty() { ui.label(&self.message); }
             });
-            self.workspace.connect_dialog = open && self.worker.is_none();
+            self.workspace.connect_dialog &= open && self.worker.is_none();
         } else {
             self.workspace.connect_dialog = false;
         }

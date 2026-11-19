@@ -27,6 +27,8 @@ The shutdown tests use internal logical close requests, channel gates and egui o
 
 The separate native verifier still checks hidden OpenGL initialization and offscreen painting of 30 profile/tab and [synthetic observation views](LIVE_VIEW.md). It denies background dispatch and performs no input injection or pixel readback. Neither suite establishes native window-manager close routing, visible interactions, DPI/multi-monitor behavior, file-entry usability or physical IO-Link operation.
 
+Route checks precede output-folder preparation and worker launch. They share the transport's AL1350 origin and HTTPS rules and capture's physical IODD condition check. A local rejection leaves the prior observation, report and stop token available. Resolve issues through Device → Connection or Mappings. Reachability and observed identity are checked in the worker.
+
 ## Operator acceptance checklist
 
 These are pending visible checks, not results claimed by the automated suites. Start with the bundled **Simulator** profile and a new output directory; select bench hardware only under the session's authorized read-only scope.

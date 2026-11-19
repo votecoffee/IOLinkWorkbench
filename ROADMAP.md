@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Connection review and Logging check the selected read route locally before starting. Endpoint and conditional IODD issues link to their settings. Reachability, device identity and port status are observed during the read.
+
 - Named reads, raw ISDU reads, Product ID checks and device diagnostics keep individual results labeled with their original queries. Event definitions expand below the diagnostic result.
 
 - Named IODD parameters are searchable by name, ID and index in live and offline views. Read and decode controls stay above expandable IODD details. Saving a parameter snapshot has its own expandable controls.

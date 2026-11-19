@@ -1322,7 +1322,7 @@ dependencies = [
 
 [[package]]
 name = "iolink-workbench"
-version = "0.52.0"
+version = "0.53.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
