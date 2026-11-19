@@ -83,6 +83,7 @@ impl App {
     pub(super) fn render(&mut self, ctx: &Context) {
         // Completion polling must precede all views, including hidden tabs/dialogs.
         self.update_workers(ctx);
+        self.handle_file_drop(ctx);
         egui::TopBottomPanel::top("navigation").show(ctx, |ui| {
             if self.closing {
                 ui.disable();
@@ -223,6 +224,7 @@ impl App {
             });
         });
         self.dialogs(ctx);
+        self.file_drop_preview(ctx);
     }
 
     fn page_navigation(&mut self, ui: &mut Ui) {

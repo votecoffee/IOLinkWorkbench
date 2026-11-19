@@ -43,7 +43,8 @@ pub struct Editor {
     pub(super) profiles_page: ProfilePage,
     starter: profiles::Starter,
     pub(super) page: Page,
-    path: String,
+    open_path: String,
+    save_path: String,
     toml: String,
     pending: bool,
     connection: connection::Form,
@@ -70,7 +71,8 @@ impl Editor {
             profiles_page: ProfilePage::default(),
             starter: profiles::Starter::default(),
             page: Page::default(),
-            path: String::new(),
+            open_path: String::new(),
+            save_path: String::new(),
             toml: serialize(profile),
             pending: false,
             connection: connection::Form::new(&profile.connection),
@@ -113,6 +115,20 @@ impl Editor {
 
     pub fn busy(&self) -> bool {
         self.inspect_worker.is_some()
+    }
+
+    pub(super) fn select_profile_path(&mut self, path: String) {
+        self.open_path = path;
+        self.profiles_page = ProfilePage::Files;
+    }
+
+    pub(super) fn select_iodd_path(&mut self, path: String) {
+        self.iodd_path = path;
+        self.entry.clear();
+        self.catalog = None;
+        self.variant = None;
+        self.layout = None;
+        self.page = Page::Iodd;
     }
 
     pub(super) fn mapping_opened(&self) -> bool {
@@ -308,6 +324,7 @@ impl Editor {
         );
         ui.heading("IODD import");
         ui.label("Inspect a local XML or ZIP, select its device variant and input layout, then apply it.");
+        ui.small("Drop one IODD XML/ZIP file here to select its path; inspection and import stay explicit.");
         ui.collapsing("Language, standard resources and validation", |ui| {
         ui.checkbox(
             &mut self.require_stamp,

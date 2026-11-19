@@ -196,6 +196,7 @@ pub(super) fn render(
                 "offline-events",
                 "profiles-dialog",
                 "profiles-files",
+                "drop-preview",
                 "connection-dialog",
             ] {
                 let mut app = App::new();
@@ -263,6 +264,7 @@ pub(super) fn render(
                         app.workspace.profile_dialog = true;
                         app.setup.profiles_page = super::super::setup::ProfilePage::Files;
                     }
+                    "drop-preview" => {}
                     "connection-dialog" => app.workspace.connect_dialog = true,
                     _ => unreachable!(),
                 }
@@ -306,6 +308,9 @@ pub(super) fn render(
                 focused: false,
                 ..Default::default()
             };
+            if label == "drop-preview" {
+                input.hovered_files.push(egui::HoveredFile::default());
+            }
             input
                 .viewports
                 .entry(egui::ViewportId::ROOT)
@@ -396,7 +401,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 88);
+        assert_eq!(cases.len(), 89);
         assert!(
             cases
                 .iter()

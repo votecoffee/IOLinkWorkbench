@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- File drops select one profile or IODD path for explicit review/load/inspection, with owner/draft fences and no automatic file reads or connection. Open and Save destinations are separate, so selecting a file does not redirect saving. A new IODD path clears stale preview/ZIP selection. Synthetic event tests and hidden native preview painting are verified separately from visible Explorer/OS drop delivery.
+
 - Device opens a short setup overview with direct links to connection, IODD/manual mappings, identity expectations and CSV values. Profiles separates explicit bundled starting points from file load/save. Starter replacement clears the old save path; replacements respect active owners and pending drafts. Missing endpoint and IODD review notes remain host setup observations, not physical readiness.
 
 - The GUI follows EthernetIP Workbench's persistent action bar and focused workflow tabs. Device setup, live Inputs, Logging, Mappings, Parameters, Integration, Diagnostics and Offline no longer share three long screens. Profiles and connection review use separate windows; advanced settings expand on demand. In-process tests cover normal/minimum-size toolbar bounds, navigation, hidden drafts and cross-tab simulator Stop-and-flush. See the [GUI workflow](docs/GUI_WORKFLOW.md); native visible/DPI acceptance remains separate.

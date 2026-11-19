@@ -86,17 +86,18 @@ impl Editor {
                 }
             }
             ProfilePage::Files => {
-                ui.label("Profile file (.toml)");
-                path_entry(ui, &mut self.path, "Enter or paste a full profile path");
-                let has_path = !self.path.trim().is_empty();
+                ui.small("Drop one TOML profile onto the workbench to select its path, then choose Load profile.");
+                ui.strong("Open profile");
                 ui.horizontal_wrapped(|ui| {
-                    if ui.add_enabled(has_path, egui::Button::new("Load profile")).clicked() {
-                        match Profile::load(Path::new(self.path.trim())) {
+                    path_entry(ui, &mut self.open_path, "Enter or paste a full profile path");
+                    if ui.add_enabled(!self.open_path.trim().is_empty(), egui::Button::new("Load profile")).clicked() {
+                        match Profile::load(Path::new(self.open_path.trim())) {
                             Ok(loaded) => {
-                                let path = self.path.clone();
+                                let path = self.open_path.clone();
                                 *profile = loaded;
                                 *self = Self::new(profile);
-                                self.path = path;
+                                self.open_path = path.clone();
+                                self.save_path = path;
                                 self.profiles_page = ProfilePage::Files;
                                 changed = true;
                                 *message = "Profile loaded. Review Device overview before connecting.".into();
@@ -104,14 +105,19 @@ impl Editor {
                             Err(error) => *message = format!("{error:#}"),
                         }
                     }
-                    if ui.add_enabled(has_path, egui::Button::new("Save / replace profile")).clicked() {
-                        *message = match profile.save(Path::new(self.path.trim())) {
+                });
+                ui.separator();
+                ui.strong(format!("Save applied profile · {}", profile.name));
+                ui.horizontal_wrapped(|ui| {
+                    path_entry(ui, &mut self.save_path, "Save destination (.toml)");
+                    if ui.add_enabled(!self.save_path.trim().is_empty(), egui::Button::new("Save / replace profile")).clicked() {
+                        *message = match profile.save(Path::new(self.save_path.trim())) {
                             Ok(()) => "Profile saved".into(),
                             Err(error) => format!("{error:#}"),
                         };
                     }
                 });
-                ui.small("Save / replace writes the applied profile to this path, replacing an existing file. It does not apply pending drafts.");
+                ui.small("Save / replace writes applied settings to the save destination, replacing an existing file. Selecting a file to open does not change this destination; a successful load sets it to the loaded profile.");
             }
         });
         changed

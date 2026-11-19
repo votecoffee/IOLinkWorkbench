@@ -4,13 +4,17 @@ use anyhow::Result;
 use std::time::Instant;
 
 fn draw(app: &mut App, ctx: &Context, size: egui::Vec2) -> Vec<(String, egui::Rect)> {
-    let output = ctx.run(
-        egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
-            ..Default::default()
-        },
-        |ctx| app.render(ctx),
-    );
+    draw_input(app, ctx, size, egui::RawInput::default())
+}
+
+fn draw_input(
+    app: &mut App,
+    ctx: &Context,
+    size: egui::Vec2,
+    mut input: egui::RawInput,
+) -> Vec<(String, egui::Rect)> {
+    input.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size));
+    let output = ctx.run(input, |ctx| app.render(ctx));
     fn texts(shape: egui::Shape, found: &mut Vec<(String, egui::Rect)>) {
         match shape {
             egui::Shape::Text(text) => found.push((
@@ -71,6 +75,231 @@ fn paste(app: &mut App, ctx: &Context, size: egui::Vec2, hint: &str, value: &str
         },
         |ctx| app.render(ctx),
     );
+}
+
+fn drop_paths(app: &mut App, ctx: &Context, size: egui::Vec2, paths: &[&Path]) {
+    draw_input(
+        app,
+        ctx,
+        size,
+        egui::RawInput {
+            dropped_files: paths
+                .iter()
+                .map(|path| egui::DroppedFile {
+                    path: Some(path.to_path_buf()),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        },
+    );
+}
+
+#[test]
+fn profile_drop_selects_a_unicode_path_without_loading_until_requested() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("入力 device.TOML");
+    let mut saved = App::new().profile.clone();
+    saved.name = "Dropped profile".into();
+    saved.save_new(&path)?;
+    let original_bytes = fs::read(&path)?;
+    let ctx = Context::default();
+    let size = egui::vec2(790.0, 530.0);
+    let mut app = App::new();
+    let before = app.profile.clone();
+    app.tab = Tab::Inputs;
+    app.workspace.connect_dialog = true;
+    drop_paths(&mut app, &ctx, size, &[&path]);
+    assert_eq!(app.profile, before);
+    assert_eq!(app.pending_jobs(), 0);
+    assert!(app.workspace.profile_dialog && !app.workspace.connect_dialog);
+    assert!(app.message.starts_with("Profile path selected."));
+    let found = draw(&mut app, &ctx, size);
+    assert!(
+        found
+            .iter()
+            .any(|(text, _)| text == &path.display().to_string())
+    );
+    assert!(
+        found
+            .iter()
+            .any(|(text, _)| text == "Save destination (.toml)")
+    );
+    click(&mut app, &ctx, size, "Save / replace profile");
+    assert_eq!(
+        fs::read(&path)?,
+        original_bytes,
+        "Selecting a file must not redirect saving to it"
+    );
+    click(&mut app, &ctx, size, "Load profile");
+    assert_eq!(app.profile, saved);
+    assert_eq!(app.pending_jobs(), 0);
+    assert_eq!(fs::read(&path)?, original_bytes);
+    let other = directory.path().join("not-a-profile.toml");
+    let other_bytes = b"keep this unvalidated source unchanged";
+    fs::write(&other, other_bytes)?;
+    drop_paths(&mut app, &ctx, size, &[&other]);
+    assert_eq!(app.profile, saved);
+    click(&mut app, &ctx, size, "Save / replace profile");
+    assert_eq!(app.message, "Profile saved");
+    assert_eq!(fs::read(&path)?, original_bytes);
+    assert_eq!(
+        fs::read(&other)?,
+        other_bytes,
+        "Drop must not redirect an existing save destination"
+    );
+    Ok(())
+}
+
+#[test]
+fn iodd_drop_invalidates_the_old_preview_and_requires_explicit_inspection_and_apply() -> Result<()>
+{
+    let _serial = WORKER_TEST_LOCK.lock().unwrap();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let old_path = root.join("samples/sensor.xml");
+    let new_path = root.join("samples/sensor-array.xml");
+    let original_bytes = fs::read(&new_path)?;
+    let ctx = Context::default();
+    let size = egui::vec2(1130.0, 790.0);
+    let mut app = App::new();
+    let before = app.profile.clone();
+    app.setup.select_iodd_path(old_path.display().to_string());
+    click(&mut app, &ctx, size, "Inspect IODD");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while app.setup.busy() && Instant::now() < deadline {
+        draw(&mut app, &ctx, size);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(!app.setup.busy());
+    assert!(
+        draw(&mut app, &ctx, size)
+            .iter()
+            .any(|(text, _)| text == "Apply IODD layout")
+    );
+    app.tab = Tab::Logging;
+    drop_paths(&mut app, &ctx, size, &[&new_path]);
+    assert_eq!(app.tab, Tab::Device);
+    assert_eq!(app.setup.page, setup::Page::Iodd);
+    assert_eq!(app.profile, before);
+    assert_eq!(app.pending_jobs(), 0);
+    assert!(
+        !draw(&mut app, &ctx, size)
+            .iter()
+            .any(|(text, _)| text == "Apply IODD layout")
+    );
+    click(&mut app, &ctx, size, "Inspect IODD");
+    while app.setup.busy() && Instant::now() < deadline {
+        draw(&mut app, &ctx, size);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(!app.setup.busy());
+    assert_eq!(
+        app.profile, before,
+        "Inspection must not apply the description"
+    );
+    click(&mut app, &ctx, size, "Apply IODD layout");
+    assert_eq!(
+        app.profile.iodd.as_ref().expect("explicit import").source,
+        "sensor-array.xml"
+    );
+    assert_eq!(app.pending_jobs(), 0);
+    assert_eq!(fs::read(&new_path)?, original_bytes);
+    Ok(())
+}
+
+#[test]
+fn file_drops_are_fenced_by_drafts_and_setup_owners() {
+    for fence in ["draft", "cyclic", "isdu", "inspection", "closing"] {
+        let ctx = Context::default();
+        let size = egui::vec2(790.0, 530.0);
+        let mut app = App::new();
+        let before = app.profile.clone();
+        app.tab = Tab::Inputs;
+        let mut held_cyclic = None;
+        let mut held_isdu = None;
+        let mut held_inspection = None;
+        match fence {
+            "draft" => app.setup.mark_pending_for_test(),
+            "cyclic" => {
+                let (sender, receiver) = mpsc::channel();
+                held_cyclic = Some(sender);
+                app.worker = Some(receiver);
+            }
+            "isdu" => {
+                let (sender, receiver) = mpsc::channel();
+                held_isdu = Some(sender);
+                app.isdu_worker = Some(receiver);
+            }
+            "inspection" => held_inspection = Some(app.setup.gate_for_test()),
+            "closing" => app.closing = true,
+            _ => unreachable!(),
+        }
+        for name in ["not-read.toml", "not-inspected.zip"] {
+            drop_paths(&mut app, &ctx, size, &[Path::new(name)]);
+            assert_eq!(app.profile, before, "Drop bypassed {fence}");
+            assert_eq!(app.tab, Tab::Inputs);
+            assert_eq!(app.setup.page, setup::Page::Overview);
+            assert!(!app.workspace.profile_dialog && !app.workspace.connect_dialog);
+            assert!(
+                app.message.starts_with("File selection unchanged"),
+                "{fence}: {}",
+                app.message
+            );
+        }
+        drop((held_cyclic, held_isdu, held_inspection));
+    }
+}
+
+#[test]
+fn unsupported_and_multiple_drops_preserve_selection_and_hover_hint_fits() {
+    let ctx = Context::default();
+    let size = egui::vec2(790.0, 530.0);
+    let mut app = App::new();
+    app.tab = Tab::Inputs;
+    for paths in [
+        vec![Path::new("unknown.bin")],
+        vec![Path::new("a.toml"), Path::new("b.xml")],
+    ] {
+        drop_paths(&mut app, &ctx, size, &paths);
+        assert_eq!(app.tab, Tab::Inputs);
+        assert!(!app.workspace.profile_dialog);
+        assert!(app.message.ends_with("File selection unchanged."));
+        assert_eq!(app.pending_jobs(), 0);
+    }
+    draw_input(
+        &mut app,
+        &ctx,
+        size,
+        egui::RawInput {
+            dropped_files: vec![egui::DroppedFile {
+                name: "without-local-path.toml".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        },
+    );
+    assert!(app.message.starts_with("Drop a local file"));
+    assert!(!app.workspace.profile_dialog);
+    let hover = egui::RawInput {
+        hovered_files: vec![egui::HoveredFile::default()],
+        ..Default::default()
+    };
+    draw_input(&mut app, &ctx, size, hover.clone()); // egui sizes a new Area before painting it.
+    {
+        let found = draw_input(&mut app, &ctx, size, hover);
+        let bounds = found
+            .iter()
+            .find(|(text, _)| text == "Drop a profile or IODD")
+            .expect("hover hint")
+            .1;
+        assert!(
+            bounds.min.x >= 0.0
+                && bounds.max.x <= size.x
+                && bounds.min.y >= 0.0
+                && bounds.max.y <= size.y
+        );
+    }
+    assert_eq!(app.pending_jobs(), 0);
 }
 
 #[test]

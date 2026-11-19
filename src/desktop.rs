@@ -14,6 +14,7 @@ use std::{
 };
 
 mod diagnostics;
+mod file_drop;
 mod logger_metrics;
 mod logging_fields;
 mod observation;
@@ -37,6 +38,7 @@ pub fn run() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1130.0, 790.0])
+            .with_drag_and_drop(true)
             .with_min_inner_size([790.0, 530.0]),
         ..Default::default()
     };
