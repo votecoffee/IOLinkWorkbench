@@ -43,6 +43,8 @@ Capture plans describe saved configuration, never observed transport capabilitie
 
 The GUI tracks the absolute output path of an owned recording and keeps the last published recording available independently of the live session report. Promote the path only when the recording returns a report after publishing `capture.toml`. The review shortcut stages the directory without dispatching work. Switching sources clears the previous combined CSV and re-decode destinations.
 
+Saved capture Verify, Signal and Exports each hold their own result and share the source folder and the file-review admission check. Compare holds its own inputs and worker. Poll all completions before rendering any page. Changing the shared source invalidates dependent results and destination selections. Each page has a separate scroll ID.
+
 ## Local validation
 
 GUI `start_block_reason` supplies both button availability and the start method's preflight check. Keep owned cyclic results (including ready but unread completions), closing and pending profile work fenced before state/output preparation. Prepare fresh stop/display queues locally and commit them only after worker launch succeeds; independent acyclic/review jobs must not become sampler admission locks. Run `desktop::self_test::start_tests` for guard-denied dispatch, completion ownership, draft/inspection guards and consecutive simulator capture/byte-preservation checks. See [session startup](GUI_LIFECYCLE.md#starting-a-session).

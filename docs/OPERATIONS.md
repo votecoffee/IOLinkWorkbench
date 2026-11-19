@@ -18,7 +18,7 @@ Run these commands from the extracted package directory. Use new output names: p
 
 These commands use a synthetic device. They establish software behavior, not physical timing or identity. The GUI starts offline with a typed simulator. Device → Overview links the setup tasks; Profiles… separates bundled starting profiles from Open & save. Starting or loading a profile returns to the overview without connecting. Device edits the applied host profile, Inputs displays monitoring, Logging starts CSV acquisition, and the review tools reopen saved evidence without connecting.
 
-Drag one TOML profile or IODD XML/ZIP onto the GUI to select its path; loading or inspection still requires an explicit click. Pending edits and active setup owners block drops. After stopping CSV recording, use Review latest recording to select its folder in Offline, then Verify capture. See the [GUI workflow](GUI_WORKFLOW.md) for file selection, the tab map, persistent controls, review/profile windows and first session.
+Drag one TOML profile or IODD XML/ZIP onto the GUI to select its path; loading or inspection still requires an explicit click. Pending edits and active setup owners block drops. After stopping CSV recording, use Review latest recording to select its folder in Offline, then choose Verify capture. Signal, Exports and Compare captures have their own pages. See the [GUI workflow](GUI_WORKFLOW.md) for file selection, the tab map, persistent controls, review/profile windows and first session.
 
 ## Descriptions, identity and manual mapping
 
@@ -83,7 +83,7 @@ Saved reviews also expose [recorded identity evidence](CAPTURE_REVIEW.md#recorde
 
 All saved capture operations share [recorded timing consistency checks](CAPTURE_REVIEW.md#recorded-timing-consistency). A failure identifies the affected timing domain; preserve the original bundle for inspection rather than editing it to pass. Missing old measurements remain unavailable. Verification checks recorded consistency and does not remeasure device timing.
 
-Use `compare-captures LEFT RIGHT` or GUI **Compare two saved captures offline** to verify and compare finalized folders. Read the [comparison policy](CAPTURE_REVIEW.md#compare-two-captures): required settings must match before arithmetic differences appear, and counts and terminal receive-age deltas additionally require equal recorded duration. Both complete reviews remain available even when deltas are suppressed. This never remeasures timing or follows saved endpoints.
+Use `compare-captures LEFT RIGHT` or **Offline → Saved captures → Compare captures** to verify and compare finalized folders. Read the [comparison policy](CAPTURE_REVIEW.md#compare-two-captures): required settings must match before arithmetic differences appear, and counts and terminal receive-age deltas additionally require equal recorded duration. Both complete reviews remain available even when deltas are suppressed. This never remeasures timing or follows saved endpoints.
 
 Use `review-interfaces DIRECTORY` for a verified offline view of all recorded interface counters, including raw-only captures. The GUI's Verify capture shows the same diagnostics and timing. Read the [capture review guide](CAPTURE_REVIEW.md) before treating coalescing, retention or socket/commit counts as delivery or source loss. No gateway, broker or mapping is opened by review.
 

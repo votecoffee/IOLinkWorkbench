@@ -135,13 +135,18 @@ fn normal_close_waits_for_simulator_csv_flush_and_preserves_a_verified_bundle() 
     app.start(true)?;
     let ctx = Context::default();
     let deadline = Instant::now() + Duration::from_secs(10);
-    while app.live.counts.received == 0 && app.worker.is_some() && Instant::now() < deadline {
+    // A single observation can arrive before the two-row rotation threshold.
+    let accepted_rows = |app: &App| {
+        let counts = app.live.counts;
+        counts.selected.saturating_sub(counts.logger_overruns)
+    };
+    while accepted_rows(&app) <= 2 && app.worker.is_some() && Instant::now() < deadline {
         app.update_workers(&ctx);
         thread::sleep(Duration::from_millis(1));
     }
     anyhow::ensure!(
-        app.live.counts.received > 0,
-        "simulator produced no GUI observations"
+        accepted_rows(&app) > 2,
+        "simulator did not queue enough rows to rotate the CSV"
     );
     assert_eq!(app.advance_close(true), CloseAction::Wait);
     while app.pending_jobs() != 0 && Instant::now() < deadline {

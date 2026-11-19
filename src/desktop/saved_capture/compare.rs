@@ -44,83 +44,85 @@ impl Comparer {
     }
 
     pub fn show(&mut self, ui: &mut Ui) {
-        ui.collapsing("Compare two saved captures offline", |ui| {
-            let before = (self.left.clone(), self.right.clone());
-            ui.add_enabled_ui(self.worker.is_none(), |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    ui.label("Left capture");
-                    path_entry(ui, &mut self.left, "Finalized capture folder");
-                });
-                ui.horizontal_wrapped(|ui| {
-                    ui.label("Right capture");
-                    path_entry(ui, &mut self.right, "Finalized capture folder");
-                });
-                if ui.button("Verify and compare").clicked() {
-                    self.result = None;
-                    let left = PathBuf::from(self.left.trim());
-                    let right = PathBuf::from(self.right.trim());
-                    match background("compare-saved-captures", move || {
-                        archive::compare_captures(&left, &right)
-                    }) {
-                        Ok(worker) => {
-                            self.worker = Some(worker);
-                            self.message = "Verifying both captures…".into();
-                        }
-                        Err(error) => self.message = error.to_string(),
+        let before = (self.left.clone(), self.right.clone());
+        ui.add_enabled_ui(self.worker.is_none(), |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Left capture");
+                path_entry(ui, &mut self.left, "Finalized capture folder");
+            });
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Right capture");
+                path_entry(ui, &mut self.right, "Finalized capture folder");
+            });
+            let ready = !self.left.trim().is_empty() && !self.right.trim().is_empty();
+            if ui
+                .add_enabled(ready, egui::Button::new("Verify and compare"))
+                .clicked()
+            {
+                self.result = None;
+                let left = PathBuf::from(self.left.trim());
+                let right = PathBuf::from(self.right.trim());
+                match background("compare-saved-captures", move || {
+                    archive::compare_captures(&left, &right)
+                }) {
+                    Ok(worker) => {
+                        self.worker = Some(worker);
+                        self.message = "Verifying both captures…".into();
+                    }
+                    Err(error) => self.message = error.to_string(),
+                }
+            }
+        });
+        if before != (self.left.clone(), self.right.clone()) {
+            self.result = None;
+            if self.worker.is_none() {
+                self.message.clear();
+            }
+        }
+        if !self.message.is_empty() {
+            ui.colored_label(WARNING, &self.message);
+        }
+        if let Some(data) = &self.result {
+            ui.small(data.basis);
+            ui.small(data.delta_policy);
+            ui.label(format!(
+                "Left · {} · {} · {} rows",
+                data.left.capture.profile,
+                data.left.capture.utc_start,
+                data.left.capture.rows_checked
+            ));
+            ui.label(format!(
+                "Right · {} · {} · {} rows",
+                data.right.capture.profile,
+                data.right.capture.utc_start,
+                data.right.capture.rows_checked
+            ));
+            ui.label(format!(
+                "Timing · {} · counts · {}",
+                data.timing_context.replace('_', " "),
+                data.count_context.replace('_', " ")
+            ));
+            ui.collapsing("Recorded settings and differences", |ui| {
+                for setting in &data.settings {
+                    ui.label(format!("{} · {}", setting.name, setting.relation));
+                    if setting.relation != "matching" {
+                        ui.small(format!(
+                            "Left: {}\nRight: {}",
+                            setting.left.as_deref().unwrap_or("unavailable"),
+                            setting.right.as_deref().unwrap_or("unavailable")
+                        ));
                     }
                 }
             });
-            if before != (self.left.clone(), self.right.clone()) {
-                self.result = None;
-                if self.worker.is_none() {
-                    self.message.clear();
-                }
-            }
-            if !self.message.is_empty() {
-                ui.colored_label(WARNING, &self.message);
-            }
-            if let Some(data) = &self.result {
-                ui.small(data.basis);
-                ui.small(data.delta_policy);
-                ui.label(format!(
-                    "Left · {} · {} · {} rows",
-                    data.left.capture.profile,
-                    data.left.capture.utc_start,
-                    data.left.capture.rows_checked
-                ));
-                ui.label(format!(
-                    "Right · {} · {} · {} rows",
-                    data.right.capture.profile,
-                    data.right.capture.utc_start,
-                    data.right.capture.rows_checked
-                ));
-                ui.label(format!(
-                    "Timing · {} · counts · {}",
-                    data.timing_context.replace('_', " "),
-                    data.count_context.replace('_', " ")
-                ));
-                ui.collapsing("Recorded settings and differences", |ui| {
-                    for setting in &data.settings {
-                        ui.label(format!("{} · {}", setting.name, setting.relation));
-                        if setting.relation != "matching" {
-                            ui.small(format!(
-                                "Left: {}\nRight: {}",
-                                setting.left.as_deref().unwrap_or("unavailable"),
-                                setting.right.as_deref().unwrap_or("unavailable")
-                            ));
-                        }
-                    }
-                });
-                ui.checkbox(&mut self.show_unavailable, "Include unavailable metrics");
-                metrics(ui, &data.metrics, self.show_unavailable);
-                ui.collapsing("Left verified context and diagnostics", |ui| {
-                    super::interfaces::show_review(ui, &data.left)
-                });
-                ui.collapsing("Right verified context and diagnostics", |ui| {
-                    super::interfaces::show_review(ui, &data.right)
-                });
-            }
-        });
+            ui.checkbox(&mut self.show_unavailable, "Include unavailable metrics");
+            metrics(ui, &data.metrics, self.show_unavailable);
+            ui.collapsing("Left verified context and diagnostics", |ui| {
+                super::interfaces::show_review(ui, &data.left)
+            });
+            ui.collapsing("Right verified context and diagnostics", |ui| {
+                super::interfaces::show_review(ui, &data.right)
+            });
+        }
     }
 }
 

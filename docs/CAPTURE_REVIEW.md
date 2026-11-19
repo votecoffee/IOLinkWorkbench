@@ -10,7 +10,7 @@ Use finalized capture folders containing `capture.toml`, `profile.toml` and ever
 
 `verify-capture` retains its existing summary format and checks every CSV row, field, part and saved accounting. `review-interfaces` performs that same verification in one pass, then prints TOML with capture summary, acquisition timing/context, original metadata SHA256 values, exact recorded interface counters and categorized findings. It works for raw-only/unmapped captures, where `review-capture` needs a logged typed field. Review prints to stdout and does not replace source files.
 
-In the GUI's **Review saved capture** section, **Verify capture** now also shows **Recorded interface diagnostics**, sampling timing, logger timing and metadata hashes. The existing optional **Combined CSV** destination still publishes atomically after successful verification and refuses an existing target. **Review field** retains its bounded signal plot and includes the same interface diagnostics when recorded. Verification/review failures clear the previous successful result so stale findings are not presented for another folder.
+In **Offline → Saved captures → Verify**, **Verify capture** shows **Recorded interface diagnostics**, sampling timing, logger timing and metadata hashes. **Verify and save combined CSV** publishes to the entered destination after successful verification and refuses an existing target. On **Signal**, **Review field** retains its bounded signal plot and includes the same interface diagnostics when recorded. Each page keeps its result when you navigate. Changing the shared capture folder clears earlier results and source-specific export destinations.
 
 ## Read the domains separately
 
@@ -57,7 +57,7 @@ The [HTTP](LOCAL_API.md), [MQTT](MQTT.md) and [shared-memory](SHARED_MEMORY.md) 
 .\iolink-cli.exe compare-captures trial-a trial-b
 ```
 
-GUI **Compare two saved captures offline** accepts independent left/right folders and runs verification in a background worker. Both sides must pass complete metadata/CSV checks before a result appears. Failure or edited folder selections clear the previous comparison. It neither joins nor writes CSV and never opens a transport or IPC object. Raw-only captures are supported.
+**Offline → Saved captures → Compare captures** accepts independent left/right folders and runs verification in a background worker. Both sides must pass complete metadata/CSV checks before a result appears. Failure or edited folder selections clear the previous comparison. It neither joins nor writes CSV and never opens a transport or IPC object. Raw-only captures are supported.
 
 Output is TOML with both full `review-interfaces` reports, metadata hashes, an explicit settings table and numeric metric rows. The left/right values are recorded statistics or verified CSV counts. Missing numeric fields are omitted and marked `metric_unavailable`, distinct from recorded zero. Each metric keeps its own domain; source gaps, CSV overruns, API drops/retention, MQTT coalescing/uncertain writes and shared-memory skips/replacements are never added together. Original fractional means and complete counters remain in the embedded reviews; the comparison table uses integer counts, microsecond quantiles and terminal host receive ages.
 

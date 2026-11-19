@@ -269,6 +269,19 @@ impl App {
                         (OfflinePage::Events, "Event codes"),
                     ],
                 );
+                if self.workspace.offline == OfflinePage::Captures {
+                    use saved_capture::Page;
+                    subtabs(
+                        ui,
+                        &mut self.saved_capture.page,
+                        &[
+                            (Page::Verify, "Verify"),
+                            (Page::Signal, "Signal"),
+                            (Page::Exports, "Exports"),
+                            (Page::Compare, "Compare captures"),
+                        ],
+                    );
+                }
             }
             Tab::Integration => {
                 subtabs(
@@ -299,6 +312,8 @@ impl App {
                 Tab::Offline => self.workspace.offline as u8,
                 _ => 0,
             },
+            (self.tab == Tab::Offline && self.workspace.offline == OfflinePage::Captures)
+                .then_some(self.saved_capture.page),
         ))
     }
 

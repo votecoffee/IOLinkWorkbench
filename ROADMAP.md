@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Offline saved captures have focused Verify, Signal, Exports and Compare pages. Navigation stays visible above scrollable results. Verify, Signal and Exports share the folder and retain their results when switching pages.
+
 - Logging shows the active output folder and links the latest finalized recording to Offline review. A later monitor session leaves the recording available, and generated names keep the selected parent folder. The cross-tab simulator test stops, flushes and verifies using the same shortcut as the operator.
 
 - File drops select one profile or IODD path for explicit review/load/inspection, with owner/draft fences and no automatic file reads or connection. Open and Save destinations are separate, so selecting a file does not redirect saving. A new IODD path clears stale preview/ZIP selection. Synthetic event tests and hidden native preview painting are verified separately from visible Explorer/OS drop delivery.

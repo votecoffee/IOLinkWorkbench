@@ -190,6 +190,8 @@ pub(super) fn render(
                 "diagnostics-timing",
                 "diagnostics-events",
                 "offline-compare",
+                "offline-signal",
+                "offline-exports",
                 "offline-process",
                 "offline-parameter",
                 "offline-snapshot",
@@ -240,9 +242,14 @@ pub(super) fn render(
                         app.tab = Tab::Diagnostics;
                         app.workspace.diagnostics = DiagnosticsPage::Events;
                     }
-                    "offline-compare" => {
+                    "offline-compare" | "offline-signal" | "offline-exports" => {
                         app.tab = Tab::Offline;
-                        app.saved_capture.open_comparison();
+                        use super::super::saved_capture::Page;
+                        app.saved_capture.page = match label {
+                            "offline-compare" => Page::Compare,
+                            "offline-signal" => Page::Signal,
+                            _ => Page::Exports,
+                        };
                     }
                     "offline-process" => {
                         app.tab = Tab::Offline;
@@ -412,7 +419,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 90);
+        assert_eq!(cases.len(), 92);
         assert!(
             cases
                 .iter()

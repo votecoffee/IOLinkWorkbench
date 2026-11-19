@@ -22,7 +22,7 @@ The workspace follows EthernetIP Workbench's Device → Inputs → Logging patte
 5. Choose **Connect…**, review the actual route, port, poll interval, expected identity and enabled feeds, then **Start monitor**. The app opens **Inputs**. Inspect **Diagnostics → Connection & identity** for observations. Import and configured expectations do not verify the device.
 6. To log, finish the current monitor session with **Stop and flush**, then choose **Record CSV…**. Select a new folder, duration and CSV fields in **Logging**, then **Start CSV capture**. Zero duration means manual stop. Recording can also start directly while idle.
 7. Switch tabs freely during acquisition. **Stop and flush** remains in the header and ends the IO-Link acquisition session, draining any CSV writer. Wait for completion before starting another session. Unlike EthernetIP Workbench, this application does not attach a CSV recorder to a separately retained connection.
-8. Choose **Review latest recording** in **Logging** or **Offline → Saved captures**. This selects the last finalized CSV folder from this app session. Choose **Verify capture** to check it, or **Review field** to inspect a signal. You can still enter any finalized capture folder. **Review & export** and **Compare captures** are separate pages; stored endpoints are not followed.
+8. Choose **Review latest recording** in **Logging** or **Offline → Saved captures**. This selects the last finalized CSV folder from this app session. On **Verify**, choose **Verify capture**. Open **Signal** and choose **Review field** to inspect a logged value. You can also enter any finalized capture folder.
 
 Unapplied changes remain visible in the header even when their page is hidden. **Review pending edits** returns to the correct draft. Setup, mapping and profile-file changes are disabled during acquisition or an active parameter read; integration changes apply to the next session. Independent parameter reads and saved reviews keep their existing background ownership and do not become sampling locks.
 
@@ -34,6 +34,17 @@ Logging shows the resolved output folder during a capture. **New folder name** c
 
 The latest recording stays available after switching profiles or running a monitor session. A finalized run with a recorded error is labeled and can be reviewed. If the worker fails before returning a finalized report, the previous recording remains available. Selecting a different recording clears the previous field selection and export destinations for that source. An active review or export must finish before the shortcut can select a folder.
 
+## Saved capture pages
+
+| Page | Use it for |
+|---|---|
+| Verify | Check the saved files and inspect recorded timing, identity and interface metrics. Fill in Combined CSV to choose **Verify and save combined CSV**. |
+| Signal | Review a logged value with its plot and statistics. Leave Logged field blank to use the first logged field. |
+| Exports | Re-decode with the applied profile, or verify an existing re-decoded bundle. |
+| Compare captures | Verify two independently selected folders and compare their recorded context and metrics. |
+
+Verify, Signal and Exports share the capture folder. Each keeps its results when you switch pages. Editing the source folder clears its earlier results and source-specific export destinations. Compare retains its own two folders. Navigation remains available during background work, and completed results appear on their own pages.
+
 ## Selecting files from Explorer
 
 Drop one file anywhere on the window. A **.toml** path opens **Profiles… → Open & save**; review it and choose **Load profile**. An **.xml** or **.zip** path opens **Device → IODD import**; review the import options and choose **Inspect IODD**, then select/apply the matching variant/layout. Extensions are case-insensitive. A drop selects a path only; it does not read, validate, apply, save or connect. Open and Save have separate path fields. Selecting a profile to open does not redirect saving; a successful load sets the save destination to that profile, and a new starter clears both paths. Save / replace always writes the applied profile to its displayed save destination.
@@ -42,6 +53,6 @@ Selecting another IODD clears the previous inspection, variant/layout and ZIP-me
 
 ## Verification scope
 
-In-process egui tests check page isolation and toolbar bounds at **790×530** and **1130×790**, review/profile navigation, starter selection and guarded replacement, failed-load and source-file preservation, overview routing, synthetic file-drop routing and explicit load/inspect/apply, Unicode paths, rejected multi-file/unsupported drops, hover geometry, hidden-draft recovery, and stopping an actual simulator capture from another tab and reopening its finalized folder for explicit verification. Synthetic pointer events stay inside an isolated egui context; no desktop input is sent.
+In-process egui tests check page isolation and toolbar bounds at **790×530** and **1130×790**, review/profile navigation, starter selection and guarded replacement, failed-load and source-file preservation, overview routing, synthetic file-drop routing and explicit load/inspect/apply, Unicode paths, rejected multi-file/unsupported drops, hover geometry, hidden-draft recovery, and stopping an actual simulator capture from another tab and reopening its finalized folder for verification, signal review and re-decoding across page changes. Synthetic pointer events stay inside an isolated egui context; no desktop input is sent.
 
-The capability-checked native verifier paints 90 built-in profile/page/dialog and observation cases at **1130×790** into a hidden OpenGL framebuffer. It sends no input and reads no pixels. These checks establish layout geometry, workflow behavior and draw submission. Visible appearance, Explorer/OS drop delivery, window-manager interaction, DPI and physical-device acceptance remain separate. The preview case supplies synthetic hover metadata without desktop input or file access.
+The capability-checked native verifier paints 92 built-in profile/page/dialog and observation cases at **1130×790** into a hidden OpenGL framebuffer. It sends no input and reads no pixels. These checks establish layout geometry, workflow behavior and draw submission. Visible appearance, Explorer/OS drop delivery, window-manager interaction, DPI and physical-device acceptance remain separate. The preview case supplies synthetic hover metadata without desktop input or file access.

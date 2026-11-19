@@ -609,15 +609,91 @@ fn stop_and_flush_from_another_tab_can_review_the_recording() -> Result<()> {
     );
     assert!(!joined.exists());
     click(&mut app, &ctx, size, "Verify capture");
+    click(&mut app, &ctx, size, "Signal");
     while app.pending_jobs() > 0 && Instant::now() < deadline {
         draw(&mut app, &ctx, size);
         std::thread::sleep(Duration::from_millis(5));
     }
     let found = draw(&mut app, &ctx, size);
+    assert!(found.iter().any(|(text, _)| text == "Review field"));
+    assert!(
+        !found
+            .iter()
+            .any(|(text, _)| text == "Verify capture" || text == "Verify bundle")
+    );
+    assert!(
+        !found
+            .iter()
+            .any(|(text, _)| text.starts_with("CSV data matches"))
+    );
+    click(&mut app, &ctx, size, "Review field");
+    while app.pending_jobs() > 0 && Instant::now() < deadline {
+        draw(&mut app, &ctx, size);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let found = draw(&mut app, &ctx, size);
+    assert!(found.iter().any(|(text, _)| text.contains("finite values")));
+    click(&mut app, &ctx, size, "Verify");
+    let found = draw(&mut app, &ctx, size);
     assert!(found.iter().any(|(text, _)| text.starts_with(&format!("{rows} rows checked across {parts} parts"))));
+    assert!(
+        found
+            .iter()
+            .any(|(text, _)| text == "CSV data matches the saved report")
+    );
+    assert!(!found.iter().any(|(text, _)| text == "Review field"));
     assert!(
         !joined.exists(),
         "An unrelated combined CSV destination must not carry over"
     );
+    click(&mut app, &ctx, size, "Exports");
+    let exported = destination.path().join("redecoded");
+    paste(
+        &mut app,
+        &ctx,
+        size,
+        "New folder outside the source capture",
+        &exported.display().to_string(),
+    );
+    click(&mut app, &ctx, size, "Export re-decoded CSV");
+    click(&mut app, &ctx, size, "Compare captures");
+    while app.pending_jobs() > 0 && Instant::now() < deadline {
+        draw(&mut app, &ctx, size);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(exported.join("receipt.toml").is_file());
+    click(&mut app, &ctx, size, "Exports");
+    click(&mut app, &ctx, size, "Verify bundle");
+    while app.pending_jobs() > 0 && Instant::now() < deadline {
+        draw(&mut app, &ctx, size);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let found = draw(&mut app, &ctx, size);
+    assert!(
+        found
+            .iter()
+            .any(|(text, _)| text.contains("local file hashes checked"))
+    );
+    click(&mut app, &ctx, size, "Signal");
+    let found = draw(&mut app, &ctx, size);
+    assert!(found.iter().any(|(text, _)| text.contains("finite values")));
+    assert_eq!(app.pending_jobs(), 0);
+    assert!(
+        app.saved_capture
+            .select_directory(&destination.path().join("different-capture"))
+    );
+    let found = draw(&mut app, &ctx, size);
+    assert!(
+        !found
+            .iter()
+            .any(|(text, _)| text == "CSV data matches the saved report")
+    );
+    click(&mut app, &ctx, size, "Signal");
+    assert!(
+        !draw(&mut app, &ctx, size)
+            .iter()
+            .any(|(text, _)| text.contains("finite values"))
+    );
+    assert_eq!(app.pending_jobs(), 0);
     Ok(())
 }
