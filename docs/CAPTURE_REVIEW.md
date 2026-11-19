@@ -1,6 +1,6 @@
 # Offline capture and interface review
 
-Use finalized capture folders containing `capture.toml`, `profile.toml` and every rotated CSV part. Review reads the saved profile, not the current GUI setup. It does not query a master, broker, HTTP service or shared-memory object. Keep private/vendor evidence under ignored `.local/` in a source checkout.
+Use finalized capture folders containing `capture.toml`, `profile.toml` and every rotated CSV part. On **Offline → Saved captures**, drop `capture.toml` to select the capture or `receipt.toml` to select a re-decoded bundle. Run verification explicitly. Review reads the saved profile, not the current GUI setup. It does not query a master, broker, HTTP service or shared-memory object. Keep private/vendor evidence under ignored `.local/` in a source checkout.
 
 ```powershell
 .\iolink-cli.exe verify-capture trial

@@ -201,6 +201,7 @@ pub(super) fn render(
                 "profiles-dialog",
                 "profiles-files",
                 "drop-preview",
+                "drop-saved-preview",
                 "latest-recording",
                 "connection-dialog",
                 "connection-needs-endpoint",
@@ -314,6 +315,7 @@ pub(super) fn render(
                         app.setup.profiles_page = super::super::setup::ProfilePage::Files;
                     }
                     "drop-preview" => {}
+                    "drop-saved-preview" => app.tab = Tab::Offline,
                     "latest-recording" => {
                         app.tab = Tab::Logging;
                         app.latest_recording = Some(super::super::Recording {
@@ -380,7 +382,7 @@ pub(super) fn render(
                 focused: false,
                 ..Default::default()
             };
-            if label == "drop-preview" {
+            if matches!(label, "drop-preview" | "drop-saved-preview") {
                 input.hovered_files.push(egui::HoveredFile::default());
             }
             input
@@ -471,7 +473,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 96);
+        assert_eq!(cases.len(), 97);
         assert!(
             cases
                 .iter()

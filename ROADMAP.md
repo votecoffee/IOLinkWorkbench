@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Drop a finalized capture's capture.toml or a re-decoded bundle's receipt.toml in the saved capture workspace to select its folder for explicit verification.
+
 - Verified captures supply the Signal picker with saved fields and units in CSV order. A verified capture with no typed columns links to re-decode options.
 
 - Connection review and Logging show enabled feed destinations and catch configuration errors before startup. Fix links select the affected Integration page.

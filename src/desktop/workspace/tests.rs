@@ -481,6 +481,54 @@ fn drop_paths(app: &mut App, ctx: &Context, size: egui::Vec2, paths: &[&Path]) {
 }
 
 #[test]
+fn saved_marker_drops_stage_paths_and_respect_the_review_owner() -> Result<()> {
+    let scratch = tempfile::tempdir()?;
+    let directory = scratch.path().join("Earlier 録画");
+    let marker = directory.join("CAPTURE.TOML");
+    let bundle = scratch.path().join("redecoded").join("receipt.toml");
+    let ctx = Context::default();
+    let size = egui::vec2(790.0, 530.0);
+    let mut app = App::new();
+    let before = app.profile.clone();
+    let (_sender, receiver) = mpsc::channel();
+    app.worker = Some(receiver);
+    app.setup.mark_pending_for_test();
+    app.tab = Tab::Offline;
+    drop_paths(&mut app, &ctx, size, &[&marker]);
+    assert_eq!(app.saved_capture.page, saved_capture::Page::Verify);
+    assert!(app.message.starts_with("Capture folder selected."));
+    assert!(!app.workspace.profile_dialog);
+    assert_eq!(
+        app.pending_jobs(),
+        1,
+        "A saved-file drop must only stage its path"
+    );
+    assert!(!directory.exists());
+    assert_eq!(app.profile, before);
+    let releases = app.saved_capture.gates_for_test();
+    drop_paths(&mut app, &ctx, size, &[&bundle]);
+    assert_eq!(app.saved_capture.page, saved_capture::Page::Verify);
+    assert!(app.message.contains("active capture review or export"));
+    assert_eq!(app.pending_jobs(), 3);
+    for release in releases {
+        release();
+    }
+    drop_paths(&mut app, &ctx, size, &[&bundle]);
+    assert_eq!(app.saved_capture.page, saved_capture::Page::Exports);
+    assert!(app.message.starts_with("Bundle folder selected."));
+    assert_eq!(app.pending_jobs(), 1);
+
+    let mut other = App::new();
+    drop_paths(&mut other, &ctx, size, &[&marker]);
+    assert!(
+        other.workspace.profile_dialog,
+        "A TOML file outside Saved captures remains a profile choice"
+    );
+    assert_eq!(other.pending_jobs(), 0);
+    Ok(())
+}
+
+#[test]
 fn profile_drop_selects_a_unicode_path_without_loading_until_requested() -> Result<()> {
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("入力 device.TOML");
@@ -1003,6 +1051,17 @@ fn stop_and_flush_from_another_tab_can_review_the_recording() -> Result<()> {
         "Selecting a recording must not dispatch verification"
     );
     assert!(!joined.exists());
+    assert!(
+        draw(&mut app, &ctx, size)
+            .iter()
+            .any(|(text, _)| text == "Verify capture")
+    );
+    assert!(
+        app.saved_capture
+            .select_directory(&destination.path().join("other-capture"))
+    );
+    drop_paths(&mut app, &ctx, size, &[&path.join("capture.toml")]);
+    assert_eq!(app.pending_jobs(), 0);
     click(&mut app, &ctx, size, "Verify capture");
     click(&mut app, &ctx, size, "Signal");
     while app.pending_jobs() > 0 && Instant::now() < deadline {
@@ -1069,6 +1128,15 @@ fn stop_and_flush_from_another_tab_can_review_the_recording() -> Result<()> {
     }
     assert!(exported.join("receipt.toml").is_file());
     click(&mut app, &ctx, size, "Exports");
+    click(
+        &mut app,
+        &ctx,
+        size,
+        "Also reverify the original Capture folder above",
+    );
+    drop_paths(&mut app, &ctx, size, &[&exported.join("receipt.toml")]);
+    assert_eq!(app.saved_capture.page, saved_capture::Page::Exports);
+    assert_eq!(app.pending_jobs(), 0);
     click(&mut app, &ctx, size, "Verify bundle");
     while app.pending_jobs() > 0 && Instant::now() < deadline {
         draw(&mut app, &ctx, size);
@@ -1078,16 +1146,24 @@ fn stop_and_flush_from_another_tab_can_review_the_recording() -> Result<()> {
     assert!(
         found
             .iter()
+            .any(|(text, _)| text.contains("Original capture not reverified"))
+    );
+    assert!(
+        found
+            .iter()
             .any(|(text, _)| text.contains("local file hashes checked"))
     );
     click(&mut app, &ctx, size, "Signal");
     let found = draw(&mut app, &ctx, size);
     assert!(found.iter().any(|(text, _)| text.contains("finite values")));
     assert_eq!(app.pending_jobs(), 0);
-    assert!(
-        app.saved_capture
-            .select_directory(&destination.path().join("different-capture"))
+    drop_paths(
+        &mut app,
+        &ctx,
+        size,
+        &[&destination.path().join("different-capture/capture.toml")],
     );
+    assert_eq!(app.saved_capture.page, saved_capture::Page::Verify);
     let found = draw(&mut app, &ctx, size);
     assert!(
         !found

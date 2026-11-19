@@ -55,6 +55,8 @@ The GUI feed review builds enabled HTTP, MQTT and shared-memory configurations u
 
 Capture verification keeps the saved typed field definitions from its checked profile for the GUI picker. The list follows saved CSV column order. Its in-memory accessor leaves the serialized review format intact. A source change or failed verification withdraws the prior field list, and a signal review verifies the capture as it plots the selected field.
 
+In the saved capture workspace, a drop of capture.toml or receipt.toml stages the file's containing directory. This selection uses the saved review worker's admission check and may run during unrelated acquisition or profile editing. It does no file access. Receipt drops select local bundle verification and clear the prior optional original-source selection.
+
 ## Local validation
 
 GUI `start_block_reason` supplies both button availability and the start method's preflight check. Keep owned cyclic results (including ready but unread completions), closing and pending profile work fenced before state/output preparation. Prepare fresh stop/display queues locally and commit them only after worker launch succeeds; independent acyclic/review jobs must not become sampler admission locks. Run `desktop::self_test::start_tests` for guard-denied dispatch, completion ownership, draft/inspection guards and consecutive simulator capture/byte-preservation checks. See [session startup](GUI_LIFECYCLE.md#starting-a-session).

@@ -119,6 +119,17 @@ impl Verifier {
         true
     }
 
+    pub(super) fn select_bundle(&mut self, directory: &Path) -> bool {
+        let Some(path) = directory.to_str().filter(|_| self.can_select_directory()) else {
+            return false;
+        };
+        self.page = Page::Exports;
+        self.bundle_directory = path.into();
+        self.bundle_check_original = false;
+        self.exports.result = None;
+        true
+    }
+
     #[cfg(test)]
     pub(super) fn gates_for_test(&mut self) -> Vec<super::TestCompletion> {
         let (sender, receiver) = std::sync::mpsc::channel();
@@ -219,6 +230,7 @@ impl Verifier {
     }
 
     fn show_verify(&mut self, ui: &mut Ui, editable: bool) {
+        ui.small("Drop capture.toml from Explorer to select its folder.");
         ui.add_enabled_ui(editable, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.label("Combined CSV");
@@ -365,6 +377,7 @@ impl Verifier {
             }
             ui.separator();
             ui.strong("Verify re-decoded bundle");
+            ui.small("Drop receipt.toml from Explorer to select its bundle.");
             ui.checkbox(
                 &mut self.bundle_check_original,
                 "Also reverify the original Capture folder above",
