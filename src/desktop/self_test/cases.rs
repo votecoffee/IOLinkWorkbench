@@ -203,6 +203,7 @@ pub(super) fn render(
                 "latest-recording",
                 "connection-dialog",
                 "connection-needs-endpoint",
+                "connection-feed-settings",
             ] {
                 let mut app = App::new();
                 app.profile = profile.clone();
@@ -317,6 +318,13 @@ pub(super) fn render(
                         app.profile =
                             Profile::parse(include_str!("../../../samples/ifm-al1350.toml"))?;
                         app.setup.sync(&app.profile);
+                        app.workspace.connect_dialog = true;
+                    }
+                    "connection-feed-settings" => {
+                        app.api_enabled = true;
+                        app.mqtt_enabled = true;
+                        app.mqtt_topic = "lab/+/input".into();
+                        app.shared_memory_enabled = true;
                         app.workspace.connect_dialog = true;
                     }
                     _ => unreachable!(),
@@ -452,7 +460,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 94);
+        assert_eq!(cases.len(), 95);
         assert!(
             cases
                 .iter()

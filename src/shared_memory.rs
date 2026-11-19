@@ -41,7 +41,8 @@ impl Default for Config {
     }
 }
 impl Config {
-    fn validate(&self) -> Result<()> {
+    /// Check configuration without creating Windows objects.
+    pub fn validate(&self) -> Result<()> {
         ensure!(
             (1..=64).contains(&self.name.len())
                 && self

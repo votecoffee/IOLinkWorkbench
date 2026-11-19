@@ -226,13 +226,17 @@ fn first_connection_rejection_preserves_diagnostics_without_an_accepted_device()
         &profile,
         &Options {
             output: Some(path.clone()),
-            duration: Some(Duration::from_millis(250)),
+            // Identity rejection should end the run. Allow time for CSV setup under load.
+            duration: Some(Duration::from_secs(10)),
             ..Default::default()
         },
         &Stop::default(),
         None,
     )?;
-    assert!(!report.success() && report.last_status.is_none() && report.rejected_status.is_some());
+    assert!(
+        !report.success() && report.last_status.is_none() && report.rejected_status.is_some(),
+        "{report:?}"
+    );
     let reviewed = archive::review_interfaces(&path, None)?;
     assert_eq!(reviewed.capture.rows_checked, 0);
     assert!(reviewed.capture.capture_had_error);

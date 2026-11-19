@@ -41,7 +41,8 @@ impl Default for Config {
 }
 
 impl Config {
-    fn validate(&self) -> Result<()> {
+    /// Check configuration without binding a listener.
+    pub fn validate(&self) -> Result<()> {
         ensure!(
             self.listen.ip() == std::net::IpAddr::V4(Ipv4Addr::LOCALHOST),
             "local API must bind to numeric IPv4 127.0.0.1"

@@ -41,7 +41,8 @@ impl Default for Config {
     }
 }
 impl Config {
-    fn validate(&self) -> Result<()> {
+    /// Check configuration without opening a broker connection.
+    pub fn validate(&self) -> Result<()> {
         ensure!(
             !self.broker.ip().is_unspecified()
                 && !self.broker.ip().is_multicast()

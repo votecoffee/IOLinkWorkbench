@@ -81,6 +81,91 @@ fn paste(app: &mut App, ctx: &Context, size: egui::Vec2, hint: &str, value: &str
 }
 
 #[test]
+fn feed_review_routes_errors_and_shows_the_prepared_session_destinations() -> Result<()> {
+    let _serial = WORKER_TEST_LOCK.lock().unwrap();
+    let mut app = App::new();
+    let ctx = Context::default();
+    let size = egui::vec2(790.0, 530.0);
+    let has = |app: &mut App, snippet: &str| {
+        draw(app, &ctx, size)
+            .iter()
+            .any(|(text, _)| text.contains(snippet))
+    };
+    let scratch = tempfile::tempdir()?;
+    let destination = scratch.path().join("no-capture");
+    app.capture_path = destination.display().to_string();
+    app.api_enabled = true;
+    app.api_port = 18765;
+    app.mqtt_enabled = true;
+    app.mqtt_broker = "127.0.0.1:1".into();
+    app.mqtt_topic = "line/+/inputs".into();
+    app.shared_memory_enabled = true;
+    app.shared_memory_name = "invalid\\name".into();
+    app.stop.request();
+    app.live.counts.received = 24;
+
+    click(&mut app, &ctx, size, "Connect…");
+    assert!(has(
+        &mut app,
+        "Local HTTP API · http://127.0.0.1:18765/v1/status"
+    ));
+    assert!(has(&mut app, "MQTT topic must be"));
+    assert!(has(&mut app, "shared-memory name must be"));
+    click(&mut app, &ctx, size, "Start monitor");
+    assert_eq!(app.pending_jobs(), 0);
+    click(&mut app, &ctx, size, "Edit MQTT settings");
+    assert_eq!(app.tab, Tab::Integration);
+    assert_eq!(app.workspace.integration, IntegrationPage::Mqtt);
+    assert!(!app.workspace.connect_dialog);
+    assert!(has(&mut app, "MQTT topic must be"));
+    assert!(
+        app.start(true)
+            .unwrap_err()
+            .to_string()
+            .contains("MQTT settings")
+    );
+    assert!(app.stop.requested() && app.live.counts.received == 24);
+    assert!(!destination.exists());
+
+    app.mqtt_topic = "line/1/inputs".into();
+    click(&mut app, &ctx, size, "Record CSV…");
+    assert!(has(&mut app, "shared-memory name must be"));
+    click(&mut app, &ctx, size, "Start CSV capture");
+    assert_eq!(app.pending_jobs(), 0);
+    assert!(!destination.exists());
+    click(&mut app, &ctx, size, "Edit shared memory settings");
+    assert_eq!(app.workspace.integration, IntegrationPage::SharedMemory);
+    assert!(has(&mut app, "shared-memory name must be"));
+    app.shared_memory_name = "line.1".into();
+    app.mqtt_interval_ms = 250;
+    app.shared_memory_interval_ms = 30;
+    click(&mut app, &ctx, size, "Connect…");
+    assert!(has(
+        &mut app,
+        "MQTT · 127.0.0.1:1 · topic \"line/1/inputs\" · 250 ms"
+    ));
+    assert!(has(
+        &mut app,
+        "Shared memory · Local\\IOLinkWorkbench.Snapshot.line.1 · 30 ms"
+    ));
+    let feeds = app.review_feeds().into_options()?;
+    assert_eq!(feeds.local_api.unwrap().listen.port(), 18765);
+    let mqtt = feeds.mqtt.unwrap();
+    assert_eq!(mqtt.broker.to_string(), "127.0.0.1:1");
+    assert_eq!(mqtt.topic, "line/1/inputs");
+    assert_eq!(mqtt.interval_ms, 250);
+    assert_eq!(
+        feeds.shared_memory.unwrap().mapping_name(),
+        "Local\\IOLinkWorkbench.Snapshot.line.1"
+    );
+    app.mqtt_broker = "ignored while disabled".into();
+    app.mqtt_enabled = false;
+    assert!(app.review_feeds().into_options()?.mqtt.is_none());
+    assert_eq!(app.pending_jobs(), 0);
+    Ok(())
+}
+
+#[test]
 fn session_route_reviews_block_start_and_point_to_the_relevant_settings() -> Result<()> {
     let _serial = WORKER_TEST_LOCK.lock().unwrap();
     let mut app = App::new();

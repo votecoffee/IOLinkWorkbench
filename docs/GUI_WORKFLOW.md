@@ -34,6 +34,12 @@ The footer shows the latest session message; hover to read it in full. **Diagnos
 
 These checks run locally. The read verifies reachability and observes master and device identity after startup. Confirm a conditional layout only after checking which condition is active on the device.
 
+## Review enabled software feeds
+
+The connection review lists the HTTP status URL, MQTT broker, exact topic and interval, and Windows mapping name and interval for enabled feeds. **Logging → Software feeds for this recording** shows the same destinations before capture. The settings apply to the next session.
+
+Invalid enabled settings block Start and offer a link to the relevant **Integration** page. The selected Integration page displays its validation error as you edit. You can still prepare CSV settings. The application checks port availability, broker connections and Windows object creation during startup or operation.
+
 ## Finding a recording
 
 Logging shows the resolved output folder during a capture. **New folder name** creates a timestamped name in the current parent folder. Starting the recording creates the folder.
@@ -73,4 +79,4 @@ Selecting another IODD clears the previous inspection, variant/layout and ZIP-me
 
 In-process egui tests check page isolation and toolbar bounds at **790×530** and **1130×790**, review/profile navigation, starter selection and guarded replacement, failed-load and source-file preservation, overview routing, synthetic file-drop routing and explicit load/inspect/apply, Unicode paths, rejected multi-file/unsupported drops, hover geometry, hidden-draft recovery, acyclic result attribution after selection and page changes, and stopping an actual simulator capture from another tab and reopening its finalized folder for verification, signal review and re-decoding across page changes. Synthetic pointer events stay inside an isolated egui context; no desktop input is sent.
 
-The capability-checked native verifier paints 94 built-in profile/page/dialog and observation cases at **1130×790** into a hidden OpenGL framebuffer. It sends no input and reads no pixels. These checks establish layout geometry, workflow behavior and draw submission. Visible appearance, Explorer/OS drop delivery, window-manager interaction, DPI and physical-device acceptance remain separate. The preview case supplies synthetic hover metadata without desktop input or file access.
+The capability-checked native verifier paints 95 built-in profile/page/dialog and observation cases at **1130×790** into a hidden OpenGL framebuffer. It sends no input and reads no pixels. These checks establish layout geometry, workflow behavior and draw submission. Visible appearance, Explorer/OS drop delivery, window-manager interaction, DPI and physical-device acceptance remain separate. The preview case supplies synthetic hover metadata without desktop input or file access.

@@ -29,6 +29,8 @@ The separate native verifier still checks hidden OpenGL initialization and offsc
 
 Route checks precede output-folder preparation and worker launch. They share the transport's AL1350 origin and HTTPS rules and capture's physical IODD condition check. A local rejection leaves the prior observation, report and stop token available. Resolve issues through Device → Connection or Mappings. Reachability and observed identity are checked in the worker.
 
+Enabled feeds are validated before output-folder preparation and dispatch. Connection review, Logging and Start use the same configuration construction and the services' local validators. Binding, broker reachability and mapping creation are tested when the services run.
+
 ## Operator acceptance checklist
 
 These are pending visible checks, not results claimed by the automated suites. Start with the bundled **Simulator** profile and a new output directory; select bench hardware only under the session's authorized read-only scope.

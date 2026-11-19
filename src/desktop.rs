@@ -1,6 +1,6 @@
 use eframe::egui::{self, Color32, Context, RichText, Ui, ViewportCommand};
 use iolink_workbench::{
-    capture::{self, Live, LiveQueue, Options, Report, Stop},
+    capture::{self, Live, LiveQueue, Report, Stop},
     decode, iodd,
     profile::{Gateway, LogMode, Profile},
     transport::{self, Freshness},
@@ -16,6 +16,7 @@ use std::{
 mod acyclic;
 mod diagnostics;
 mod file_drop;
+mod integration_review;
 mod logger_metrics;
 mod logging_fields;
 mod observation;
@@ -223,7 +224,8 @@ impl App {
         self.profile.validate()?;
         self.check_session_route()
             .map_err(session_review::RouteIssue::into_error)?;
-        let output = if record {
+        let mut options = self.review_feeds().into_options()?;
+        options.output = if record {
             anyhow::ensure!(
                 !self.capture_path.trim().is_empty(),
                 "Enter a new capture folder"
@@ -241,47 +243,11 @@ impl App {
             None
         };
         let profile = self.profile.clone();
-        let mqtt = if self.mqtt_enabled {
-            Some(iolink_workbench::mqtt::Config {
-                broker: self
-                    .mqtt_broker
-                    .trim()
-                    .parse()
-                    .map_err(|_| anyhow::anyhow!("Enter a numeric MQTT broker IP:PORT"))?,
-                topic: self.mqtt_topic.clone(),
-                interval_ms: self.mqtt_interval_ms,
-                ..Default::default()
-            })
-        } else {
-            None
-        };
-        let active_recording = output.clone();
-        let options = Options {
-            shared_memory: self.shared_memory_enabled.then(|| {
-                iolink_workbench::shared_memory::Config {
-                    name: self.shared_memory_name.clone(),
-                    interval_ms: self.shared_memory_interval_ms,
-                    ..Default::default()
-                }
-            }),
-            mqtt,
-            output,
-            duration: (record && self.duration != 0)
-                .then(|| Duration::from_secs(u64::from(self.duration))),
-            simulate_faults: profile.connection.gateway == Gateway::Simulator
-                && self.simulate_faults,
-            local_api: self
-                .api_enabled
-                .then(|| iolink_workbench::local_api::Config {
-                    listen: std::net::SocketAddrV4::new(
-                        std::net::Ipv4Addr::LOCALHOST,
-                        self.api_port,
-                    )
-                    .into(),
-                    ..Default::default()
-                }),
-            ..Options::default()
-        };
+        let active_recording = options.output.clone();
+        options.duration =
+            (record && self.duration != 0).then(|| Duration::from_secs(u64::from(self.duration)));
+        options.simulate_faults =
+            profile.connection.gateway == Gateway::Simulator && self.simulate_faults;
         let stop = Stop::default();
         let queue = Arc::new(crossbeam_queue::ArrayQueue::new(1));
         let worker_stop = stop.clone();

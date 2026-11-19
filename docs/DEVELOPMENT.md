@@ -51,6 +51,8 @@ The GUI has one acyclic worker with an immutable query label and a separate last
 
 Connection review and Logging use the local acquisition route check before presenting Start. The entry point repeats the check before preparing output paths or dispatching a worker. The origin and HTTPS rules are shared with the AL1350 client, and the IODD confirmation check is shared with the capture worker. Keep stored templates loadable while their route is incomplete.
 
+The GUI feed review builds enabled HTTP, MQTT and shared-memory configurations using the services' pure validators. Start transfers those configurations to the worker after the route and feed checks pass. Keep local review free of socket binding, broker connections and mapping creation.
+
 ## Local validation
 
 GUI `start_block_reason` supplies both button availability and the start method's preflight check. Keep owned cyclic results (including ready but unread completions), closing and pending profile work fenced before state/output preparation. Prepare fresh stop/display queues locally and commit them only after worker launch succeeds; independent acyclic/review jobs must not become sampler admission locks. Run `desktop::self_test::start_tests` for guard-denied dispatch, completion ownership, draft/inspection guards and consecutive simulator capture/byte-preservation checks. See [session startup](GUI_LIFECYCLE.md#starting-a-session).

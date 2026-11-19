@@ -456,11 +456,14 @@ impl App {
                     optional_number(self.profile.expected_identity.vendor_id), optional_number(self.profile.expected_identity.device_id),
                     self.profile.expected_identity.product_id.as_deref().unwrap_or("unavailable")));
                 ui.small("Monitoring reads the existing configured port. The connection will check reachability and observe device identity.");
-                ui.label(format!("Per-session feeds · HTTP {} · MQTT {} · Shared memory {}", self.api_enabled, self.mqtt_enabled, self.shared_memory_enabled));
+                let feeds = self.review_feeds();
+                if feeds.enabled() { ui.strong("Software feeds for this session"); }
+                feeds.show_destinations(ui);
+                self.show_feed_issues(ui, &feeds);
                 let blocked = self.start_block_reason();
                 if let Some(reason) = blocked { ui.colored_label(WARNING, reason); }
                 if let Err(issue) = &route { self.show_route_issue(ui, issue); }
-                if ui.add_enabled(blocked.is_none() && route.is_ok(), egui::Button::new("Start monitor")).clicked() {
+                if ui.add_enabled(blocked.is_none() && route.is_ok() && feeds.valid(), egui::Button::new("Start monitor")).clicked() {
                     match self.start(false) { Ok(()) => { self.tab = Tab::Inputs; }, Err(error) => self.message = format!("{error:#}") }
                 }
                 if !self.message.is_empty() { ui.label(&self.message); }
@@ -474,10 +477,6 @@ impl App {
     fn integration_page(&mut self, ui: &mut Ui) {
         ui.heading("Software integration");
         ui.label("Optional feeds run with the next monitor or capture session. Stop acquisition to change their settings.");
-        ui.label(format!(
-            "Enabled · HTTP {} · MQTT {} · Shared memory {}",
-            self.api_enabled, self.mqtt_enabled, self.shared_memory_enabled
-        ));
         ui.add_enabled_ui(self.start_block_reason().is_none(), |ui| match self.workspace.integration {
             IntegrationPage::Api => {
                 ui.checkbox(&mut self.api_enabled, "Read-only local API");
@@ -498,6 +497,9 @@ impl App {
                 ui.small("Local mapping · latest state · readers use the named mutex · independent loss accounting");
             }
         });
+        if let Some(error) = self.review_feeds().issue(self.workspace.integration) {
+            ui.colored_label(WARNING, format!("{error:#}"));
+        }
         self.integration_status(ui);
     }
 }
