@@ -42,7 +42,10 @@ fn click(app: &mut App, ctx: &Context, size: egui::Vec2, label: &str) {
     let position = found
         .iter()
         .find(|(text, _)| text == label)
-        .unwrap_or_else(|| panic!("Missing control {label}"))
+        .unwrap_or_else(|| {
+            let visible: Vec<_> = found.iter().map(|(text, _)| text.as_str()).collect();
+            panic!("Missing control {label}. Drawn text: {visible:?}")
+        })
         .1
         .center();
     for pressed in [true, false] {
@@ -75,6 +78,104 @@ fn paste(app: &mut App, ctx: &Context, size: egui::Vec2, hint: &str, value: &str
         },
         |ctx| app.render(ctx),
     );
+}
+
+#[test]
+fn parameter_search_keeps_selection_explicit_and_read_controls_compact() -> Result<()> {
+    let _serial = WORKER_TEST_LOCK.lock().unwrap();
+    let catalog = iodd::parse(
+        include_str!("../../../samples/sensor-formats.xml"),
+        "synthetic GUI search fixture".into(),
+    )?;
+    let (identity, mut imported) = catalog.select(None, None)?;
+    imported
+        .parameters
+        .iter_mut()
+        .find(|p| p.index == 64)
+        .unwrap()
+        .name = "Étage threshold".into();
+    let mut app = App::new();
+    app.profile.input_bytes = imported.input_bytes;
+    app.profile.expected_identity = identity;
+    app.profile.iodd = Some(imported);
+    app.setup.sync(&app.profile);
+    app.tab = Tab::Parameters;
+    let ctx = Context::default();
+    let size = egui::vec2(790.0, 530.0);
+    let search = "Search name, IODD ID, or index";
+    let has =
+        |app: &mut App, label: &str| draw(app, &ctx, size).iter().any(|(text, _)| text == label);
+    for query in ["étAGE", "0X0040", "00064", "v_sIm_thre"] {
+        paste(&mut app, &ctx, size, search, query);
+        assert!(has(&mut app, "1 of 3 parameters"), "query {query}");
+        assert!(app.parameter_picker.selected.is_none());
+        click(&mut app, &ctx, size, "Clear search");
+    }
+    paste(&mut app, &ctx, size, search, "66");
+    click(&mut app, &ctx, size, "Select parameter");
+    let access = app.profile.parameter("V_SIM_Record")?.access.label();
+    click(
+        &mut app,
+        &ctx,
+        size,
+        &format!("Synthetic settings record · index 66 · {access}"),
+    );
+    assert_eq!(
+        app.parameter_picker.selected.as_deref(),
+        Some("V_SIM_Record")
+    );
+    click(&mut app, &ctx, size, "Subindex 0");
+    click(&mut app, &ctx, size, "1 · Level");
+    assert_eq!(app.parameter_picker.subindex, 1);
+    assert_eq!(app.pending_jobs(), 0);
+    assert!(has(&mut app, "Read named parameter"));
+    assert!(!has(&mut app, "Read and save snapshot"));
+    assert!(!has(&mut app, "Inspect declared default (offline)"));
+    click(&mut app, &ctx, size, "IODD details and display preference");
+    assert!(has(&mut app, "Inspect declared default (offline)"));
+    click(&mut app, &ctx, size, "IODD details and display preference");
+    click(&mut app, &ctx, size, "Read named parameter");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while app.isdu_worker.is_some() && Instant::now() < deadline {
+        draw(&mut app, &ctx, size);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        app.isdu_result.contains("index 66:1"),
+        "{}",
+        app.isdu_result
+    );
+    click(&mut app, &ctx, size, "Clear search");
+    paste(&mut app, &ctx, size, search, "no such parameter");
+    assert!(has(&mut app, "No matching parameters"));
+    assert!(has(
+        &mut app,
+        "Current selection is outside the search results."
+    ));
+    assert_eq!(app.parameter_picker.subindex, 1);
+    click(&mut app, &ctx, size, "Clear search");
+    paste(&mut app, &ctx, size, search, "67");
+    click(&mut app, &ctx, size, "Synthetic settings record · index 66");
+    let access = app.profile.parameter("V_SIM_History")?.access.label();
+    click(
+        &mut app,
+        &ctx,
+        size,
+        &format!("Synthetic history · index 67 · {access}"),
+    );
+    assert_eq!(
+        app.parameter_picker.selected.as_deref(),
+        Some("V_SIM_History")
+    );
+    assert_eq!(app.parameter_picker.subindex, 0);
+    app.tab = Tab::Offline;
+    app.workspace.offline = OfflinePage::Parameter;
+    assert!(has(&mut app, "3 of 3 parameters"));
+    assert!(has(&mut app, "Select parameter"));
+    paste(&mut app, &ctx, size, search, "0x40");
+    assert!(has(&mut app, "1 of 3 parameters"));
+    assert_eq!(app.pending_jobs(), 0);
+    Ok(())
 }
 
 fn drop_paths(app: &mut App, ctx: &Context, size: egui::Vec2, paths: &[&Path]) {

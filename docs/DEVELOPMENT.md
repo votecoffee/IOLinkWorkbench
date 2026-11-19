@@ -45,6 +45,8 @@ The GUI tracks the absolute output path of an owned recording and keeps the last
 
 Saved capture Verify, Signal and Exports each hold their own result and share the source folder and the file-review admission check. Compare holds its own inputs and worker. Poll all completions before rendering any page. Changing the shared source invalidates dependent results and destination selections. Each page has a separate scroll ID.
 
+The named-parameter picker shares search and selection logic between live reads and offline decoding. Each view holds its own query and selection. Search is a view filter and keeps the chosen parameter and subindex until the operator selects a different parameter. Rendering details and searching must stay free of transport calls.
+
 ## Local validation
 
 GUI `start_block_reason` supplies both button availability and the start method's preflight check. Keep owned cyclic results (including ready but unread completions), closing and pending profile work fenced before state/output preparation. Prepare fresh stop/display queues locally and commit them only after worker launch succeeds; independent acyclic/review jobs must not become sampler admission locks. Run `desktop::self_test::start_tests` for guard-denied dispatch, completion ownership, draft/inspection guards and consecutive simulator capture/byte-preservation checks. See [session startup](GUI_LIFECYCLE.md#starting-a-session).

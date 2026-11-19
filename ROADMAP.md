@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Named IODD parameters are searchable by name, ID and index in live and offline views. Read and decode controls stay above expandable IODD details. Saving a parameter snapshot has its own expandable controls.
+
 - Offline saved captures have focused Verify, Signal, Exports and Compare pages. Navigation stays visible above scrollable results. Verify, Signal and Exports share the folder and retain their results when switching pages.
 
 - Logging shows the active output folder and links the latest finalized recording to Offline review. A later monitor session leaves the recording available, and generated names keep the selected parent folder. The cross-tab simulator test stops, flushes and verifies using the same shortcut as the operator.

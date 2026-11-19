@@ -8,7 +8,7 @@ The workspace follows EthernetIP Workbench's Device → Inputs → Logging patte
 | Inputs | Current raw input, quality, advancing host ages and a compact field/value/unit table; expand bit layout and scaling when needed |
 | Logging | New capture folder, duration, update/on-change selection and CSV values; buffer sizing, rotation and the full plan expand on demand |
 | Mappings | Imported/manual fields and overrides; Edit mapping opens a focused editor instead of stacking it below the list |
-| Parameters | Explicit IODD reads or documented numeric ISDU reads, on separate pages |
+| Parameters | Search declared IODD parameters or read a documented numeric ISDU address |
 | Integration | Optional local HTTP, MQTT and Windows shared-memory settings, on separate pages |
 | Diagnostics | Observed connection/identity, finalized timing and explicit device-event reads, on separate pages |
 | Offline | Saved capture review/comparison, process bytes, parameter bytes, saved parameter snapshots and event-code decoding, on separate pages |
@@ -34,6 +34,12 @@ Logging shows the resolved output folder during a capture. **New folder name** c
 
 The latest recording stays available after switching profiles or running a monitor session. A finalized run with a recorded error is labeled and can be reviewed. If the worker fails before returning a finalized report, the previous recording remains available. Selecting a different recording clears the previous field selection and export destinations for that source. An active review or export must finish before the shortcut can select a folder.
 
+## Find and read a named parameter
+
+In **Parameters → IODD reads**, search by name, IODD ID, or exact index. Indexes accept decimal or hexadecimal with an **0x** prefix. Select a match, then select a subindex for a record or array. **Read named parameter** issues the explicit read. Expand **Read and save a snapshot** to save the response and its profile to a new JSON file. **IODD details and display preference** holds the declaration, choices, ranges, default, and saved host display selection.
+
+**Offline → Parameter bytes** has its own search and selection for decoding recorded bytes. Filtering narrows the picker and keeps the current parameter selected until you choose another one.
+
 ## Saved capture pages
 
 | Page | Use it for |
@@ -55,4 +61,4 @@ Selecting another IODD clears the previous inspection, variant/layout and ZIP-me
 
 In-process egui tests check page isolation and toolbar bounds at **790×530** and **1130×790**, review/profile navigation, starter selection and guarded replacement, failed-load and source-file preservation, overview routing, synthetic file-drop routing and explicit load/inspect/apply, Unicode paths, rejected multi-file/unsupported drops, hover geometry, hidden-draft recovery, and stopping an actual simulator capture from another tab and reopening its finalized folder for verification, signal review and re-decoding across page changes. Synthetic pointer events stay inside an isolated egui context; no desktop input is sent.
 
-The capability-checked native verifier paints 92 built-in profile/page/dialog and observation cases at **1130×790** into a hidden OpenGL framebuffer. It sends no input and reads no pixels. These checks establish layout geometry, workflow behavior and draw submission. Visible appearance, Explorer/OS drop delivery, window-manager interaction, DPI and physical-device acceptance remain separate. The preview case supplies synthetic hover metadata without desktop input or file access.
+The capability-checked native verifier paints 93 built-in profile/page/dialog and observation cases at **1130×790** into a hidden OpenGL framebuffer. It sends no input and reads no pixels. These checks establish layout geometry, workflow behavior and draw submission. Visible appearance, Explorer/OS drop delivery, window-manager interaction, DPI and physical-device acceptance remain separate. The preview case supplies synthetic hover metadata without desktop input or file access.

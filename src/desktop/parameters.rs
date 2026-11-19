@@ -6,58 +6,170 @@ use iolink_workbench::{
     profile::Profile,
 };
 
-fn picker<'a>(
-    ui: &mut Ui,
-    profile: &'a Profile,
-    selected: &mut Option<String>,
-    subindex: &mut u8,
-    salt: &str,
-) -> Option<(&'a Parameter, &'a Parameter)> {
-    let Some(imported) = &profile.iodd else {
-        ui.label("Import an IODD in Setup to browse named parameters.");
-        return None;
-    };
-    let before = selected.clone();
-    egui::ComboBox::from_id_salt(salt)
-        .selected_text(selected.as_deref().unwrap_or("Select parameter"))
-        .show_ui(ui, |ui| {
-            for parameter in &imported.parameters {
-                ui.selectable_value(
-                    selected,
-                    Some(parameter.id.clone()),
-                    format!(
-                        "{} · {} · index {}",
-                        parameter.name,
-                        parameter.access.label(),
-                        parameter.index
-                    ),
-                );
+#[derive(Default)]
+pub(super) struct Picker {
+    pub(super) selected: Option<String>,
+    pub(super) subindex: u8,
+    filter: String,
+}
+
+impl Picker {
+    fn show<'a>(
+        &mut self,
+        ui: &mut Ui,
+        profile: &'a Profile,
+        salt: &str,
+    ) -> Option<(&'a Parameter, &'a Parameter)> {
+        let Some(imported) = &profile.iodd else {
+            ui.label("Import an IODD from Device → IODD import to browse named parameters.");
+            return None;
+        };
+        if imported.parameters.is_empty() {
+            ui.label("This profile has no named IODD parameters.");
+            return None;
+        }
+
+        ui.horizontal_wrapped(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.filter)
+                    .id_salt((salt, "filter"))
+                    .hint_text("Search name, IODD ID, or index")
+                    .desired_width(250.0),
+            );
+            if !self.filter.is_empty() && ui.small_button("Clear search").clicked() {
+                self.filter.clear();
             }
         });
-    if *selected != before {
-        *subindex = 0;
-    }
-    let parent = imported
-        .parameters
-        .iter()
-        .find(|p| Some(&p.id) == selected.as_ref())?;
-    if let Some(record) = &parent.record {
-        ui.label(format!(
-            "Individual subindex access · {}",
-            record.subindex_access
-        ));
-        egui::ComboBox::from_id_salt((salt, "subindex"))
-            .selected_text(format!("Subindex {subindex}"))
-            .show_ui(ui, |ui| {
-                ui.selectable_value(subindex, 0, "0 · whole record");
-                for item in &record.items {
-                    ui.selectable_value(
-                        subindex,
-                        item.subindex,
-                        format!("{} · {}", item.subindex, item.parameter.name),
-                    );
-                }
+        let query = self.filter.trim().to_lowercase();
+        let index = if let Some(hex) = query.strip_prefix("0x") {
+            u16::from_str_radix(hex, 16).ok()
+        } else {
+            query.parse::<u16>().ok()
+        };
+        let matches: Vec<_> = imported
+            .parameters
+            .iter()
+            .filter(|parameter| {
+                query.is_empty()
+                    || index == Some(parameter.index)
+                    || parameter.name.to_lowercase().contains(&query)
+                    || parameter.id.to_lowercase().contains(&query)
+            })
+            .collect();
+        let before = self.selected.clone();
+        ui.horizontal_wrapped(|ui| {
+            let selection = self.selected.as_deref().and_then(|id| {
+                imported
+                    .parameters
+                    .iter()
+                    .find(|parameter| parameter.id == id)
             });
+            let label = selection.map_or_else(
+                || "Select parameter".into(),
+                |parameter| format!("{} · index {}", parameter.name, parameter.index),
+            );
+            ui.add_enabled_ui(!matches.is_empty(), |ui| {
+                egui::ComboBox::from_id_salt(salt)
+                    .selected_text(label)
+                    .width(300.0)
+                    .height(240.0)
+                    .truncate()
+                    .show_ui(ui, |ui| {
+                        for parameter in &matches {
+                            let chosen = self.selected.as_ref() == Some(&parameter.id);
+                            if ui
+                                .selectable_label(
+                                    chosen,
+                                    format!(
+                                        "{} · index {} · {}",
+                                        parameter.name,
+                                        parameter.index,
+                                        parameter.access.label()
+                                    ),
+                                )
+                                .on_hover_text(&parameter.id)
+                                .clicked()
+                            {
+                                self.selected = Some(parameter.id.clone());
+                            }
+                        }
+                    });
+            });
+            if matches.is_empty() {
+                ui.small("No matching parameters");
+            } else {
+                ui.small(format!(
+                    "{} of {} parameters",
+                    matches.len(),
+                    imported.parameters.len()
+                ));
+            }
+            if selection.is_some_and(|selected| {
+                !matches.iter().any(|parameter| parameter.id == selected.id)
+            }) {
+                ui.small("Current selection is outside the search results.");
+            }
+        });
+        if self.selected != before {
+            self.subindex = 0;
+        }
+        let parent = imported
+            .parameters
+            .iter()
+            .find(|parameter| Some(&parameter.id) == self.selected.as_ref())?;
+        let subindex = &mut self.subindex;
+        if let Some(record) = &parent.record {
+            ui.label(format!(
+                "Individual subindex access · {}",
+                record.subindex_access
+            ));
+            egui::ComboBox::from_id_salt((salt, "subindex"))
+                .selected_text(format!("Subindex {subindex}"))
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(subindex, 0, "0 · whole record");
+                    for item in &record.items {
+                        ui.selectable_value(
+                            subindex,
+                            item.subindex,
+                            format!("{} · {}", item.subindex, item.parameter.name),
+                        );
+                    }
+                });
+        } else if let Some(array) = &parent.array {
+            ui.label(format!(
+                "Array · {} elements · {:?} bits each · {} · individual subindex access {}",
+                array.count,
+                array.element.width(),
+                array.element.datatype,
+                array.subindex_access
+            ));
+            egui::ComboBox::from_id_salt((salt, "subindex"))
+                .selected_text(format!("Subindex {subindex}"))
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(subindex, 0, "0 · whole array");
+                    for element in 1..=array.count {
+                        ui.selectable_value(subindex, element, format!("Element {element}"));
+                    }
+                });
+        } else {
+            *subindex = 0;
+        }
+        let target = parent.target(*subindex).ok()?;
+        ui.label(format!(
+            "{} · {} · index {}:{} · access {}",
+            target.name,
+            target.datatype,
+            parent.index,
+            subindex,
+            target.access.label()
+        ));
+        Some((parent, target))
+    }
+}
+
+fn definition(ui: &mut Ui, parent: &Parameter, target: &Parameter, subindex: u8, salt: &str) {
+    ui.small(format!("IODD ID · {}", parent.id));
+    if let Some(record) = &parent.record {
         ui.collapsing("Record layout", |ui| {
             for item in &record.items {
                 ui.label(format!(
@@ -73,26 +185,12 @@ fn picker<'a>(
                 }
             }
         });
-    } else if let Some(array) = &parent.array {
-        ui.label(format!(
-            "Array · {} elements · {:?} bits each · {} · individual subindex access {}",
-            array.count,
-            array.element.width(),
-            array.element.datatype,
-            array.subindex_access
-        ));
-        egui::ComboBox::from_id_salt((salt, "subindex"))
-            .selected_text(format!("Subindex {subindex}"))
-            .show_ui(ui, |ui| {
-                ui.selectable_value(subindex, 0, "0 · whole array");
-                for element in 1..=array.count {
-                    ui.selectable_value(subindex, element, format!("Element {element}"));
-                }
-            });
+    }
+    if let Some(array) = &parent.array {
         for note in &array.element.needs_input {
             ui.colored_label(WARNING, note);
         }
-        if *subindex == 0 {
+        if subindex == 0 {
             for display in &array.element.displays {
                 ui.label(format!(
                     "Each element · {} · {} · ×{} + {} {}",
@@ -104,18 +202,7 @@ fn picker<'a>(
                 ));
             }
         }
-    } else {
-        *subindex = 0;
     }
-    let target = parent.target(*subindex).ok()?;
-    ui.label(format!(
-        "{} · {} · index {}:{} · access {}",
-        target.name,
-        target.datatype,
-        parent.index,
-        subindex,
-        target.access.label()
-    ));
     if let Some(bits) = target.bits {
         ui.label(format!("Declared width · {bits} bits"));
     }
@@ -141,7 +228,7 @@ fn picker<'a>(
     }
     ui.push_id((salt, "declared-default"), |ui| {
         ui.collapsing("Inspect declared default (offline)", |ui| {
-            match parent.inspect_default(*subindex) {
+            match parent.inspect_default(subindex) {
                 Ok(value) => {
                     if value.needs_review() {
                         ui.colored_label(WARNING, "Declared default needs review");
@@ -187,7 +274,6 @@ fn picker<'a>(
     for note in &target.needs_input {
         ui.colored_label(WARNING, note);
     }
-    Some((parent, target))
 }
 
 pub struct DisplaySelection {
@@ -238,9 +324,9 @@ fn preference(
             });
     });
     ui.small(if parent.array.is_some() {
-        "Preferred display applies to every array element. Save the profile in Setup to retain it."
+        "Preferred display applies to every array element. Save the profile through Profiles… to retain it."
     } else {
-        "Preferred display is a host setting. Save the profile in Setup to retain it."
+        "Preferred display is a host setting. Save the profile through Profiles… to retain it."
     });
     (chosen != target.preferred_display).then(|| DisplaySelection {
         id: parent.id.clone(),
@@ -256,48 +342,62 @@ pub struct Actions {
     pub snapshot: Option<(String, u8, String)>,
 }
 
-pub fn show(
+pub(super) fn show(
     ui: &mut Ui,
     profile: &Profile,
-    selected: &mut Option<String>,
-    subindex: &mut u8,
+    picker: &mut Picker,
     available: bool,
     preferences_available: bool,
     snapshot_path: &mut String,
 ) -> Actions {
     let mut actions = Actions::default();
-    egui::CollapsingHeader::new("IODD parameters").default_open(true).show(ui, |ui| {
-        ui.small("IODD defaults and permitted values describe the device. Reads use a separate acyclic client.");
-        ui.small("Numeric/Boolean reads assess unscaled values against declared choices and ranges. This assessment is separate from transport validity and device diagnostics.");
-        ui.add_enabled_ui(available, |ui| {
-            if let Some((parent, target)) = picker(ui, profile, selected, subindex, "iodd-read-parameter") {
-                actions.display = preference(ui, parent, target, *subindex, preferences_available, "iodd-read-parameter");
-                let allowed = parent.access != Access::WriteOnly && target.access != Access::WriteOnly
-                    && (*subindex == 0 || parent.subindex_access());
-                if ui.add_enabled(allowed, egui::Button::new("Read named parameter")).clicked() {
-                    actions.read = Some((parent.id.clone(), *subindex));
-                }
-                ui.add(egui::TextEdit::singleline(snapshot_path).hint_text("New snapshot JSON path"));
-                if ui.add_enabled(allowed && !snapshot_path.trim().is_empty(), egui::Button::new("Read and save snapshot")).clicked() {
-                    actions.snapshot = Some((parent.id.clone(), *subindex, snapshot_path.clone()));
-                }
-                ui.small("Saves one explicit read and its profile to a new file. Choose a new path for each read.");
+    ui.add_enabled_ui(available, |ui| {
+        let salt = "iodd-read-parameter";
+        if let Some((parent, target)) = picker.show(ui, profile, salt) {
+            let subindex = picker.subindex;
+            let denied = if parent.access == Access::WriteOnly || target.access == Access::WriteOnly {
+                Some("The IODD declares this selection write-only.")
+            } else if subindex != 0 && !parent.subindex_access() {
+                Some("Select subindex 0 for a whole-value read. The IODD disallows individual subindex reads.")
+            } else {
+                None
+            };
+            if ui.add_enabled(denied.is_none(), egui::Button::new("Read named parameter")).clicked() {
+                actions.read = Some((parent.id.clone(), subindex));
             }
-        });
-        if let Some(imported) = &profile.iodd && !imported.standard_parameter_refs.is_empty() {
-            ui.collapsing("Standard parameter references", |ui| {
-                ui.small("These references require local standard definitions. The numeric ISDU read accepts a documented index and subindex.");
-                for id in &imported.standard_parameter_refs { ui.monospace(id); }
+            if let Some(reason) = denied {
+                ui.colored_label(WARNING, reason);
+            }
+            ui.collapsing("Read and save a snapshot", |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    super::path_entry(ui, snapshot_path, "New snapshot JSON path");
+                    if ui.add_enabled(denied.is_none() && !snapshot_path.trim().is_empty(), egui::Button::new("Read and save snapshot")).clicked() {
+                        actions.snapshot = Some((parent.id.clone(), subindex, snapshot_path.clone()));
+                    }
+                });
+            });
+            ui.collapsing("IODD details and display preference", |ui| {
+                actions.display = preference(ui, parent, target, subindex, preferences_available, salt);
+                definition(ui, parent, target, subindex, salt);
             });
         }
     });
+    if let Some(imported) = &profile.iodd
+        && !imported.standard_parameter_refs.is_empty()
+    {
+        ui.collapsing("Standard parameter references", |ui| {
+            ui.small("Load local standard definitions to resolve these references. Use Raw ISDU for a documented index and subindex.");
+            for id in &imported.standard_parameter_refs {
+                ui.monospace(id);
+            }
+        });
+    }
     actions
 }
 
 #[derive(Default)]
 pub struct Offline {
-    selected: Option<String>,
-    subindex: u8,
+    pub(super) picker: Picker,
     payload: String,
 }
 
@@ -311,21 +411,9 @@ impl Offline {
         let mut selection = None;
         ui.heading("Offline ISDU parameter decoder");
         ui.small("Paste a recorded 1–232 byte response. Select subindex 0 for a whole record, or the member addressed by the recorded query.");
-        if let Some((parent, target)) = picker(
-            ui,
-            profile,
-            &mut self.selected,
-            &mut self.subindex,
-            "iodd-offline-parameter",
-        ) {
-            selection = preference(
-                ui,
-                parent,
-                target,
-                self.subindex,
-                preferences_available,
-                "iodd-offline-parameter",
-            );
+        let salt = "iodd-offline-parameter";
+        if let Some((parent, target)) = self.picker.show(ui, profile, salt) {
+            let subindex = self.picker.subindex;
             ui.add(
                 egui::TextEdit::multiline(&mut self.payload)
                     .code_editor()
@@ -342,6 +430,10 @@ impl Offline {
                     }
                 }
             }
+            ui.collapsing("IODD details and display preference", |ui| {
+                selection = preference(ui, parent, target, subindex, preferences_available, salt);
+                definition(ui, parent, target, subindex, salt);
+            });
         }
         selection
     }

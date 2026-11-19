@@ -185,6 +185,7 @@ pub(super) fn render(
                 "device-advanced",
                 "mapping-editor",
                 "parameters-raw",
+                "parameters-selected-record",
                 "integration-mqtt",
                 "integration-shared-memory",
                 "diagnostics-timing",
@@ -224,6 +225,11 @@ pub(super) fn render(
                         app.tab = Tab::Parameters;
                         app.workspace.parameter = ParameterPage::Raw;
                     }
+                    "parameters-selected-record" => {
+                        app.tab = Tab::Parameters;
+                        app.parameter_picker.selected = Some("V_SIM_Record".into());
+                        app.parameter_picker.subindex = 1;
+                    }
                     "integration-mqtt" => {
                         app.tab = Tab::Integration;
                         app.workspace.integration = IntegrationPage::Mqtt;
@@ -258,6 +264,7 @@ pub(super) fn render(
                     "offline-parameter" => {
                         app.tab = Tab::Offline;
                         app.workspace.offline = OfflinePage::Parameter;
+                        app.offline_parameter.picker.selected = Some("V_SIM_Threshold".into());
                     }
                     "offline-snapshot" => {
                         app.tab = Tab::Offline;
@@ -419,7 +426,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 92);
+        assert_eq!(cases.len(), 93);
         assert!(
             cases
                 .iter()

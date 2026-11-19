@@ -359,12 +359,21 @@ impl App {
     pub(super) fn parameter_reads(&mut self, ui: &mut Ui) {
         ui.heading("IODD parameter reads");
         ui.label("Choose a declared parameter to read on an independent acyclic client. Reading does not write device settings.");
+        let blocked = if self.isdu_worker.is_some() {
+            Some("An acyclic read is in progress.")
+        } else if self.setup.pending() || self.setup.busy() {
+            Some("Finish IODD inspection and apply or discard profile edits before reading.")
+        } else {
+            None
+        };
+        if let Some(reason) = blocked {
+            ui.colored_label(WARNING, reason);
+        }
         let parameter_actions = parameters::show(
             ui,
             &self.profile,
-            &mut self.selected_parameter,
-            &mut self.selected_subindex,
-            self.isdu_worker.is_none() && !self.setup.pending() && !self.setup.busy(),
+            &mut self.parameter_picker,
+            blocked.is_none(),
             self.worker.is_none(),
             &mut self.parameter_snapshot_path,
         );

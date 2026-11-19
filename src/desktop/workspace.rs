@@ -320,8 +320,7 @@ impl App {
     fn profile_changed(&mut self) {
         self.live = Live::default();
         self.report = None;
-        self.selected_parameter = None;
-        self.selected_subindex = 0;
+        self.parameter_picker = parameters::Picker::default();
         self.offline_parameter = parameters::Offline::default();
         self.offline_diagnostics = diagnostics::Offline::default();
         self.isdu_result.clear();
