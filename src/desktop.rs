@@ -13,6 +13,7 @@ use std::{
     time::Duration,
 };
 
+mod acyclic;
 mod diagnostics;
 mod file_drop;
 mod logger_metrics;
@@ -93,15 +94,19 @@ fn background<T: Send + 'static>(
 }
 
 fn completed<T>(worker: &mut Option<Worker<T>>) -> Option<anyhow::Result<T>> {
-    let result = match worker.as_ref()?.try_recv() {
+    let result = poll_worker(worker.as_ref()?)?;
+    *worker = None;
+    Some(result)
+}
+
+fn poll_worker<T>(worker: &Worker<T>) -> Option<anyhow::Result<T>> {
+    Some(match worker.try_recv() {
         Ok(result) => result,
         Err(mpsc::TryRecvError::Empty) => return None,
         Err(mpsc::TryRecvError::Disconnected) => {
             Err(anyhow::anyhow!("Background worker stopped unexpectedly"))
         }
-    };
-    *worker = None;
-    Some(result)
+    })
 }
 
 struct App {
@@ -124,10 +129,9 @@ struct App {
     shared_memory_name: String,
     shared_memory_interval_ms: u64,
     worker: Option<Worker<Report>>,
-    isdu_worker: Option<Worker<String>>,
+    acyclic: acyclic::Reads,
     isdu_index: u16,
     isdu_subindex: u8,
-    isdu_result: String,
     queue: LiveQueue,
     live: Live,
     report: Option<Report>,
@@ -176,10 +180,9 @@ impl App {
             shared_memory_name: "input".into(),
             shared_memory_interval_ms: 10,
             worker: None,
-            isdu_worker: None,
+            acyclic: acyclic::Reads::default(),
             isdu_index: 19,
             isdu_subindex: 0,
-            isdu_result: String::new(),
             queue: Arc::new(crossbeam_queue::ArrayQueue::new(1)),
             live: Live::default(),
             report: None,
@@ -354,12 +357,7 @@ impl App {
                 }
             }
         }
-        if let Some(result) = completed(&mut self.isdu_worker) {
-            self.isdu_result = match result {
-                Ok(value) => value,
-                Err(error) => format!("{error:#}"),
-            };
-        }
+        self.acyclic.update();
         match self.settle_close(
             ctx.input(|input| input.viewport().close_requested()),
             capture_failed,
@@ -376,11 +374,11 @@ impl App {
     }
 
     fn select_parameter_display(&mut self, selection: parameters::DisplaySelection) {
+        let id = selection.id.clone();
         match selection.apply(&mut self.profile) {
             Ok(()) => {
                 self.setup.sync(&self.profile);
-                self.isdu_result =
-                    "Display preference updated. Read again to refresh the result.".into();
+                self.acyclic.clear_named(&id);
                 self.message =
                     "Display preference updated; save the profile with Profiles… to retain it."
                         .into();

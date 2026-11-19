@@ -338,42 +338,44 @@ impl App {
 
     pub(super) fn device_diagnostics(&mut self, ui: &mut Ui) {
         ui.heading("Device events");
-        egui::CollapsingHeader::new("Device diagnostics (explicit ISDU reads)").default_open(true).show(ui, |ui| {
-            ui.small("Reads optional 36:0 and 37:0 on independent acyclic clients. These snapshots provide no continuous event history or source-loss count.");
-            let available = self.isdu_worker.is_none() && !self.setup.pending() && !self.setup.busy();
-            if ui.add_enabled(available, egui::Button::new("Read device diagnostics")).clicked() {
-                let profile = self.profile.clone();
-                match background("acyclic-device-diagnostics", move || Ok(iolink_workbench::diagnostics::read(&profile)?.text())) {
-                    Ok(worker) => { self.isdu_worker = Some(worker); self.isdu_result = "Reading device diagnostics…".into(); }
-                    Err(error) => self.isdu_result = error.to_string(),
+        ui.small("Read Device Status and Detailed Device Status as one-time snapshots.");
+        let available = self.acyclic_controls(ui);
+        if ui
+            .add_enabled(available, egui::Button::new("Read device diagnostics"))
+            .clicked()
+        {
+            let profile = self.profile.clone();
+            self.start_acyclic(acyclic::Query::Events, move || {
+                Ok(iolink_workbench::diagnostics::read(&profile)?.text())
+            });
+        }
+        self.acyclic_result(ui, acyclic::Kind::Events);
+        if let Some(imported) = &self.profile.iodd {
+            ui.collapsing("IODD event definitions", |ui| {
+                ui.small(format!(
+                    "{} saved event definitions · {} unresolved standard event codes",
+                    imported.events.len(),
+                    imported.standard_event_refs.len()
+                ));
+                for event in &imported.events {
+                    ui.label(format!(
+                        "0x{:04X} · {:?} · {}",
+                        event.code, event.event_type, event.name
+                    ));
                 }
-            }
-            if let Some(imported) = &self.profile.iodd {
-                ui.small(format!("{} saved event definitions · {} unresolved standard event codes", imported.events.len(), imported.standard_event_refs.len()));
-                for event in &imported.events { ui.label(format!("0x{:04X} · {:?} · {}", event.code, event.event_type, event.name)); }
-            }
-        });
-        self.parameter_result(ui);
+            });
+        }
     }
 
     pub(super) fn parameter_reads(&mut self, ui: &mut Ui) {
         ui.heading("IODD parameter reads");
         ui.label("Choose a declared parameter to read on an independent acyclic client. Reading does not write device settings.");
-        let blocked = if self.isdu_worker.is_some() {
-            Some("An acyclic read is in progress.")
-        } else if self.setup.pending() || self.setup.busy() {
-            Some("Finish IODD inspection and apply or discard profile edits before reading.")
-        } else {
-            None
-        };
-        if let Some(reason) = blocked {
-            ui.colored_label(WARNING, reason);
-        }
+        let available = self.acyclic_controls(ui);
         let parameter_actions = parameters::show(
             ui,
             &self.profile,
             &mut self.parameter_picker,
-            blocked.is_none(),
+            available,
             self.worker.is_none(),
             &mut self.parameter_snapshot_path,
         );
@@ -390,7 +392,19 @@ impl App {
             });
         if let Some((id, subindex, snapshot_path)) = request {
             let profile = self.profile.clone();
-            match background("acyclic-iodd-parameter", move || {
+            let index = match profile.parameter(&id) {
+                Ok(parameter) => parameter.index,
+                Err(error) => {
+                    self.message = format!("{error:#}");
+                    return;
+                }
+            };
+            let query = acyclic::Query::Named {
+                id: id.clone(),
+                index,
+                subindex,
+            };
+            self.start_acyclic(query, move || {
                 let (reading, save_message) = if let Some(path) = snapshot_path {
                     let path = Path::new(&path);
                     iolink_workbench::parameter_snapshot::check_destination(path)?;
@@ -458,58 +472,66 @@ impl App {
                 ));
                 text.push_str(&save_message);
                 Ok(text)
-            }) {
-                Ok(worker) => {
-                    self.isdu_worker = Some(worker);
-                    self.isdu_result = "Reading parameter…".into();
-                }
-                Err(error) => self.isdu_result = error.to_string(),
-            }
+            });
         }
-        self.parameter_result(ui);
+        self.acyclic_result(ui, acyclic::Kind::Named);
     }
 
     pub(super) fn raw_isdu(&mut self, ui: &mut Ui) {
         ui.heading("Raw ISDU read");
-        egui::CollapsingHeader::new("Acyclic ISDU read").default_open(true).show(ui, |ui| {
-            ui.small("One parameter read on a separate client. Use an index and subindex from the device documentation.");
-            ui.horizontal_wrapped(|ui| {
-                ui.add(egui::DragValue::new(&mut self.isdu_index).prefix("Index "));
-                ui.add(egui::DragValue::new(&mut self.isdu_subindex).prefix("Subindex "));
-                if ui.add_enabled(self.isdu_worker.is_none() && !self.setup.pending() && !self.setup.busy(), egui::Button::new("Read parameter")).clicked() {
-                    let (profile, index, subindex) = (self.profile.clone(), self.isdu_index, self.isdu_subindex);
-                    match background("acyclic-isdu", move || { let bytes = transport::read_isdu(&profile, index, subindex)?;
-                        let hex = decode::hex(&bytes);
-                        Ok(match std::str::from_utf8(&bytes) {
-                            Ok(text) => format!("{hex}  ·  {text:?}"),
-                            Err(_) => hex,
-                        })
-                    }) {
-                        Ok(worker) => { self.isdu_worker = Some(worker); self.isdu_result = "Reading…".into(); }
-                        Err(error) => self.isdu_result = error.to_string(),
-                    }
-                }
-                let can_verify = self.isdu_worker.is_none() && !self.setup.pending() && !self.setup.busy()
-                    && self.profile.expected_identity.product_id.is_some();
-                if ui.add_enabled(can_verify, egui::Button::new("Verify Product ID")).clicked() {
-                    let profile = self.profile.clone();
-                    match background("acyclic-product-id", move || {
-                        let product_id = transport::verify_product_id(&profile)?;
-                        Ok(format!("Matched Product ID {product_id}"))
-                    }) {
-                        Ok(worker) => { self.isdu_worker = Some(worker); self.isdu_result = "Reading Product ID…".into(); }
-                        Err(error) => self.isdu_result = error.to_string(),
-                    }
-                }
-            });
+        ui.small("Use an index and subindex from the device documentation.");
+        let available = self.acyclic_controls(ui);
+        ui.horizontal_wrapped(|ui| {
+            ui.add(egui::DragValue::new(&mut self.isdu_index).prefix("Index "));
+            ui.add(egui::DragValue::new(&mut self.isdu_subindex).prefix("Subindex "));
+            if ui
+                .add_enabled(available, egui::Button::new("Read parameter"))
+                .clicked()
+            {
+                let (profile, index, subindex) =
+                    (self.profile.clone(), self.isdu_index, self.isdu_subindex);
+                self.start_acyclic(acyclic::Query::Raw(index, subindex), move || {
+                    let bytes = transport::read_isdu(&profile, index, subindex)?;
+                    let hex = decode::hex(&bytes);
+                    Ok(match std::str::from_utf8(&bytes) {
+                        Ok(text) => format!("{hex}  ·  {text:?}"),
+                        Err(_) => hex,
+                    })
+                });
+            }
         });
-        self.parameter_result(ui);
+        self.acyclic_result(ui, acyclic::Kind::Raw);
+        ui.separator();
+        let expected = self.profile.expected_identity.product_id.as_ref();
+        if ui
+            .add_enabled(
+                available && expected.is_some(),
+                egui::Button::new("Verify Product ID"),
+            )
+            .on_disabled_hover_text(if expected.is_none() {
+                "Set an expected Product ID in Device → Identity expectations"
+            } else {
+                "Wait for the current operation"
+            })
+            .clicked()
+            && let Some(expected) = expected
+        {
+            let profile = self.profile.clone();
+            let query = acyclic::Query::ProductId(expected.clone());
+            self.start_acyclic(query, move || {
+                let product_id = transport::verify_product_id(&profile)?;
+                Ok(format!("Matched Product ID {product_id}"))
+            });
+        }
+        self.acyclic_result(ui, acyclic::Kind::ProductId);
     }
 
-    fn parameter_result(&self, ui: &mut Ui) {
-        if !self.isdu_result.is_empty() {
-            ui.separator();
-            ui.monospace(&self.isdu_result);
+    fn acyclic_controls(&self, ui: &mut Ui) -> bool {
+        if let Some(reason) = self.acyclic_block_reason() {
+            ui.colored_label(WARNING, reason);
+            false
+        } else {
+            true
         }
     }
 

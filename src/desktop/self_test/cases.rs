@@ -207,6 +207,7 @@ pub(super) fn render(
                 app.profile = profile.clone();
                 app.setup.sync(&app.profile);
                 use super::super::{
+                    acyclic::Query,
                     setup::Page,
                     workspace::{DiagnosticsPage, IntegrationPage, OfflinePage, ParameterPage},
                 };
@@ -224,11 +225,27 @@ pub(super) fn render(
                     "parameters-raw" => {
                         app.tab = Tab::Parameters;
                         app.workspace.parameter = ParameterPage::Raw;
+                        app.acyclic.store_result(
+                            Query::Raw(19, 0),
+                            Ok("Synthetic raw reply · 53494D".into()),
+                        );
+                        app.acyclic.store_result(
+                            Query::ProductId("SIM-SENSOR".into()),
+                            Ok("Matched Product ID SIM-SENSOR".into()),
+                        );
                     }
                     "parameters-selected-record" => {
                         app.tab = Tab::Parameters;
                         app.parameter_picker.selected = Some("V_SIM_Record".into());
                         app.parameter_picker.subindex = 1;
+                        app.acyclic.store_result(
+                            Query::Named {
+                                id: "V_SIM_Record".into(),
+                                index: 66,
+                                subindex: 2,
+                            },
+                            Ok("Synthetic member reply · 01".into()),
+                        );
                     }
                     "integration-mqtt" => {
                         app.tab = Tab::Integration;
@@ -247,6 +264,10 @@ pub(super) fn render(
                     "diagnostics-events" => {
                         app.tab = Tab::Diagnostics;
                         app.workspace.diagnostics = DiagnosticsPage::Events;
+                        app.acyclic.store_result(
+                            Query::Events,
+                            Err(anyhow::anyhow!("Synthetic diagnostics error")),
+                        );
                     }
                     "offline-compare" | "offline-signal" | "offline-exports" => {
                         app.tab = Tab::Offline;
@@ -404,9 +425,7 @@ pub(super) fn render(
                 "rendering changed the applied profile"
             );
             ensure!(
-                app.worker.is_some() == gated_session
-                    && app.isdu_worker.is_none()
-                    && !app.setup.busy(),
+                app.worker.is_some() == gated_session && !app.acyclic.busy() && !app.setup.busy(),
                 "rendering dispatched a worker"
             );
             paint(SIZE, &output, &primitives)?;

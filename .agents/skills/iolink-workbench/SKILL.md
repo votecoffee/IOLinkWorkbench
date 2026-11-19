@@ -11,7 +11,7 @@ For GUI navigation, read `docs/GUI_WORKFLOW.md`. Device, Inputs, Logging, Mappin
 
 ## Choose the workflow
 
-- Search named parameters by name, IODD ID or decimal/hex index in Parameters → IODD reads and Offline → Parameter bytes. Select a match explicitly. IODD details and display preference contains defaults, mappings and value definitions. Expand Read and save a snapshot to save a new JSON file.
+- Search named parameters by name, IODD ID or decimal/hex index in Parameters → IODD reads and Offline → Parameter bytes. Select a match explicitly. IODD details and display preference contains defaults, mappings and value definitions. Expand Read and save a snapshot to save a new JSON file. Each acyclic action keeps its own last result with the original query. Device events shows the diagnostic result above the expandable IODD event catalog.
 
 - For device descriptions, inspect XML/ZIP with `iolink-cli iodd`, choose an exact variant/layout, then `import` to a new profile. Resolve local standard/language/unit resources explicitly. Preserve review notes and imported definitions; import does not verify connected identity. Vendor files and raw captures belong in ignored `.local/` in source checkouts.
 - For manual setup, use `validate`, `set-connection`, `set-identity`, `set-field` and `remove-field`. These edit host profiles offline. Full input-payload `decode` previews bit offsets, width, signedness/type, byte order, scale and units. An imported name becomes an override; removal restores it. Never invent unknown scaling/units.

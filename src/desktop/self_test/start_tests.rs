@@ -151,7 +151,7 @@ fn consecutive_simulator_captures_keep_independent_owners_while_other_jobs_are_p
     app.profile.logging.queue_capacity = 8;
     app.profile.logging.rotate_rows = 4;
     let (acyclic_sender, acyclic_receiver) = mpsc::channel();
-    app.isdu_worker = Some(acyclic_receiver);
+    app.acyclic.hold_for_test(acyclic_receiver);
     let mut releases = app.saved_capture.gates_for_test();
     releases.push(app.saved_parameter.gate_for_test());
     assert_eq!(app.pending_jobs(), 4);
@@ -226,6 +226,14 @@ fn consecutive_simulator_captures_keep_independent_owners_while_other_jobs_are_p
     acyclic_sender.send(Ok("held acyclic result".into()))?;
     app.update_workers(&ctx);
     assert_eq!(app.pending_jobs(), 0);
-    assert_eq!(app.isdu_result, "held acyclic result");
+    assert_eq!(
+        app.acyclic
+            .latest(crate::desktop::acyclic::Kind::Raw)
+            .unwrap()
+            .output
+            .as_deref()
+            .unwrap(),
+        "held acyclic result"
+    );
     Ok(())
 }

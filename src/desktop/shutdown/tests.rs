@@ -46,7 +46,7 @@ fn every_worker_domain_delays_close_and_completes_with_its_tab_hidden() {
     let (capture_sender, capture_receiver) = mpsc::channel();
     app.worker = Some(capture_receiver);
     let (isdu_sender, isdu_receiver) = mpsc::channel();
-    app.isdu_worker = Some(isdu_receiver);
+    app.acyclic.hold_for_test(isdu_receiver);
     let stop = iolink_workbench::capture::Stop::default();
     stop.request();
     let finished = iolink_workbench::capture::run(
@@ -86,7 +86,15 @@ fn every_worker_domain_delays_close_and_completes_with_its_tab_hidden() {
             assert!(command(&output, true));
         }
     }
-    assert_eq!(app.isdu_result, "synthetic acyclic completion");
+    assert_eq!(
+        app.acyclic
+            .latest(desktop::acyclic::Kind::Raw)
+            .unwrap()
+            .output
+            .as_deref()
+            .unwrap(),
+        "synthetic acyclic completion"
+    );
     assert_eq!(app.profile, before);
 }
 
@@ -94,13 +102,22 @@ fn every_worker_domain_delays_close_and_completes_with_its_tab_hidden() {
 fn disconnected_worker_does_not_leave_close_waiting_forever() {
     let mut app = App::new();
     let (sender, receiver) = mpsc::channel();
-    app.isdu_worker = Some(receiver);
+    app.acyclic.hold_for_test(receiver);
     drop(sender);
     assert_eq!(app.advance_close(true), CloseAction::Wait);
     let output = frame(&mut app, &Context::default());
     assert_eq!(app.pending_jobs(), 0);
     assert!(command(&output, true));
-    assert!(app.isdu_result.contains("stopped unexpectedly"));
+    assert!(
+        app.acyclic
+            .latest(desktop::acyclic::Kind::Raw)
+            .unwrap()
+            .output
+            .as_ref()
+            .unwrap_err()
+            .to_string()
+            .contains("stopped unexpectedly")
+    );
 }
 
 #[test]

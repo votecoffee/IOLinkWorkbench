@@ -1,0 +1,164 @@
+//! One explicit acyclic operation at a time, with results routed by request.
+use super::{App, WARNING, Worker, background, poll_worker};
+use eframe::egui::Ui;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Kind {
+    Named,
+    Raw,
+    ProductId,
+    Events,
+}
+
+pub(super) enum Query {
+    Named {
+        id: String,
+        index: u16,
+        subindex: u8,
+    },
+    Raw(u16, u8),
+    ProductId(String),
+    Events,
+}
+
+impl Query {
+    fn kind(&self) -> Kind {
+        match self {
+            Self::Named { .. } => Kind::Named,
+            Self::Raw(..) => Kind::Raw,
+            Self::ProductId(_) => Kind::ProductId,
+            Self::Events => Kind::Events,
+        }
+    }
+
+    fn label(&self) -> String {
+        match self {
+            Self::Named {
+                id,
+                index,
+                subindex,
+            } => format!("{id} · index {index}:{subindex}"),
+            Self::Raw(index, subindex) => format!("Raw ISDU · index {index}:{subindex}"),
+            Self::ProductId(expected) => {
+                format!("Product ID check · index 19:0 · expected {expected}")
+            }
+            Self::Events => "Device diagnostics · indexes 36:0 and 37:0".into(),
+        }
+    }
+}
+
+pub(super) struct Reading {
+    pub query: Query,
+    pub output: anyhow::Result<String>,
+}
+
+#[derive(Default)]
+pub(super) struct Reads {
+    pending: Option<(Query, Worker<String>)>,
+    latest: [Option<Reading>; 4],
+}
+
+impl Reads {
+    pub fn busy(&self) -> bool {
+        self.pending.is_some()
+    }
+
+    pub fn update(&mut self) {
+        if let Some((_, worker)) = &self.pending
+            && let Some(output) = poll_worker(worker)
+        {
+            let (query, _) = self.pending.take().expect("pending query");
+            self.store_result(query, output);
+        }
+    }
+
+    pub(super) fn store_result(&mut self, query: Query, output: anyhow::Result<String>) {
+        let slot = query.kind() as usize;
+        self.latest[slot] = Some(Reading { query, output });
+    }
+
+    pub fn latest(&self, kind: Kind) -> Option<&Reading> {
+        self.latest[kind as usize].as_ref()
+    }
+
+    pub fn clear_results(&mut self) {
+        self.latest = Default::default();
+    }
+
+    pub fn clear_named(&mut self, id: &str) {
+        if matches!(self.latest(Kind::Named).map(|reading| &reading.query),
+            Some(Query::Named { id: read_id, .. }) if read_id == id)
+        {
+            self.latest[Kind::Named as usize] = None;
+        }
+    }
+
+    #[cfg(test)]
+    pub fn hold_for_test(&mut self, worker: Worker<String>) {
+        assert!(!self.busy());
+        self.pending = Some((Query::Raw(19, 0), worker));
+    }
+}
+
+impl App {
+    pub(super) fn acyclic_block_reason(&self) -> Option<&'static str> {
+        if self.closing {
+            Some("Application is closing")
+        } else if self.acyclic.busy() {
+            Some("An acyclic read is in progress")
+        } else if self.setup.pending() || self.setup.busy() {
+            Some("Finish IODD inspection and apply or discard profile edits before reading")
+        } else {
+            None
+        }
+    }
+
+    pub(super) fn start_acyclic(
+        &mut self,
+        query: Query,
+        work: impl FnOnce() -> anyhow::Result<String> + Send + 'static,
+    ) {
+        if let Some(reason) = self.acyclic_block_reason() {
+            self.message = reason.into();
+            return;
+        }
+        match background("acyclic-read", work) {
+            Ok(worker) => self.acyclic.pending = Some((query, worker)),
+            Err(error) => self.message = format!("Could not start {} · {error}", query.label()),
+        }
+    }
+
+    pub(super) fn acyclic_result(&self, ui: &mut Ui, kind: Kind) {
+        if let Some((query, _)) = &self.acyclic.pending
+            && kind == query.kind()
+        {
+            ui.label(format!("Reading {}…", query.label()));
+        }
+        if let Some(reading) = self.acyclic.latest(kind) {
+            ui.separator();
+            ui.strong(format!("Last result · {}", reading.query.label()));
+            match &reading.query {
+                Query::Named { id, subindex, .. }
+                    if self.parameter_picker.selected.as_ref() != Some(id)
+                        || self.parameter_picker.subindex != *subindex =>
+                {
+                    ui.small("The current IODD selection differs from this read.");
+                }
+                Query::Raw(index, subindex)
+                    if (self.isdu_index, self.isdu_subindex) != (*index, *subindex) =>
+                {
+                    ui.small("The current address differs from this read.");
+                }
+                _ => {}
+            }
+            match &reading.output {
+                Ok(text) => {
+                    ui.monospace(text);
+                }
+                Err(error) => {
+                    ui.colored_label(WARNING, format!("{error:#}"));
+                }
+            }
+        }
+    }
+}

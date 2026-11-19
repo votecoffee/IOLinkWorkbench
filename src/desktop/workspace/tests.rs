@@ -81,6 +81,120 @@ fn paste(app: &mut App, ctx: &Context, size: egui::Vec2, hint: &str, value: &str
 }
 
 #[test]
+fn acyclic_results_follow_the_read_action_and_keep_the_original_address() -> Result<()> {
+    let _serial = WORKER_TEST_LOCK.lock().unwrap();
+    let catalog = iodd::parse(
+        include_str!("../../../samples/sensor-formats.xml"),
+        "synthetic GUI result routing".into(),
+    )?;
+    let (identity, imported) = catalog.select(None, None)?;
+    let mut app = App::new();
+    app.profile.input_bytes = imported.input_bytes;
+    app.profile.expected_identity = identity;
+    app.profile.iodd = Some(imported);
+    app.setup.sync(&app.profile);
+    app.parameter_picker.selected = Some("V_SIM_Record".into());
+    app.parameter_picker.subindex = 1;
+    app.tab = Tab::Parameters;
+    let ctx = Context::default();
+    let size = egui::vec2(1130.0, 790.0);
+    let finish = |app: &mut App| {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while app.acyclic.busy() && Instant::now() < deadline {
+            draw(app, &ctx, size);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(!app.acyclic.busy());
+    };
+    let titles = |app: &mut App| {
+        draw(app, &ctx, size)
+            .into_iter()
+            .map(|(text, _)| text)
+            .filter(|text| text.starts_with("Last result"))
+            .collect::<Vec<_>>()
+    };
+
+    click(&mut app, &ctx, size, "Read named parameter");
+    click(&mut app, &ctx, size, "Raw ISDU");
+    finish(&mut app);
+    assert!(titles(&mut app).is_empty());
+    click(&mut app, &ctx, size, "Read parameter");
+    finish(&mut app);
+    assert_eq!(titles(&mut app), ["Last result · Raw ISDU · index 19:0"]);
+    app.isdu_index = 21;
+    assert!(
+        draw(&mut app, &ctx, size)
+            .iter()
+            .any(|(text, _)| text == "The current address differs from this read.")
+    );
+    click(&mut app, &ctx, size, "Verify Product ID");
+    finish(&mut app);
+    assert_eq!(
+        titles(&mut app),
+        [
+            "Last result · Raw ISDU · index 19:0",
+            "Last result · Product ID check · index 19:0 · expected SIM-SENSOR",
+        ]
+    );
+
+    click(&mut app, &ctx, size, "Diagnostics");
+    click(&mut app, &ctx, size, "Device events");
+    assert!(titles(&mut app).is_empty());
+    click(&mut app, &ctx, size, "Read device diagnostics");
+    finish(&mut app);
+    assert_eq!(
+        titles(&mut app),
+        ["Last result · Device diagnostics · indexes 36:0 and 37:0"]
+    );
+    click(&mut app, &ctx, size, "Parameters");
+    click(&mut app, &ctx, size, "IODD reads");
+    app.parameter_picker.subindex = 2;
+    assert_eq!(
+        titles(&mut app),
+        ["Last result · V_SIM_Record · index 66:1"]
+    );
+    assert!(
+        draw(&mut app, &ctx, size)
+            .iter()
+            .any(|(text, _)| text == "The current IODD selection differs from this read.")
+    );
+    assert!(
+        app.acyclic
+            .latest(acyclic::Kind::Named)
+            .unwrap()
+            .output
+            .is_ok()
+    );
+    assert!(
+        app.acyclic
+            .latest(acyclic::Kind::Raw)
+            .unwrap()
+            .output
+            .is_ok()
+    );
+    assert!(
+        app.acyclic
+            .latest(acyclic::Kind::ProductId)
+            .unwrap()
+            .output
+            .is_ok()
+    );
+    assert!(
+        app.acyclic
+            .latest(acyclic::Kind::Events)
+            .unwrap()
+            .output
+            .is_ok()
+    );
+    app.profile_changed();
+    assert!(titles(&mut app).is_empty());
+    click(&mut app, &ctx, size, "Raw ISDU");
+    assert!(titles(&mut app).is_empty());
+    assert_eq!(app.pending_jobs(), 0);
+    Ok(())
+}
+
+#[test]
 fn parameter_search_keeps_selection_explicit_and_read_controls_compact() -> Result<()> {
     let _serial = WORKER_TEST_LOCK.lock().unwrap();
     let catalog = iodd::parse(
@@ -136,15 +250,18 @@ fn parameter_search_keeps_selection_explicit_and_read_controls_compact() -> Resu
     click(&mut app, &ctx, size, "IODD details and display preference");
     click(&mut app, &ctx, size, "Read named parameter");
     let deadline = Instant::now() + Duration::from_secs(10);
-    while app.isdu_worker.is_some() && Instant::now() < deadline {
+    while app.acyclic.busy() && Instant::now() < deadline {
         draw(&mut app, &ctx, size);
         std::thread::sleep(Duration::from_millis(5));
     }
-    assert!(
-        app.isdu_result.contains("index 66:1"),
-        "{}",
-        app.isdu_result
-    );
+    let named = app
+        .acyclic
+        .latest(acyclic::Kind::Named)
+        .unwrap()
+        .output
+        .as_deref()
+        .unwrap();
+    assert!(named.contains("index 66:1"), "{named}");
     click(&mut app, &ctx, size, "Clear search");
     paste(&mut app, &ctx, size, search, "no such parameter");
     assert!(has(&mut app, "No matching parameters"));
@@ -329,7 +446,7 @@ fn file_drops_are_fenced_by_drafts_and_setup_owners() {
             "isdu" => {
                 let (sender, receiver) = mpsc::channel();
                 held_isdu = Some(sender);
-                app.isdu_worker = Some(receiver);
+                app.acyclic.hold_for_test(receiver);
             }
             "inspection" => held_inspection = Some(app.setup.gate_for_test()),
             "closing" => app.closing = true,
@@ -507,7 +624,7 @@ fn profile_replacement_is_fenced_by_drafts_and_all_setup_owners() {
             "isdu" => {
                 let (sender, receiver) = mpsc::channel();
                 held_isdu = Some(sender);
-                app.isdu_worker = Some(receiver);
+                app.acyclic.hold_for_test(receiver);
             }
             "inspection" => held_inspection = Some(app.setup.gate_for_test()),
             "closing" => app.closing = true,

@@ -206,7 +206,7 @@ impl App {
             self.page_navigation(ui);
             egui::ScrollArea::vertical().id_salt(self.scroll_id()).auto_shrink([false, false]).show(ui, |ui| {
                 ui.set_max_width(1000.0);
-                let editable = self.worker.is_none() && self.isdu_worker.is_none() && !self.setup.busy();
+                let editable = self.worker.is_none() && !self.acyclic.busy() && !self.setup.busy();
                 if matches!(self.tab, Tab::Device | Tab::Mappings) && !editable {
                     ui.colored_label(WARNING, "Wait for active acquisition and parameter reads to finish before editing setup.");
                 }
@@ -323,7 +323,7 @@ impl App {
         self.parameter_picker = parameters::Picker::default();
         self.offline_parameter = parameters::Offline::default();
         self.offline_diagnostics = diagnostics::Offline::default();
-        self.isdu_result.clear();
+        self.acyclic.clear_results();
     }
 
     fn parameter_page(&mut self, ui: &mut Ui) {
@@ -365,7 +365,7 @@ impl App {
                     ui,
                     &self.profile,
                     self.worker.is_none()
-                        && self.isdu_worker.is_none()
+                        && !self.acyclic.busy()
                         && !self.setup.pending()
                         && !self.setup.busy(),
                 ) {
@@ -423,7 +423,7 @@ impl App {
                 .show(ctx, |ui| {
                     let editable = !self.closing
                         && self.worker.is_none()
-                        && self.isdu_worker.is_none()
+                        && !self.acyclic.busy()
                         && !self.setup.busy();
                     if self
                         .setup

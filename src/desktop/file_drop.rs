@@ -5,8 +5,8 @@ use eframe::egui::{self, Context};
 impl App {
     fn file_drop_block_reason(&self) -> Option<&'static str> {
         self.start_block_reason().or_else(|| {
-            self.isdu_worker
-                .is_some()
+            self.acyclic
+                .busy()
                 .then_some("Wait for the active parameter read before selecting a file")
         })
     }

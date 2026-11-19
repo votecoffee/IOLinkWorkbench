@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Named reads, raw ISDU reads, Product ID checks and device diagnostics keep individual results labeled with their original queries. Event definitions expand below the diagnostic result.
+
 - Named IODD parameters are searchable by name, ID and index in live and offline views. Read and decode controls stay above expandable IODD details. Saving a parameter snapshot has its own expandable controls.
 
 - Offline saved captures have focused Verify, Signal, Exports and Compare pages. Navigation stays visible above scrollable results. Verify, Signal and Exports share the folder and retain their results when switching pages.

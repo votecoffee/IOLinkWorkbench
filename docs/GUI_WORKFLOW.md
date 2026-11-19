@@ -40,6 +40,12 @@ In **Parameters → IODD reads**, search by name, IODD ID, or exact index. Index
 
 **Offline → Parameter bytes** has its own search and selection for decoding recorded bytes. Filtering narrows the picker and keeps the current parameter selected until you choose another one.
 
+## Read results and device diagnostics
+
+IODD reads, Raw ISDU, Verify Product ID and Device events each keep their own last result. Every result shows the original query. Changing the selected parameter or address leaves the previous result labeled and points out the difference. Applying a new profile clears the results.
+
+One acyclic read can run at a time while cyclic acquisition continues. Switch pages while it runs and return to its page to review the result. **Diagnostics → Device events** shows the diagnostic reply above the expandable **IODD event definitions**.
+
 ## Saved capture pages
 
 | Page | Use it for |
@@ -59,6 +65,6 @@ Selecting another IODD clears the previous inspection, variant/layout and ZIP-me
 
 ## Verification scope
 
-In-process egui tests check page isolation and toolbar bounds at **790×530** and **1130×790**, review/profile navigation, starter selection and guarded replacement, failed-load and source-file preservation, overview routing, synthetic file-drop routing and explicit load/inspect/apply, Unicode paths, rejected multi-file/unsupported drops, hover geometry, hidden-draft recovery, and stopping an actual simulator capture from another tab and reopening its finalized folder for verification, signal review and re-decoding across page changes. Synthetic pointer events stay inside an isolated egui context; no desktop input is sent.
+In-process egui tests check page isolation and toolbar bounds at **790×530** and **1130×790**, review/profile navigation, starter selection and guarded replacement, failed-load and source-file preservation, overview routing, synthetic file-drop routing and explicit load/inspect/apply, Unicode paths, rejected multi-file/unsupported drops, hover geometry, hidden-draft recovery, acyclic result attribution after selection and page changes, and stopping an actual simulator capture from another tab and reopening its finalized folder for verification, signal review and re-decoding across page changes. Synthetic pointer events stay inside an isolated egui context; no desktop input is sent.
 
 The capability-checked native verifier paints 93 built-in profile/page/dialog and observation cases at **1130×790** into a hidden OpenGL framebuffer. It sends no input and reads no pixels. These checks establish layout geometry, workflow behavior and draw submission. Visible appearance, Explorer/OS drop delivery, window-manager interaction, DPI and physical-device acceptance remain separate. The preview case supplies synthetic hover metadata without desktop input or file access.

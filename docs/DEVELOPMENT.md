@@ -47,6 +47,8 @@ Saved capture Verify, Signal and Exports each hold their own result and share th
 
 The named-parameter picker shares search and selection logic between live reads and offline decoding. Each view holds its own query and selection. Search is a view filter and keeps the chosen parameter and subindex until the operator selects a different parameter. Rendering details and searching must stay free of transport calls.
 
+The GUI has one acyclic worker with an immutable query label and a separate last result for each action. Poll completion globally so switching pages does not affect ownership. Profile replacement clears the results. Keep acyclic admission independent of the cyclic sampler.
+
 ## Local validation
 
 GUI `start_block_reason` supplies both button availability and the start method's preflight check. Keep owned cyclic results (including ready but unread completions), closing and pending profile work fenced before state/output preparation. Prepare fresh stop/display queues locally and commit them only after worker launch succeeds; independent acyclic/review jobs must not become sampler admission locks. Run `desktop::self_test::start_tests` for guard-denied dispatch, completion ownership, draft/inspection guards and consecutive simulator capture/byte-preservation checks. See [session startup](GUI_LIFECYCLE.md#starting-a-session).

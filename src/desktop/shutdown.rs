@@ -22,7 +22,7 @@ impl App {
 
     pub(super) fn pending_jobs(&self) -> usize {
         usize::from(self.worker.is_some())
-            + usize::from(self.isdu_worker.is_some())
+            + usize::from(self.acyclic.busy())
             + usize::from(self.setup.busy())
             + self.saved_capture.pending_jobs()
             + usize::from(self.saved_parameter.busy())
