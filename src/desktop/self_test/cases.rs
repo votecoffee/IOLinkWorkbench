@@ -197,6 +197,7 @@ pub(super) fn render(
                 "profiles-dialog",
                 "profiles-files",
                 "drop-preview",
+                "latest-recording",
                 "connection-dialog",
             ] {
                 let mut app = App::new();
@@ -265,6 +266,16 @@ pub(super) fn render(
                         app.setup.profiles_page = super::super::setup::ProfilePage::Files;
                     }
                     "drop-preview" => {}
+                    "latest-recording" => {
+                        app.tab = Tab::Logging;
+                        app.latest_recording = Some(super::super::Recording {
+                            directory: ".local/synthetic-recording".into(),
+                            rows: 1250,
+                            parts: 2,
+                            unconfirmed_rows: 6,
+                            has_error: true,
+                        });
+                    }
                     "connection-dialog" => app.workspace.connect_dialog = true,
                     _ => unreachable!(),
                 }
@@ -401,7 +412,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 89);
+        assert_eq!(cases.len(), 90);
         assert!(
             cases
                 .iter()

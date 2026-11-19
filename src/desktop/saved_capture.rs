@@ -1,7 +1,10 @@
 use super::{ACCENT, WARNING, Worker, background, completed, path_entry};
 use eframe::egui::{Context, Ui};
 use iolink_workbench::archive;
-use std::{path::PathBuf, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 mod compare;
 mod identity;
@@ -43,6 +46,31 @@ pub struct Verifier {
 }
 
 impl Verifier {
+    pub(super) fn can_select_directory(&self) -> bool {
+        self.worker.is_none()
+    }
+
+    pub(super) fn select_directory(&mut self, directory: &Path) -> bool {
+        let Some(path) = directory.to_str().filter(|_| self.can_select_directory()) else {
+            return false;
+        };
+        self.page = Page::Review;
+        if self.directory != path {
+            self.directory = path.into();
+            self.joined_csv.clear();
+            self.field.clear();
+            self.available_fields.clear();
+            self.export_directory.clear();
+            self.bundle_check_original = false;
+            self.summary = None;
+            self.review = None;
+            self.export = None;
+            self.checked_export = None;
+            self.message.clear();
+        }
+        true
+    }
+
     pub(super) fn open_comparison(&mut self) {
         self.page = Page::Compare;
     }

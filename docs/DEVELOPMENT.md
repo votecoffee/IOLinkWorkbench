@@ -41,6 +41,8 @@ Capture plans describe saved configuration, never observed transport capabilitie
 
 `desktop::file_drop` consumes egui drop metadata after global completion polling. It only stages a profile/IODD path (Open and Save destinations remain separate), reusing acquisition admission plus the independent parameter-read fence; it must never read files or dispatch workers. A new IODD path invalidates the old inspection and ZIP selection without applying a profile. Synthetic egui tests cover routing, source preservation, explicit load/inspect/apply, owner/draft rejection and hover bounds. Native offscreen painting covers the hover preview; actual Explorer/OS routing remains a visible acceptance check.
 
+The GUI tracks the absolute output path of an owned recording and keeps the last published recording available independently of the live session report. Promote the path only when the recording returns a report after publishing `capture.toml`. The review shortcut stages the directory without dispatching work. Switching sources clears the previous combined CSV and re-decode destinations.
+
 ## Local validation
 
 GUI `start_block_reason` supplies both button availability and the start method's preflight check. Keep owned cyclic results (including ready but unread completions), closing and pending profile work fenced before state/output preparation. Prepare fresh stop/display queues locally and commit them only after worker launch succeeds; independent acyclic/review jobs must not become sampler admission locks. Run `desktop::self_test::start_tests` for guard-denied dispatch, completion ownership, draft/inspection guards and consecutive simulator capture/byte-preservation checks. See [session startup](GUI_LIFECYCLE.md#starting-a-session).

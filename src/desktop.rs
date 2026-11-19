@@ -7,7 +7,7 @@ use iolink_workbench::{
 };
 use std::{
     fs, io,
-    path::Path,
+    path::{Path, PathBuf},
     sync::{Arc, mpsc},
     thread,
     time::Duration,
@@ -107,7 +107,8 @@ fn completed<T>(worker: &mut Option<Worker<T>>) -> Option<anyhow::Result<T>> {
 struct App {
     tab: Tab,
     workspace: workspace::Workspace,
-    recording: bool,
+    active_recording: Option<PathBuf>,
+    latest_recording: Option<Recording>,
     profile: Profile,
     setup: setup::Editor,
     capture_path: String,
@@ -143,6 +144,14 @@ struct App {
     offline_diagnostics: diagnostics::Offline,
 }
 
+struct Recording {
+    directory: PathBuf,
+    rows: u64,
+    parts: u64,
+    unconfirmed_rows: u64,
+    has_error: bool,
+}
+
 impl App {
     fn new() -> Self {
         let profile =
@@ -151,7 +160,8 @@ impl App {
         Self {
             tab: Tab::Device,
             workspace: workspace::Workspace::default(),
-            recording: false,
+            active_recording: None,
+            latest_recording: None,
             profile,
             setup,
             capture_path: default_capture_path(),
@@ -222,7 +232,7 @@ impl App {
                 !path.exists(),
                 "Capture folder already exists. Enter a new folder."
             );
-            Some(path.to_path_buf())
+            Some(std::path::absolute(path)?)
         } else {
             None
         };
@@ -241,6 +251,7 @@ impl App {
         } else {
             None
         };
+        let active_recording = output.clone();
         let options = Options {
             shared_memory: self.shared_memory_enabled.then(|| {
                 iolink_workbench::shared_memory::Config {
@@ -280,7 +291,7 @@ impl App {
         self.report = None;
         self.live = Live::default();
         self.worker = Some(worker);
-        self.recording = record;
+        self.active_recording = active_recording;
         self.message = if record {
             "Starting capture…"
         } else {
@@ -306,20 +317,33 @@ impl App {
             }
         }
         if let Some(result) = completed(&mut self.worker) {
+            let recording = self.active_recording.take();
             if let Some(live) = self.queue.pop() {
                 self.live = live;
             }
             match result {
                 Ok(report) => {
                     capture_failed = !report.success();
+                    // The recording worker returns a report only after publishing capture.toml.
+                    if let Some(directory) = recording {
+                        self.latest_recording = Some(Recording {
+                            directory,
+                            rows: report.csv_rows_flushed,
+                            parts: report.csv_parts,
+                            unconfirmed_rows: report.csv_rows_unconfirmed,
+                            has_error: capture_failed,
+                        });
+                    }
                     self.message = report
                         .terminal_error
                         .as_ref()
                         .or(report.writer_error.as_ref())
                         .cloned()
                         .unwrap_or_else(|| {
-                            if report.success() {
+                            if report.success() && report.csv_parts > 0 {
                                 format!("Stopped · {} CSV rows flushed", report.csv_rows_flushed)
+                            } else if report.success() {
+                                "Session stopped".into()
                             } else {
                                 "Capture worker failed; review the final report".into()
                             }
@@ -401,10 +425,15 @@ impl Drop for App {
 }
 
 fn default_capture_path() -> String {
-    format!(
-        ".local/capture-{}",
-        chrono::Utc::now().format("%Y%m%d-%H%M%S-%3f")
-    )
+    next_capture_path("")
+}
+
+fn next_capture_path(current: &str) -> String {
+    let parent = Path::new(current.trim())
+        .parent()
+        .unwrap_or_else(|| Path::new(".local"));
+    let name = format!("capture-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S-%3f"));
+    parent.join(name).to_string_lossy().into_owned()
 }
 
 fn path_entry(ui: &mut Ui, value: &mut String, hint: &str) {

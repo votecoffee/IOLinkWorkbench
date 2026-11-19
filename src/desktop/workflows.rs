@@ -131,12 +131,23 @@ impl App {
                 );
             }
         });
+        if let Some(directory) = &self.active_recording {
+            ui.label(format!("Recording to {}", directory.display()));
+        }
+        if self.latest_recording.is_some() {
+            self.latest_recording(ui);
+            ui.separator();
+        }
         ui.add_enabled_ui(available, |ui| {
             ui.horizontal_wrapped(|ui| {
+                ui.label("Capture folder");
                 path_entry(ui, &mut self.capture_path, "New capture folder");
                 if ui.small_button("New folder name").clicked() {
-                    self.capture_path = default_capture_path();
+                    self.capture_path = next_capture_path(&self.capture_path);
                 }
+            });
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Duration");
                 ui.add(
                     egui::DragValue::new(&mut self.duration)
                         .range(0..=86_400)
@@ -185,12 +196,6 @@ impl App {
         });
         if start_requested && let Err(error) = self.start(true) {
             self.message = format!("{error:#}");
-        }
-        if let Some(report) = &self.report {
-            ui.label(format!(
-                "Last run · {} rows flushed · {} CSV parts · {} unconfirmed rows",
-                report.csv_rows_flushed, report.csv_parts, report.csv_rows_unconfirmed
-            ));
         }
     }
 

@@ -535,7 +535,7 @@ fn persistent_actions_review_connections_and_reveal_hidden_drafts() {
 }
 
 #[test]
-fn stop_and_flush_remains_available_on_another_tab() -> Result<()> {
+fn stop_and_flush_from_another_tab_can_review_the_recording() -> Result<()> {
     let _serial = WORKER_TEST_LOCK.lock().unwrap();
     let destination = tempfile::tempdir()?;
     let path = destination.path().join("capture");
@@ -551,6 +551,18 @@ fn stop_and_flush_remains_available_on_another_tab() -> Result<()> {
         std::thread::sleep(Duration::from_millis(5));
     }
     assert!(app.live.counts.received > 0);
+    app.tab = Tab::Logging;
+    let found = draw(&mut app, &ctx, size);
+    assert!(
+        found
+            .iter()
+            .any(|(text, _)| text.starts_with("Recording to "))
+    );
+    assert!(
+        !found
+            .iter()
+            .any(|(text, _)| text == "Review latest recording")
+    );
     app.tab = Tab::Integration;
     click(&mut app, &ctx, size, "Stop and flush");
     assert!(app.stop.requested());
@@ -561,7 +573,51 @@ fn stop_and_flush_remains_available_on_another_tab() -> Result<()> {
     assert!(app.worker.is_none());
     let report = app.report.as_ref().expect("completed capture");
     assert!(report.success() && report.csv_rows_flushed > 0 && report.csv_rows_unconfirmed == 0);
-    let verified = iolink_workbench::archive::verify(&path, None)?;
-    assert_eq!(verified.rows_checked, report.csv_rows_flushed);
+    let rows = report.csv_rows_flushed;
+    let parts = report.csv_parts;
+    let joined = destination.path().join("must-not-be-written.csv");
+    app.tab = Tab::Offline;
+    paste(&mut app, &ctx, size, "Capture folder", "another-capture");
+    paste(
+        &mut app,
+        &ctx,
+        size,
+        "Optional new CSV filename",
+        &joined.display().to_string(),
+    );
+    // A later monitor session supersedes the timing report, but not the last saved recording.
+    app.start(false)?;
+    app.stop.request();
+    while app.worker.is_some() && Instant::now() < deadline {
+        draw(&mut app, &ctx, size);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(app.report.as_ref().expect("monitor report").csv_parts, 0);
+    click(&mut app, &ctx, size, "Logging");
+    click(&mut app, &ctx, size, "New folder name");
+    let next = Path::new(&app.capture_path);
+    assert_eq!(next.parent(), path.parent());
+    assert_ne!(next, path);
+    assert!(!next.exists());
+    click(&mut app, &ctx, size, "Review latest recording");
+    assert_eq!(app.tab, Tab::Offline);
+    assert_eq!(app.workspace.offline, OfflinePage::Captures);
+    assert_eq!(
+        app.pending_jobs(),
+        0,
+        "Selecting a recording must not dispatch verification"
+    );
+    assert!(!joined.exists());
+    click(&mut app, &ctx, size, "Verify capture");
+    while app.pending_jobs() > 0 && Instant::now() < deadline {
+        draw(&mut app, &ctx, size);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let found = draw(&mut app, &ctx, size);
+    assert!(found.iter().any(|(text, _)| text.starts_with(&format!("{rows} rows checked across {parts} parts"))));
+    assert!(
+        !joined.exists(),
+        "An unrelated combined CSV destination must not carry over"
+    );
     Ok(())
 }

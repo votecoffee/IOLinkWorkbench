@@ -22,11 +22,17 @@ The workspace follows EthernetIP Workbench's Device → Inputs → Logging patte
 5. Choose **Connect…**, review the actual route, port, poll interval, expected identity and enabled feeds, then **Start monitor**. The app opens **Inputs**. Inspect **Diagnostics → Connection & identity** for observations. Import and configured expectations do not verify the device.
 6. To log, finish the current monitor session with **Stop and flush**, then choose **Record CSV…**. Select a new folder, duration and CSV fields in **Logging**, then **Start CSV capture**. Zero duration means manual stop. Recording can also start directly while idle.
 7. Switch tabs freely during acquisition. **Stop and flush** remains in the header and ends the IO-Link acquisition session, draining any CSV writer. Wait for completion before starting another session. Unlike EthernetIP Workbench, this application does not attach a CSV recorder to a separately retained connection.
-8. Use **Offline → Saved captures** to verify a finalized folder. **Review & export** and **Compare captures** are separate pages; stored endpoints are not followed.
+8. Choose **Review latest recording** in **Logging** or **Offline → Saved captures**. This selects the last finalized CSV folder from this app session. Choose **Verify capture** to check it, or **Review field** to inspect a signal. You can still enter any finalized capture folder. **Review & export** and **Compare captures** are separate pages; stored endpoints are not followed.
 
 Unapplied changes remain visible in the header even when their page is hidden. **Review pending edits** returns to the correct draft. Setup, mapping and profile-file changes are disabled during acquisition or an active parameter read; integration changes apply to the next session. Independent parameter reads and saved reviews keep their existing background ownership and do not become sampling locks.
 
 The footer shows the latest session message; hover to read it in full. **Diagnostics → Connection & identity** also shows the full message. Quality/loss alerts remain above the tabs. Per-session feed choices are summarized in Integration and the connection review; they are not saved profile keys.
+
+## Finding a recording
+
+Logging shows the resolved output folder during a capture. **New folder name** creates a timestamped name in the current parent folder. Starting the recording creates the folder.
+
+The latest recording stays available after switching profiles or running a monitor session. A finalized run with a recorded error is labeled and can be reviewed. If the worker fails before returning a finalized report, the previous recording remains available. Selecting a different recording clears the previous field selection and export destinations for that source. An active review or export must finish before the shortcut can select a folder.
 
 ## Selecting files from Explorer
 
@@ -36,6 +42,6 @@ Selecting another IODD clears the previous inspection, variant/layout and ZIP-me
 
 ## Verification scope
 
-In-process egui tests check page isolation and toolbar bounds at **790×530** and **1130×790**, review/profile navigation, starter selection and guarded replacement, failed-load and source-file preservation, overview routing, synthetic file-drop routing and explicit load/inspect/apply, Unicode paths, rejected multi-file/unsupported drops, hover geometry, hidden-draft recovery, and stopping an actual simulator capture from another tab with verified CSV drain. Synthetic pointer events stay inside an isolated egui context; no desktop input is sent.
+In-process egui tests check page isolation and toolbar bounds at **790×530** and **1130×790**, review/profile navigation, starter selection and guarded replacement, failed-load and source-file preservation, overview routing, synthetic file-drop routing and explicit load/inspect/apply, Unicode paths, rejected multi-file/unsupported drops, hover geometry, hidden-draft recovery, and stopping an actual simulator capture from another tab and reopening its finalized folder for explicit verification. Synthetic pointer events stay inside an isolated egui context; no desktop input is sent.
 
-The capability-checked native verifier paints 89 built-in profile/page/dialog and observation cases at **1130×790** into a hidden OpenGL framebuffer. It sends no input and reads no pixels. These checks establish layout geometry, workflow behavior and draw submission. Visible appearance, Explorer/OS drop delivery, window-manager interaction, DPI and physical-device acceptance remain separate. The preview case supplies synthetic hover metadata without desktop input or file access.
+The capability-checked native verifier paints 90 built-in profile/page/dialog and observation cases at **1130×790** into a hidden OpenGL framebuffer. It sends no input and reads no pixels. These checks establish layout geometry, workflow behavior and draw submission. Visible appearance, Explorer/OS drop delivery, window-manager interaction, DPI and physical-device acceptance remain separate. The preview case supplies synthetic hover metadata without desktop input or file access.

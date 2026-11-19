@@ -98,7 +98,7 @@ impl App {
                     "STOPPING / FLUSHING"
                 } else if self.worker.is_some() && !self.live.connected {
                     "CONNECTING / RECONNECTING"
-                } else if self.worker.is_some() && self.recording {
+                } else if self.active_recording.is_some() {
                     "RECORDING CSV"
                 } else if self.worker.is_some() {
                     "MONITORING"
@@ -334,11 +334,17 @@ impl App {
 
     fn offline_page(&mut self, ui: &mut Ui) {
         match self.workspace.offline {
-            OfflinePage::Captures => self.saved_capture.show(
-                ui,
-                &self.profile,
-                !self.setup.pending() && !self.setup.busy(),
-            ),
+            OfflinePage::Captures => {
+                if self.latest_recording.is_some() {
+                    self.latest_recording(ui);
+                    ui.separator();
+                }
+                self.saved_capture.show(
+                    ui,
+                    &self.profile,
+                    !self.setup.pending() && !self.setup.busy(),
+                );
+            }
             OfflinePage::Process => self.offline_process(ui),
             OfflinePage::Parameter => {
                 if let Some(selection) = self.offline_parameter.show(
@@ -355,6 +361,41 @@ impl App {
             OfflinePage::Snapshot => self.saved_parameter.show(ui),
             OfflinePage::Events => self.offline_diagnostics.show(ui, &self.profile),
         }
+    }
+
+    pub(super) fn latest_recording(&mut self, ui: &mut Ui) {
+        let Some(recording) = &self.latest_recording else {
+            return;
+        };
+        ui.horizontal_wrapped(|ui| {
+            ui.strong("Latest recording");
+            ui.label(format!(
+                "{} rows flushed · {} CSV parts",
+                recording.rows, recording.parts
+            ));
+            if recording.has_error {
+                ui.colored_label(WARNING, "Run reported an error");
+            }
+            if recording.unconfirmed_rows != 0 {
+                ui.colored_label(
+                    WARNING,
+                    format!("{} unconfirmed rows", recording.unconfirmed_rows),
+                );
+            }
+            if ui
+                .add_enabled(
+                    self.saved_capture.can_select_directory(),
+                    egui::Button::new("Review latest recording"),
+                )
+                .on_disabled_hover_text("Wait for the active capture review to finish")
+                .clicked()
+                && self.saved_capture.select_directory(&recording.directory)
+            {
+                self.tab = Tab::Offline;
+                self.workspace.offline = OfflinePage::Captures;
+            }
+        });
+        ui.label(recording.directory.display().to_string());
     }
 
     fn dialogs(&mut self, ctx: &Context) {
