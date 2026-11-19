@@ -6,7 +6,7 @@ use iolink_workbench::{
     transport::{self, Freshness},
 };
 use std::{
-    fs, io,
+    io,
     path::{Path, PathBuf},
     sync::{Arc, mpsc},
     thread,
@@ -14,6 +14,7 @@ use std::{
 };
 
 mod acyclic;
+mod capture_destination;
 mod diagnostics;
 mod file_drop;
 mod integration_review;
@@ -119,6 +120,7 @@ struct App {
     profile: Profile,
     setup: setup::Editor,
     capture_path: String,
+    capture_folder_check: Option<capture_destination::FolderCheck>,
     duration: u32,
     simulate_faults: bool,
     api_enabled: bool,
@@ -170,6 +172,7 @@ impl App {
             profile,
             setup,
             capture_path: default_capture_path(),
+            capture_folder_check: None,
             duration: 10,
             simulate_faults: false,
             api_enabled: false,
@@ -225,23 +228,8 @@ impl App {
         self.check_session_route()
             .map_err(session_review::RouteIssue::into_error)?;
         let mut options = self.review_feeds().into_options()?;
-        options.output = if record {
-            anyhow::ensure!(
-                !self.capture_path.trim().is_empty(),
-                "Enter a new capture folder"
-            );
-            let path = Path::new(self.capture_path.trim());
-            if path.parent() == Some(Path::new(".local")) {
-                fs::create_dir_all(".local")?;
-            }
-            anyhow::ensure!(
-                !path.exists(),
-                "Capture folder already exists. Enter a new folder."
-            );
-            Some(std::path::absolute(path)?)
-        } else {
-            None
-        };
+        let destination = record.then(|| self.check_capture_folder()).transpose()?;
+        options.output = destination.as_ref().map(|folder| folder.path.clone());
         let profile = self.profile.clone();
         let active_recording = options.output.clone();
         options.duration =
@@ -253,6 +241,9 @@ impl App {
         let worker_stop = stop.clone();
         let worker_queue = queue.clone();
         let worker = background("cyclic-input", move || {
+            if let Some(folder) = destination {
+                folder.prepare_parent()?;
+            }
             capture::run(&profile, &options, &worker_stop, Some(&worker_queue))
         })?;
         // A failed dispatch leaves the previous evidence and control token intact.
@@ -262,6 +253,9 @@ impl App {
         self.live = Live::default();
         self.worker = Some(worker);
         self.active_recording = active_recording;
+        if record {
+            self.capture_folder_check = None;
+        }
         self.message = if record {
             "Starting capture…"
         } else {

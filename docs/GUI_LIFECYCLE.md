@@ -31,6 +31,8 @@ Route checks precede output-folder preparation and worker launch. They share the
 
 Enabled feeds are validated before output-folder preparation and dispatch. Connection review, Logging and Start use the same configuration construction and the services' local validators. Binding, broker reachability and mapping creation are tested when the services run.
 
+Logging's Check folder action checks the resolved parent and target on request. Start repeats the check before dispatch. The check creates no directories. A missing default `.local` parent is prepared by the worker, and the writer creates the capture directory exclusively. A collision after checking still fails at creation.
+
 ## Operator acceptance checklist
 
 These are pending visible checks, not results claimed by the automated suites. Start with the bundled **Simulator** profile and a new output directory; select bench hardware only under the session's authorized read-only scope.

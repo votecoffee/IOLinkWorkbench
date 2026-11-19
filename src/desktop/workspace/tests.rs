@@ -1,7 +1,7 @@
 //! Isolated egui input only: these tests never send desktop input.
 use super::*;
 use anyhow::Result;
-use std::time::Instant;
+use std::{fs, time::Instant};
 
 fn draw(app: &mut App, ctx: &Context, size: egui::Vec2) -> Vec<(String, egui::Rect)> {
     draw_input(app, ctx, size, egui::RawInput::default())
@@ -78,6 +78,68 @@ fn paste(app: &mut App, ctx: &Context, size: egui::Vec2, hint: &str, value: &str
         },
         |ctx| app.render(ctx),
     );
+}
+
+#[test]
+fn capture_folder_check_is_read_only_and_start_rechecks_its_destination() -> Result<()> {
+    let _serial = WORKER_TEST_LOCK.lock().unwrap();
+    let scratch = tempfile::tempdir()?;
+    let ctx = Context::default();
+    let size = egui::vec2(790.0, 530.0);
+    let mut app = App::new();
+    app.tab = Tab::Logging;
+    let has = |app: &mut App, snippet: &str| {
+        draw(app, &ctx, size)
+            .iter()
+            .any(|(text, _)| text.contains(snippet))
+    };
+
+    let absent_parent = scratch.path().join("missing");
+    app.capture_path = absent_parent.join("new-capture").display().to_string();
+    click(&mut app, &ctx, size, "Check folder");
+    assert!(has(&mut app, "Capture parent folder does not exist"));
+    assert!(!absent_parent.exists());
+    assert_eq!(app.pending_jobs(), 0);
+
+    let regular_file = scratch.path().join("file-not-parent");
+    fs::write(&regular_file, b"original bytes")?;
+    app.capture_path = regular_file.join("new-capture").display().to_string();
+    assert!(!has(&mut app, "Capture parent folder does not exist"));
+    click(&mut app, &ctx, size, "Check folder");
+    assert!(has(&mut app, "Capture parent is not a folder"));
+    assert_eq!(fs::read(&regular_file)?, b"original bytes");
+    app.capture_path = regular_file.display().to_string();
+    click(&mut app, &ctx, size, "Check folder");
+    assert!(has(&mut app, "Capture folder already exists"));
+
+    let destination = scratch.path().join("検査 capture");
+    app.capture_path = destination.display().to_string();
+    click(&mut app, &ctx, size, "Check folder");
+    assert!(has(&mut app, "Folder name available at check time"));
+    assert!(has(&mut app, "検査 capture"));
+    assert!(!destination.exists());
+    assert_eq!(app.pending_jobs(), 0);
+    fs::create_dir(&destination)?;
+    let prior_data = destination.join("existing.txt");
+    fs::write(&prior_data, b"keep me")?;
+    app.live.counts.received = 41;
+    app.stop.request();
+    let prior_report = capture::run(&app.profile, &capture::Options::default(), &app.stop, None)?;
+    let prior_report_text = toml::to_string(&prior_report)?;
+    app.report = Some(prior_report);
+    click(&mut app, &ctx, size, "Start CSV capture");
+    assert!(
+        app.current_folder_check()
+            .is_some_and(|check| !check.available)
+    );
+    assert!(has(&mut app, "Capture folder already exists"));
+    assert_eq!(fs::read(&prior_data)?, b"keep me");
+    assert!(app.stop.requested() && app.live.counts.received == 41 && app.pending_jobs() == 0);
+    assert_eq!(
+        toml::to_string(app.report.as_ref().unwrap())?,
+        prior_report_text
+    );
+    Ok(())
 }
 
 #[test]

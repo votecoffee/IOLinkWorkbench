@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Logging can check a proposed output folder and show its resolved path before recording. Start checks it again and rejects an unavailable destination before dispatch.
+
 - Drop a finalized capture's capture.toml or a re-decoded bundle's receipt.toml in the saved capture workspace to select its folder for explicit verification.
 
 - Verified captures supply the Signal picker with saved fields and units in CSV order. A verified capture with no typed columns links to re-decode options.

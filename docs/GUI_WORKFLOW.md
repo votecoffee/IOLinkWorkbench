@@ -42,7 +42,7 @@ Invalid enabled settings block Start and offer a link to the relevant **Integrat
 
 ## Finding a recording
 
-Logging shows the resolved output folder during a capture. **New folder name** creates a timestamped name in the current parent folder. Starting the recording creates the folder.
+Logging shows the resolved output folder during a capture. **New folder name** creates a timestamped name in the current parent folder. **Check folder** shows the resolved path and checks for an existing target or unusable parent. The check only inspects the filesystem. Start repeats it and creates the output as a new folder. For the default destination, the worker creates `.local` if needed. A custom destination needs an existing parent folder.
 
 The latest recording stays available after switching profiles or running a monitor session. A finalized run with a recorded error is labeled and can be reviewed. If the worker fails before returning a finalized report, the previous recording remains available. Selecting a different recording clears the previous field selection and export destinations for that source. An active review or export must finish before the shortcut can select a folder.
 

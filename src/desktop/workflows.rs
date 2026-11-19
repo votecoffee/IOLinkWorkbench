@@ -120,7 +120,10 @@ impl App {
         ui.horizontal_wrapped(|ui| {
             if ui
                 .add_enabled(
-                    available && route.is_ok() && feeds.valid(),
+                    available
+                        && route.is_ok()
+                        && feeds.valid()
+                        && !self.capture_path.trim().is_empty(),
                     egui::Button::new(RichText::new("Start CSV capture").color(ACCENT)),
                 )
                 .clicked()
@@ -158,7 +161,15 @@ impl App {
                 if ui.small_button("New folder name").clicked() {
                     self.capture_path = next_capture_path(&self.capture_path);
                 }
+                if ui.add_enabled(!self.capture_path.trim().is_empty(), egui::Button::new("Check folder")).clicked() {
+                    let _ = self.check_capture_folder();
+                }
             });
+            if self.capture_path.trim().is_empty() {
+                ui.colored_label(WARNING, "Enter a new capture folder.");
+            } else if let Some(check) = self.current_folder_check() {
+                ui.colored_label(if check.available { ACCENT } else { WARNING }, &check.message);
+            }
             ui.horizontal_wrapped(|ui| {
                 ui.label("Duration");
                 ui.add(
