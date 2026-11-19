@@ -192,6 +192,7 @@ pub(super) fn render(
                 "diagnostics-events",
                 "offline-compare",
                 "offline-signal",
+                "offline-raw-signal",
                 "offline-exports",
                 "offline-process",
                 "offline-parameter",
@@ -271,12 +272,22 @@ pub(super) fn render(
                             Err(anyhow::anyhow!("Synthetic diagnostics error")),
                         );
                     }
-                    "offline-compare" | "offline-signal" | "offline-exports" => {
+                    "offline-compare" | "offline-signal" | "offline-raw-signal"
+                    | "offline-exports" => {
                         app.tab = Tab::Offline;
                         use super::super::saved_capture::Page;
                         app.saved_capture.page = match label {
                             "offline-compare" => Page::Compare,
-                            "offline-signal" => Page::Signal,
+                            "offline-signal" => {
+                                app.saved_capture.set_logged_fields(
+                                    app.profile.log_fields().into_iter().cloned().collect(),
+                                );
+                                Page::Signal
+                            }
+                            "offline-raw-signal" => {
+                                app.saved_capture.set_logged_fields(Vec::new());
+                                Page::Signal
+                            }
                             _ => Page::Exports,
                         };
                     }
@@ -460,7 +471,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 95);
+        assert_eq!(cases.len(), 96);
         assert!(
             cases
                 .iter()

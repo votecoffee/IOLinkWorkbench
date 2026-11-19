@@ -1,6 +1,9 @@
 //! Interpretation of finalized saved interface counters; never access live interfaces.
 use super::{Manifest, RecordedTiming, Summary};
-use crate::profile::{Gateway, LogMode, Profile};
+use crate::{
+    decode::Field,
+    profile::{Gateway, LogMode, Profile},
+};
 use anyhow::Result;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -56,6 +59,8 @@ pub struct InterfaceReview {
     pub capture_report_sha256: String,
     pub saved_profile_sha256: String,
     pub capture: Summary,
+    #[serde(skip)]
+    logged_fields: Vec<Field>,
     pub acquisition: InterfaceContext,
     pub interfaces: RecordedInterfaces,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -63,6 +68,11 @@ pub struct InterfaceReview {
 }
 
 impl InterfaceReview {
+    /// Typed columns in the verified capture's original CSV order.
+    pub fn logged_fields(&self) -> &[Field] {
+        &self.logged_fields
+    }
+
     pub(super) fn new(
         capture: Summary,
         profile: &Profile,
@@ -77,6 +87,7 @@ impl InterfaceReview {
             capture_report_sha256: format!("{:x}", Sha256::digest(manifest_bytes)),
             saved_profile_sha256: format!("{:x}", Sha256::digest(profile_bytes)),
             capture,
+            logged_fields: profile.log_fields().into_iter().cloned().collect(),
             acquisition: InterfaceContext {
                 configured_gateway: profile.connection.gateway,
                 recorded_route: status.and_then(|s| s.route.clone()),

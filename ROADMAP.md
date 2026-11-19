@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Verified captures supply the Signal picker with saved fields and units in CSV order. A verified capture with no typed columns links to re-decode options.
+
 - Connection review and Logging show enabled feed destinations and catch configuration errors before startup. Fix links select the affected Integration page.
 
 - Connection review and Logging check the selected read route locally before starting. Endpoint and conditional IODD issues link to their settings. Reachability, device identity and port status are observed during the read.

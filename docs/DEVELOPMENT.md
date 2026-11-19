@@ -53,6 +53,8 @@ Connection review and Logging use the local acquisition route check before prese
 
 The GUI feed review builds enabled HTTP, MQTT and shared-memory configurations using the services' pure validators. Start transfers those configurations to the worker after the route and feed checks pass. Keep local review free of socket binding, broker connections and mapping creation.
 
+Capture verification keeps the saved typed field definitions from its checked profile for the GUI picker. The list follows saved CSV column order. Its in-memory accessor leaves the serialized review format intact. A source change or failed verification withdraws the prior field list, and a signal review verifies the capture as it plots the selected field.
+
 ## Local validation
 
 GUI `start_block_reason` supplies both button availability and the start method's preflight check. Keep owned cyclic results (including ready but unread completions), closing and pending profile work fenced before state/output preparation. Prepare fresh stop/display queues locally and commit them only after worker launch succeeds; independent acyclic/review jobs must not become sampler admission locks. Run `desktop::self_test::start_tests` for guard-denied dispatch, completion ownership, draft/inspection guards and consecutive simulator capture/byte-preservation checks. See [session startup](GUI_LIFECYCLE.md#starting-a-session).

@@ -1,6 +1,6 @@
 use super::{ACCENT, WARNING, Worker, background, completed, path_entry};
 use eframe::egui::{self, Context, Ui};
-use iolink_workbench::{archive, profile::Profile};
+use iolink_workbench::{archive, decode::Field, profile::Profile};
 use std::{
     path::{Path, PathBuf},
     time::Duration,
@@ -16,7 +16,7 @@ enum ExportOutcome {
     Verified(Box<archive::ExportVerification>),
 }
 
-#[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub(super) enum Page {
     #[default]
     Verify,
@@ -83,7 +83,7 @@ pub struct Verifier {
     bundle_directory: String,
     bundle_check_original: bool,
     field: String,
-    available_fields: Vec<String>,
+    available_fields: Option<Vec<Field>>,
     buckets: u16,
     verify: Task<archive::InterfaceReview>,
     signal: Task<archive::Review>,
@@ -102,7 +102,7 @@ impl Verifier {
         self.directory = directory;
         self.joined_csv.clear();
         self.field.clear();
-        self.available_fields.clear();
+        self.available_fields = None;
         self.export_directory.clear();
         self.bundle_check_original = false;
         self.verify.result = None;
@@ -140,16 +140,22 @@ impl Verifier {
 
     pub fn update(&mut self, ctx: &Context) {
         self.comparer.update(ctx);
-        self.verify.update();
+        if self.verify.update() {
+            let fields = self
+                .verify
+                .value()
+                .map(|result| result.logged_fields().to_vec());
+            if let Some(fields) = fields {
+                self.set_logged_fields(fields);
+            } else {
+                self.available_fields = None;
+                self.signal.result = None;
+            }
+        }
         if self.signal.update()
             && let Some(review) = self.signal.value()
         {
-            self.available_fields = review
-                .signal
-                .available_fields
-                .iter()
-                .map(|field| field.name.clone())
-                .collect();
+            self.set_logged_fields(review.signal.available_fields.clone());
         }
         if self.exports.update()
             && let Some(ExportOutcome::Written(receipt)) = self.exports.value()
@@ -159,6 +165,26 @@ impl Verifier {
         if !self.can_select_directory() {
             ctx.request_repaint_after(Duration::from_millis(80));
         }
+    }
+
+    pub(super) fn set_logged_fields(&mut self, fields: Vec<Field>) {
+        let selected = if self.field.is_empty() {
+            fields.first()
+        } else {
+            fields.iter().find(|field| field.name == self.field)
+        };
+        if selected.is_none()
+            || self
+                .signal
+                .value()
+                .is_some_and(|review| selected != Some(&review.signal.field))
+        {
+            self.signal.result = None;
+        }
+        if selected.is_none() {
+            self.field.clear();
+        }
+        self.available_fields = Some(fields);
     }
 
     pub fn show(&mut self, ui: &mut Ui, mapping: &Profile, mapping_available: bool) {
@@ -218,28 +244,42 @@ impl Verifier {
         self.verify.show_error(ui);
         if let Some(verified) = self.verify.value() {
             ui.colored_label(ACCENT, "CSV data matches the saved report");
+            if verified.logged_fields().is_empty() {
+                ui.label("No typed CSV fields were recorded.");
+            } else {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(format!("{} logged fields", verified.logged_fields().len()));
+                    if ui.button("Choose a signal").clicked() {
+                        self.page = Page::Signal;
+                    }
+                });
+            }
             show_summary(ui, &verified.capture);
             interfaces::show_review(ui, verified);
         }
     }
 
     fn show_signal(&mut self, ui: &mut Ui, editable: bool) {
+        if self.available_fields.as_ref().is_some_and(Vec::is_empty) {
+            ui.label("This capture contains no typed CSV fields.");
+            if ui.button("Open re-decode options").clicked() {
+                self.page = Page::Exports;
+            }
+            return;
+        }
         ui.add_enabled_ui(editable, |ui| {
             ui.horizontal_wrapped(|ui| {
                 let before = (self.field.clone(), self.buckets);
                 ui.label("Logged field");
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.field)
-                        .hint_text("Empty = first logged field")
-                        .desired_width(240.0),
-                );
-                egui::ComboBox::from_id_salt("capture-review-fields")
-                    .selected_text("Saved fields")
-                    .show_ui(ui, |ui| {
-                        for field in &self.available_fields {
-                            ui.selectable_value(&mut self.field, field.clone(), field);
-                        }
-                    });
+                if let Some(fields) = &self.available_fields {
+                    select_field(ui, &mut self.field, fields);
+                } else {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.field)
+                            .hint_text("Empty = first logged field")
+                            .desired_width(240.0),
+                    );
+                }
                 if self.buckets == 0 {
                     self.buckets = 128;
                 }
@@ -267,6 +307,9 @@ impl Verifier {
                 }
             });
         });
+        if self.available_fields.is_none() {
+            ui.small("Verify the capture to list its logged fields.");
+        }
         self.signal.show_error(ui);
         if let Some(review) = self.signal.value() {
             show_summary(ui, &review.capture);
@@ -359,6 +402,29 @@ impl Verifier {
             None => {}
         }
     }
+}
+
+fn select_field(ui: &mut Ui, selected: &mut String, fields: &[Field]) {
+    let first = format!("First logged field · {}", fields[0].name);
+    egui::ComboBox::from_id_salt("capture-review-fields")
+        .selected_text(if selected.is_empty() {
+            first.as_str()
+        } else {
+            selected.as_str()
+        })
+        .width(280.0)
+        .height(240.0)
+        .truncate()
+        .show_ui(ui, |ui| {
+            for field in fields {
+                let label = if field.unit.is_empty() {
+                    field.name.clone()
+                } else {
+                    format!("{} · {}", field.name, field.unit)
+                };
+                ui.selectable_value(selected, field.name.clone(), label);
+            }
+        });
 }
 
 fn show_summary(ui: &mut Ui, summary: &archive::Summary) {

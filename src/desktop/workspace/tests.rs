@@ -925,6 +925,11 @@ fn stop_and_flush_from_another_tab_can_review_the_recording() -> Result<()> {
     let destination = tempfile::tempdir()?;
     let path = destination.path().join("capture");
     let mut app = App::new();
+    app.profile
+        .set_log_selection(iolink_workbench::profile::LogSelection::Fields(vec![
+            "switch".into(),
+            "level".into(),
+        ]))?;
     app.capture_path = path.display().to_string();
     app.duration = 0;
     app.start(true)?;
@@ -960,6 +965,11 @@ fn stop_and_flush_from_another_tab_can_review_the_recording() -> Result<()> {
     assert!(report.success() && report.csv_rows_flushed > 0 && report.csv_rows_unconfirmed == 0);
     let rows = report.csv_rows_flushed;
     let parts = report.csv_parts;
+    // The operator can review the stored selection while a different selection is applied.
+    app.profile
+        .set_log_selection(iolink_workbench::profile::LogSelection::All)?;
+    assert_eq!(app.profile.log_fields()[0].name, "level");
+    app.setup.sync(&app.profile);
     let joined = destination.path().join("must-not-be-written.csv");
     app.tab = Tab::Offline;
     paste(&mut app, &ctx, size, "Capture folder", "another-capture");
@@ -1002,6 +1012,11 @@ fn stop_and_flush_from_another_tab_can_review_the_recording() -> Result<()> {
     let found = draw(&mut app, &ctx, size);
     assert!(found.iter().any(|(text, _)| text == "Review field"));
     assert!(
+        found
+            .iter()
+            .any(|(text, _)| text == "First logged field · switch")
+    );
+    assert!(
         !found
             .iter()
             .any(|(text, _)| text == "Verify capture" || text == "Verify bundle")
@@ -1011,6 +1026,8 @@ fn stop_and_flush_from_another_tab_can_review_the_recording() -> Result<()> {
             .iter()
             .any(|(text, _)| text.starts_with("CSV data matches"))
     );
+    click(&mut app, &ctx, size, "First logged field · switch");
+    click(&mut app, &ctx, size, "level · mm");
     click(&mut app, &ctx, size, "Review field");
     while app.pending_jobs() > 0 && Instant::now() < deadline {
         draw(&mut app, &ctx, size);
@@ -1018,6 +1035,7 @@ fn stop_and_flush_from_another_tab_can_review_the_recording() -> Result<()> {
     }
     let found = draw(&mut app, &ctx, size);
     assert!(found.iter().any(|(text, _)| text.contains("finite values")));
+    assert!(found.iter().any(|(text, _)| text == "level · mm"));
     click(&mut app, &ctx, size, "Verify");
     let found = draw(&mut app, &ctx, size);
     assert!(found.iter().any(|(text, _)| text.starts_with(&format!("{rows} rows checked across {parts} parts"))));
@@ -1027,6 +1045,9 @@ fn stop_and_flush_from_another_tab_can_review_the_recording() -> Result<()> {
             .any(|(text, _)| text == "CSV data matches the saved report")
     );
     assert!(!found.iter().any(|(text, _)| text == "Review field"));
+    click(&mut app, &ctx, size, "Choose a signal");
+    assert_eq!(app.saved_capture.page, saved_capture::Page::Signal);
+    assert_eq!(app.pending_jobs(), 0);
     assert!(
         !joined.exists(),
         "An unrelated combined CSV destination must not carry over"
@@ -1079,6 +1100,60 @@ fn stop_and_flush_from_another_tab_can_review_the_recording() -> Result<()> {
             .iter()
             .any(|(text, _)| text.contains("finite values"))
     );
+    assert!(
+        draw(&mut app, &ctx, size)
+            .iter()
+            .any(|(text, _)| text == "Empty = first logged field")
+    );
+    assert_eq!(app.pending_jobs(), 0);
+    Ok(())
+}
+
+#[test]
+fn verified_raw_only_capture_offers_redecode_instead_of_an_empty_field_picker() -> Result<()> {
+    let _serial = WORKER_TEST_LOCK.lock().unwrap();
+    let path = tempfile::tempdir()?;
+    let source = path.path().join("raw-only");
+    let profile = Profile::parse(include_str!("../../../samples/raw-only.toml"))?;
+    let stop = Stop::default();
+    stop.request();
+    let report = capture::run(
+        &profile,
+        &capture::Options {
+            output: Some(source.clone()),
+            ..Default::default()
+        },
+        &stop,
+        None,
+    )?;
+    assert!(report.success());
+    let mut app = App::new();
+    app.tab = Tab::Offline;
+    assert!(app.saved_capture.select_directory(&source));
+    let ctx = Context::default();
+    let size = egui::vec2(790.0, 530.0);
+    click(&mut app, &ctx, size, "Verify capture");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while app.pending_jobs() > 0 && Instant::now() < deadline {
+        draw(&mut app, &ctx, size);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let found = draw(&mut app, &ctx, size);
+    assert!(
+        found
+            .iter()
+            .any(|(text, _)| text == "No typed CSV fields were recorded.")
+    );
+    click(&mut app, &ctx, size, "Signal");
+    let found = draw(&mut app, &ctx, size);
+    assert!(
+        found
+            .iter()
+            .any(|(text, _)| text == "This capture contains no typed CSV fields.")
+    );
+    assert!(!found.iter().any(|(text, _)| text == "Review field"));
+    click(&mut app, &ctx, size, "Open re-decode options");
+    assert_eq!(app.saved_capture.page, saved_capture::Page::Exports);
     assert_eq!(app.pending_jobs(), 0);
     Ok(())
 }
