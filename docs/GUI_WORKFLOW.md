@@ -4,7 +4,7 @@ The workspace follows EthernetIP Workbench's Device → Inputs → Logging patte
 
 | Tab | Use it for |
 |---|---|
-| Device | Host connection, identity expectations, IODD import and advanced profile TOML, on separate pages |
+| Device | Setup overview, host connection, identity expectations, IODD import and advanced profile TOML, on separate pages |
 | Inputs | Current raw input, quality, advancing host ages and a compact field/value/unit table; expand bit layout and scaling when needed |
 | Logging | New capture folder, duration, update/on-change selection and CSV values; buffer sizing, rotation and the full plan expand on demand |
 | Mappings | Imported/manual fields and overrides; Edit mapping opens a focused editor instead of stacking it below the list |
@@ -15,13 +15,14 @@ The workspace follows EthernetIP Workbench's Device → Inputs → Logging patte
 
 ## First session
 
-1. Use **Profiles…** to load a saved TOML profile. The bundled simulator is already applied at startup. Loading or applying host settings does not connect.
-2. In **Device**, choose the host connection. Import a local description in **IODD import**, selecting its exact variant and input layout. Review **Identity expectations** separately from observed identity. Language, standard resources and validation options expand when needed.
-3. In **Mappings**, review the effective fields and unresolved input. Apply or discard edits before leaving a draft pending. **Profiles…** saves the applied profile, including logging selections.
-4. Choose **Connect…**, review the actual route, port, poll interval, expected identity and enabled feeds, then **Start monitor**. The app opens **Inputs**. Inspect **Diagnostics → Connection & identity** for observations. Import and configured expectations do not verify the device.
-5. To log, finish the current monitor session with **Stop and flush**, then choose **Record CSV…**. Select a new folder, duration and CSV fields in **Logging**, then **Start CSV capture**. Zero duration means manual stop. Recording can also start directly while idle.
-6. Switch tabs freely during acquisition. **Stop and flush** remains in the header and ends the IO-Link acquisition session, draining any CSV writer. Wait for completion before starting another session. Unlike EthernetIP Workbench, this application does not attach a CSV recorder to a separately retained connection.
-7. Use **Offline → Saved captures** to verify a finalized folder. **Review & export** and **Compare captures** are separate pages; stored endpoints are not followed.
+1. The bundled typed simulator is already applied at startup. **Device → Overview** summarizes the applied connection, description/mapping, identity expectations and CSV values, with links to each task. It flags an empty hardware endpoint, IODD review notes and an unconfirmed layout condition without claiming physical readiness.
+2. Use **Profiles… → Start a profile** to choose the typed simulator, raw-only simulator or incomplete AL1350 template, then **Use starting profile**. Selecting a choice alone changes nothing. Use replaces settings in memory, clears the old save destination and returns to Device overview. **Open & save** loads a saved TOML or saves/replaces the applied profile at an explicit path. Successful loads also return to the overview; failed loads preserve applied settings. Neither action connects.
+3. In **Device**, choose the host connection. Import a local description in **IODD import**, selecting its exact variant and input layout. Review **Identity expectations** separately from observed identity. Language, standard resources and validation options expand when needed.
+4. In **Mappings**, review the effective fields and unresolved input. Apply or discard edits before leaving a draft pending. **Profiles… → Open & save** saves the applied profile, including logging selections.
+5. Choose **Connect…**, review the actual route, port, poll interval, expected identity and enabled feeds, then **Start monitor**. The app opens **Inputs**. Inspect **Diagnostics → Connection & identity** for observations. Import and configured expectations do not verify the device.
+6. To log, finish the current monitor session with **Stop and flush**, then choose **Record CSV…**. Select a new folder, duration and CSV fields in **Logging**, then **Start CSV capture**. Zero duration means manual stop. Recording can also start directly while idle.
+7. Switch tabs freely during acquisition. **Stop and flush** remains in the header and ends the IO-Link acquisition session, draining any CSV writer. Wait for completion before starting another session. Unlike EthernetIP Workbench, this application does not attach a CSV recorder to a separately retained connection.
+8. Use **Offline → Saved captures** to verify a finalized folder. **Review & export** and **Compare captures** are separate pages; stored endpoints are not followed.
 
 Unapplied changes remain visible in the header even when their page is hidden. **Review pending edits** returns to the correct draft. Setup, mapping and profile-file changes are disabled during acquisition or an active parameter read; integration changes apply to the next session. Independent parameter reads and saved reviews keep their existing background ownership and do not become sampling locks.
 
@@ -29,6 +30,6 @@ The footer shows the latest session message; hover to read it in full. **Diagnos
 
 ## Verification scope
 
-In-process egui tests check page isolation and toolbar bounds at **790×530** and **1130×790**, review/profile navigation, hidden-draft recovery, and stopping an actual simulator capture from another tab with verified CSV drain. Synthetic pointer events stay inside an isolated egui context; no desktop input is sent.
+In-process egui tests check page isolation and toolbar bounds at **790×530** and **1130×790**, review/profile navigation, starter selection and guarded replacement, failed-load and source-file preservation, overview routing, hidden-draft recovery, and stopping an actual simulator capture from another tab with verified CSV drain. Synthetic pointer events stay inside an isolated egui context; no desktop input is sent.
 
-The capability-checked native verifier paints 86 built-in profile/page/dialog and observation cases at **1130×790** into a hidden OpenGL framebuffer. It sends no input and reads no pixels. These checks establish layout geometry, workflow behavior and draw submission. Visible appearance, window-manager interaction, DPI and physical-device acceptance remain separate.
+The capability-checked native verifier paints 88 built-in profile/page/dialog and observation cases at **1130×790** into a hidden OpenGL framebuffer. It sends no input and reads no pixels. These checks establish layout geometry, workflow behavior and draw submission. Visible appearance, window-manager interaction, DPI and physical-device acceptance remain separate.

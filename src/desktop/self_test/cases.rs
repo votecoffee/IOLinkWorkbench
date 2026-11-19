@@ -179,6 +179,7 @@ pub(super) fn render(
         }
         if name == "formats" {
             for label in [
+                "device-connection",
                 "device-identity",
                 "device-iodd",
                 "device-advanced",
@@ -194,6 +195,7 @@ pub(super) fn render(
                 "offline-snapshot",
                 "offline-events",
                 "profiles-dialog",
+                "profiles-files",
                 "connection-dialog",
             ] {
                 let mut app = App::new();
@@ -204,6 +206,7 @@ pub(super) fn render(
                     workspace::{DiagnosticsPage, IntegrationPage, OfflinePage, ParameterPage},
                 };
                 match label {
+                    "device-connection" => app.setup.page = Page::Connection,
                     "device-identity" => app.setup.page = Page::Identity,
                     "device-iodd" => app.setup.page = Page::Iodd,
                     "device-advanced" => app.setup.page = Page::Advanced,
@@ -256,6 +259,10 @@ pub(super) fn render(
                         app.workspace.offline = OfflinePage::Events;
                     }
                     "profiles-dialog" => app.workspace.profile_dialog = true,
+                    "profiles-files" => {
+                        app.workspace.profile_dialog = true;
+                        app.setup.profiles_page = super::super::setup::ProfilePage::Files;
+                    }
                     "connection-dialog" => app.workspace.connect_dialog = true,
                     _ => unreachable!(),
                 }
@@ -389,7 +396,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 86);
+        assert_eq!(cases.len(), 88);
         assert!(
             cases
                 .iter()

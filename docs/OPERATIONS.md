@@ -16,7 +16,7 @@ Run these commands from the extracted package directory. Use new output names: p
 .\iolink-cli.exe review-capture trial
 ```
 
-These commands use a synthetic device. They establish software behavior, not physical timing or identity. The GUI starts offline; Device edits the applied host profile, Inputs displays monitoring, Logging starts CSV acquisition, and the review tools reopen saved evidence without connecting.
+These commands use a synthetic device. They establish software behavior, not physical timing or identity. The GUI starts offline with a typed simulator. Device → Overview links the setup tasks; Profiles… separates bundled starting profiles from Open & save. Starting or loading a profile returns to the overview without connecting. Device edits the applied host profile, Inputs displays monitoring, Logging starts CSV acquisition, and the review tools reopen saved evidence without connecting.
 
 See the [GUI workflow](GUI_WORKFLOW.md) for the tab map, persistent controls, review/profile windows and first session.
 

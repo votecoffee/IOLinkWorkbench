@@ -1,28 +1,36 @@
 use super::{WARNING, Worker, background, completed, iodd, path_entry};
 use eframe::egui::{self, Ui};
 use iolink_workbench::{decode::Field, iodd::Catalog, profile::Profile};
-use std::{
-    path::{Path, PathBuf},
-    time::Duration,
-};
+use std::{path::PathBuf, time::Duration};
 
 mod connection;
 mod identity;
 mod mapping;
+mod overview;
+mod profiles;
+
+pub(super) use profiles::ProfilePage;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub(super) enum Page {
     #[default]
+    Overview,
     Connection,
     Identity,
     Iodd,
     Advanced,
 }
 impl Page {
-    pub(super) const ALL: [Self; 4] =
-        [Self::Connection, Self::Identity, Self::Iodd, Self::Advanced];
+    pub(super) const ALL: [Self; 5] = [
+        Self::Overview,
+        Self::Connection,
+        Self::Identity,
+        Self::Iodd,
+        Self::Advanced,
+    ];
     pub(super) fn label(self) -> &'static str {
         match self {
+            Self::Overview => "Overview",
             Self::Connection => "Connection",
             Self::Identity => "Identity expectations",
             Self::Iodd => "IODD import",
@@ -32,6 +40,8 @@ impl Page {
 }
 
 pub struct Editor {
+    pub(super) profiles_page: ProfilePage,
+    starter: profiles::Starter,
     pub(super) page: Page,
     path: String,
     toml: String,
@@ -57,6 +67,8 @@ pub struct Editor {
 impl Editor {
     pub fn new(profile: &Profile) -> Self {
         Self {
+            profiles_page: ProfilePage::default(),
+            starter: profiles::Starter::default(),
             page: Page::default(),
             path: String::new(),
             toml: serialize(profile),
@@ -164,64 +176,23 @@ impl Editor {
         false
     }
 
-    pub fn show_profiles(
-        &mut self,
-        ui: &mut Ui,
-        profile: &mut Profile,
-        message: &mut String,
-        editable: bool,
-    ) -> bool {
-        let mut changed = false;
-        ui.label("Load a saved host profile, or save the applied settings. Loading a profile does not connect to a gateway.");
-        if self.pending() {
-            ui.colored_label(
-                WARNING,
-                "Apply or discard pending edits before loading or saving a profile.",
-            );
-        }
-        ui.add_enabled_ui(editable, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                path_entry(ui, &mut self.path, "Profile path (.toml)");
-                if ui
-                    .add_enabled(!self.pending(), egui::Button::new("Load profile"))
-                    .clicked()
-                {
-                    match Profile::load(Path::new(self.path.trim())) {
-                        Ok(loaded) => {
-                            *profile = loaded;
-                            self.sync(profile);
-                            self.catalog = None;
-                            changed = true;
-                            *message = "Profile loaded".into();
-                        }
-                        Err(error) => *message = format!("{error:#}"),
-                    }
-                }
-                if ui
-                    .add_enabled(!self.pending(), egui::Button::new("Save / replace profile"))
-                    .clicked()
-                {
-                    *message = match profile.save(Path::new(self.path.trim())) {
-                        Ok(()) => "Profile saved".into(),
-                        Err(error) => format!("{error:#}"),
-                    };
-                }
-            });
-        });
-        changed
-    }
-
     pub fn show(
         &mut self,
         ui: &mut Ui,
         profile: &mut Profile,
         message: &mut String,
         editable: bool,
+        tab: &mut super::Tab,
     ) -> bool {
         ui.heading("Device setup");
+        if self.page == Page::Overview {
+            self.overview(ui, profile, tab);
+            return false;
+        }
         ui.label("Choose the host connection, then import the sensor description. Settings apply to this PC's profile.");
         let mut changed = false;
         ui.add_enabled_ui(editable, |ui| match self.page {
+            Page::Overview => unreachable!("overview is rendered before editing controls"),
             Page::Connection => {
             if ui.add_enabled_ui(!self.pending && !self.identity.pending() && !self.mapping.pending(), |ui| self.connection.show(ui, profile, message)).inner {
                 self.sync(profile);

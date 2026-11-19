@@ -124,12 +124,14 @@ impl App {
                     )
                     .clicked()
                 {
+                    self.workspace.profile_dialog = false;
                     self.workspace.connect_dialog = true;
                 }
                 if ui.button("Record CSV…").clicked() {
                     self.tab = Tab::Logging;
                 }
                 if ui.button("Profiles…").clicked() {
+                    self.workspace.connect_dialog = false;
                     self.workspace.profile_dialog = true;
                 }
                 if self.worker.is_some()
@@ -208,7 +210,7 @@ impl App {
                     ui.colored_label(WARNING, "Wait for active acquisition and parameter reads to finish before editing setup.");
                 }
                 let changed = match self.tab {
-                    Tab::Device => self.setup.show(ui, &mut self.profile, &mut self.message, editable),
+                    Tab::Device => self.setup.show(ui, &mut self.profile, &mut self.message, editable, &mut self.tab),
                     Tab::Mappings => self.setup.show_mappings(ui, &mut self.profile, &mut self.message, editable),
                     Tab::Inputs => { self.inputs(ui); false }
                     Tab::Logging => { self.logging(ui); false }
@@ -356,6 +358,7 @@ impl App {
     fn dialogs(&mut self, ctx: &Context) {
         if self.workspace.profile_dialog {
             let mut open = true;
+            let mut applied = false;
             egui::Window::new("Device profiles")
                 .open(&mut open)
                 .default_width(600.0)
@@ -370,12 +373,15 @@ impl App {
                         .show_profiles(ui, &mut self.profile, &mut self.message, editable)
                     {
                         self.profile_changed();
+                        self.workspace.connect_dialog = false;
+                        self.tab = Tab::Device;
+                        applied = true;
                     }
                     if !self.message.is_empty() {
                         ui.label(&self.message);
                     }
                 });
-            self.workspace.profile_dialog = open;
+            self.workspace.profile_dialog = open && !applied;
         }
         if self.workspace.connect_dialog && self.worker.is_none() && !self.closing {
             let mut open = true;

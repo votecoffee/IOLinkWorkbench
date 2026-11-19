@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Device opens a short setup overview with direct links to connection, IODD/manual mappings, identity expectations and CSV values. Profiles separates explicit bundled starting points from file load/save. Starter replacement clears the old save path; replacements respect active owners and pending drafts. Missing endpoint and IODD review notes remain host setup observations, not physical readiness.
+
 - The GUI follows EthernetIP Workbench's persistent action bar and focused workflow tabs. Device setup, live Inputs, Logging, Mappings, Parameters, Integration, Diagnostics and Offline no longer share three long screens. Profiles and connection review use separate windows; advanced settings expand on demand. In-process tests cover normal/minimum-size toolbar bounds, navigation, hidden drafts and cross-tab simulator Stop-and-flush. See the [GUI workflow](docs/GUI_WORKFLOW.md); native visible/DPI acceptance remains separate.
 
 - GUI acquisition admission now shares the button predicate and enforces one owned cyclic session through completion consumption. Closing, pending drafts and IODD inspection reject starts before preparation; independent acyclic/review jobs remain separate. Fresh stop/display state is installed only after worker launch succeeds, preserving prior evidence on launch failure. Tests reproduce the original early stop reset, deny pending/unread ownership replacement, and verify consecutive GUI-controlled simulator CSV captures with unrelated completion channels held, exclusive destinations and unchanged prior files. Stored formats and transport behavior are unchanged.

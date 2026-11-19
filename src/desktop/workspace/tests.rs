@@ -61,6 +61,167 @@ fn click(app: &mut App, ctx: &Context, size: egui::Vec2, label: &str) {
     }
 }
 
+fn paste(app: &mut App, ctx: &Context, size: egui::Vec2, hint: &str, value: &str) {
+    click(app, ctx, size, hint);
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+            events: vec![egui::Event::Paste(value.into())],
+            ..Default::default()
+        },
+        |ctx| app.render(ctx),
+    );
+}
+
+#[test]
+fn overview_routes_to_setup_tasks_without_mutating_or_starting() {
+    for size in [egui::vec2(790.0, 530.0), egui::vec2(1130.0, 790.0)] {
+        let ctx = Context::default();
+        let mut app = App::new();
+        let original = app.profile.clone();
+        assert_eq!(app.setup.page, setup::Page::Overview);
+        click(&mut app, &ctx, size, "Edit connection");
+        assert_eq!(app.setup.page, setup::Page::Connection);
+        click(&mut app, &ctx, size, "Overview");
+        click(&mut app, &ctx, size, "Import IODD");
+        assert_eq!(app.setup.page, setup::Page::Iodd);
+        click(&mut app, &ctx, size, "Overview");
+        click(&mut app, &ctx, size, "Review mappings");
+        assert_eq!(app.tab, Tab::Mappings);
+        assert_eq!(app.profile, original);
+        assert_eq!(app.pending_jobs(), 0);
+    }
+}
+
+#[test]
+fn starter_selection_is_offline_and_protects_the_loaded_profile_file() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("original.toml");
+    let mut original = Profile::parse(include_str!("../../../samples/simulator.toml"))?;
+    original.name = "Previously saved profile".into();
+    original.save_new(&path)?;
+    let original_bytes = fs::read(&path)?;
+    let size = egui::vec2(790.0, 530.0);
+    let ctx = Context::default();
+    let mut app = App::new();
+    click(&mut app, &ctx, size, "Profiles…");
+    click(&mut app, &ctx, size, "Open & save");
+    paste(
+        &mut app,
+        &ctx,
+        size,
+        "Enter or paste a full profile path",
+        &path.display().to_string(),
+    );
+    click(&mut app, &ctx, size, "Load profile");
+    assert_eq!(app.profile, original);
+    assert!(!app.workspace.profile_dialog);
+    assert_eq!(app.setup.page, setup::Page::Overview);
+    click(&mut app, &ctx, size, "Profiles…");
+    click(&mut app, &ctx, size, "Start a profile");
+    click(&mut app, &ctx, size, "Simulator with raw-only CSV");
+    assert_eq!(app.profile, original, "Selection alone must not apply");
+    click(&mut app, &ctx, size, "Use starting profile");
+    assert!(app.profile.logging.raw_only);
+    assert_eq!(app.profile.effective_fields().len(), 2);
+    assert!(!app.workspace.profile_dialog);
+    assert_eq!(app.tab, Tab::Device);
+    assert_eq!(app.pending_jobs(), 0);
+    click(&mut app, &ctx, size, "Profiles…");
+    click(&mut app, &ctx, size, "Open & save");
+    assert!(
+        draw(&mut app, &ctx, size)
+            .iter()
+            .any(|(text, _)| text == "Enter or paste a full profile path")
+    );
+    click(&mut app, &ctx, size, "Save / replace profile");
+    assert_eq!(fs::read(&path)?, original_bytes);
+    // A malformed load must also preserve the applied settings and source bytes.
+    let malformed = directory.path().join("malformed.toml");
+    fs::write(&malformed, "invalid TOML = [")?;
+    let applied = app.profile.clone();
+    paste(
+        &mut app,
+        &ctx,
+        size,
+        "Enter or paste a full profile path",
+        &malformed.display().to_string(),
+    );
+    click(&mut app, &ctx, size, "Load profile");
+    assert_eq!(app.profile, applied);
+    assert!(app.workspace.profile_dialog);
+    assert_eq!(fs::read(&path)?, original_bytes);
+    assert_eq!(app.pending_jobs(), 0);
+    Ok(())
+}
+
+#[test]
+fn profile_replacement_is_fenced_by_drafts_and_all_setup_owners() {
+    for fence in ["draft", "cyclic", "isdu", "inspection", "closing"] {
+        let size = egui::vec2(790.0, 530.0);
+        let ctx = Context::default();
+        let mut app = App::new();
+        click(&mut app, &ctx, size, "Profiles…");
+        click(&mut app, &ctx, size, "ifm AL1350 setup template");
+        let original = app.profile.clone();
+        let mut held_cyclic = None;
+        let mut held_isdu = None;
+        let mut held_inspection = None;
+        match fence {
+            "draft" => app.setup.mark_pending_for_test(),
+            "cyclic" => {
+                let (sender, receiver) = mpsc::channel();
+                held_cyclic = Some(sender);
+                app.worker = Some(receiver);
+            }
+            "isdu" => {
+                let (sender, receiver) = mpsc::channel();
+                held_isdu = Some(sender);
+                app.isdu_worker = Some(receiver);
+            }
+            "inspection" => held_inspection = Some(app.setup.gate_for_test()),
+            "closing" => app.closing = true,
+            _ => unreachable!(),
+        }
+        click(&mut app, &ctx, size, "Use starting profile");
+        assert_eq!(app.profile, original, "Replacement bypassed {fence}");
+        drop((held_cyclic, held_isdu, held_inspection));
+    }
+}
+
+#[test]
+fn hardware_template_clears_the_synthetic_sensor_and_reports_missing_route() {
+    let ctx = Context::default();
+    let size = egui::vec2(790.0, 530.0);
+    let mut app = App::new();
+    click(&mut app, &ctx, size, "Profiles…");
+    click(&mut app, &ctx, size, "ifm AL1350 setup template");
+    let found = draw(&mut app, &ctx, size);
+    let button = found
+        .iter()
+        .find(|(text, _)| text == "Use starting profile")
+        .unwrap()
+        .1;
+    assert!(
+        button.min.y >= 0.0 && button.max.y < size.y,
+        "Starter action must fit the minimum window"
+    );
+    assert_eq!(app.profile.connection.gateway, Gateway::Simulator);
+    click(&mut app, &ctx, size, "Use starting profile");
+    assert_eq!(app.profile.connection.gateway, Gateway::IfmAl1350);
+    assert!(app.profile.connection.endpoint.is_empty());
+    assert!(app.profile.effective_fields().is_empty());
+    assert_eq!(app.profile.expected_identity, Default::default());
+    assert!(app.profile.iodd.is_none());
+    assert_eq!(app.setup.page, setup::Page::Overview);
+    assert!(
+        draw(&mut app, &ctx, size)
+            .iter()
+            .any(|(text, _)| text == "Needs input · master endpoint is empty")
+    );
+    assert_eq!(app.pending_jobs(), 0);
+}
+
 #[test]
 fn workflows_are_isolated_and_toolbar_fits_supported_windows() {
     for size in [egui::vec2(790.0, 530.0), egui::vec2(1130.0, 790.0)] {
