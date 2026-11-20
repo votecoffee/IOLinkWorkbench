@@ -164,6 +164,7 @@ fn apply_output_fixture(profile: &mut Profile) -> Result<()> {
         id: "OUT".into(),
         bit_length: 13,
         packed: true,
+        standalone_boolean: false,
         condition: None,
         fields: vec![Field {
             name: "Enable".into(),
@@ -208,6 +209,7 @@ pub(super) fn render(
                 "writes-review",
                 "writes-text-review",
                 "writes-output-review",
+                "writes-boolean-output",
                 "device-advanced",
                 "mapping-editor",
                 "parameters-raw",
@@ -330,7 +332,8 @@ pub(super) fn render(
                     "writes-form"
                     | "writes-review"
                     | "writes-text-review"
-                    | "writes-output-review" => {
+                    | "writes-output-review"
+                    | "writes-boolean-output" => {
                         use iolink_workbench::transport::write::{Operation, Plan};
                         app.profile.connection.gateway = Gateway::IfmAl1350;
                         app.profile.connection.endpoint = "https://127.0.0.1:9".into();
@@ -358,6 +361,25 @@ pub(super) fn render(
                                 Some(Operation::process_output_field(
                                     &app.profile,
                                     "0001".into(),
+                                    "Enable",
+                                    "false",
+                                )?)
+                            }
+                            "writes-boolean-output" => {
+                                apply_output_fixture(&mut app.profile)?;
+                                let output = app
+                                    .profile
+                                    .iodd
+                                    .as_mut()
+                                    .and_then(|import| import.output.as_mut())
+                                    .context("missing output fixture")?;
+                                output.packed = false;
+                                output.bit_length = 1;
+                                output.standalone_boolean = true;
+                                app.setup.sync(&app.profile);
+                                Some(Operation::process_output_field(
+                                    &app.profile,
+                                    "02".into(),
                                     "Enable",
                                     "false",
                                 )?)
@@ -557,6 +579,9 @@ pub(super) fn render(
             let review_note = match label {
                 "writes-review" => Some("Changed IODD members (1)"),
                 "writes-output-review" => Some("IODD output · OUT · 13 bits"),
+                "writes-boolean-output" => Some(
+                    "Standalone Boolean byte 02 is noncanonical. Workbench interprets it as true.",
+                ),
                 "offline-process-output" => Some("true (raw true, bits 0x1)"),
                 "acyclic-profile" => Some("Acyclic IODD layout"),
                 "writes-text-review" => {
@@ -655,7 +680,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 105);
+        assert_eq!(cases.len(), 106);
         assert!(
             cases
                 .iter()

@@ -84,11 +84,47 @@ fn output_only_import_preserves_identity_output_and_dormant_input_mappings() -> 
 }
 
 #[test]
+fn standalone_output_booleans_use_one_octet_with_explicit_legacy_observations() -> Result<()> {
+    for bits in [1, 8] {
+        let xml = SENSOR.replace("</ProcessData>", &format!(
+            r#"<ProcessDataOut id="OUT" bitLength="{bits}"><Datatype xsi:type="BooleanT"/><Name textId="switch"/></ProcessDataOut></ProcessData>"#,
+        ));
+        let catalog = parse(&xml, "synthetic standalone Boolean".into())?;
+        let layout = catalog.layouts[0].output.as_ref().unwrap();
+        assert!(layout.standalone_boolean && !layout.packed && layout.bytes() == 1);
+        assert_eq!(layout.editable_output_fields().count(), 1);
+        assert_eq!(layout.edit_output_field(vec![0], "switch", "true")?, [0xFF]);
+        assert_eq!(
+            layout.edit_output_field(vec![0xFF], "switch", "false")?,
+            [0]
+        );
+        assert!(layout.check_proposed_output(&[1]).is_err());
+        assert!(
+            layout
+                .edit_output_field(vec![0, 0], "switch", "true")
+                .is_err()
+        );
+        let noncanonical = layout.decode_output(&[2], None);
+        assert!(noncanonical.encoding_warning.is_some());
+        assert_eq!(noncanonical.fields[0].value.raw, "true");
+        assert_eq!(noncanonical.fields[0].value.bits_hex, "02");
+        let canonical = layout.decode_output(&[0xFF], None);
+        assert!(canonical.encoding_warning.is_none());
+        assert_eq!(canonical.fields[0].value.bits_hex, "FF");
+        let mut invalid = layout.clone();
+        invalid.packed = true;
+        assert!(invalid.validate().is_err());
+    }
+    Ok(())
+}
+
+#[test]
 fn typed_output_field_edits_keep_wire_width_and_neighboring_bits() -> Result<()> {
     let mut layout = ProcessDataLayout {
         id: "OUT".into(),
         bit_length: 72,
         packed: true,
+        standalone_boolean: false,
         condition: None,
         fields: vec![Field {
             name: "Wide value".into(),

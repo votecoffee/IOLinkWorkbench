@@ -221,7 +221,14 @@ impl Draft {
                 FieldKind::Signed | FieldKind::Unsigned => "Desired integer (unscaled decimal)",
             };
             text_entry(ui, label, &mut self.desired);
-            ui.small("Preview builds the full output image and preserves all other bits.");
+            if profile
+                .output_layout()
+                .is_some_and(|layout| layout.standalone_boolean)
+            {
+                ui.small("Standalone Boolean · 00 false · FF true");
+            } else {
+                ui.small("Preview builds the full output image and preserves all other bits.");
+            }
         }
     }
 
@@ -790,6 +797,12 @@ fn show_review(ui: &mut Ui, plan: &Plan) {
         ));
         if let Some(condition) = &output.condition {
             ui.small(format!("Confirmed layout condition · {condition}"));
+        }
+        if output.standalone_boolean {
+            ui.small("Standalone Boolean · 00 false · FF true");
+        }
+        if let Some(warning) = &output.expected_encoding_warning {
+            ui.colored_label(WARNING, warning);
         }
         if !output.changed_unmapped_bits.is_empty() {
             let bits = output

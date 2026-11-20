@@ -61,6 +61,8 @@ pub struct ProcessDataLayout {
     pub bit_length: usize,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub packed: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub standalone_boolean: bool,
     pub condition: Option<String>,
     pub fields: Vec<Field>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -77,6 +79,7 @@ impl ProcessDataLayout {
             // Packed values occupy their assigned bits. A standalone numeric value
             // covering a full wire container has no separate padding to regenerate.
             self.packed
+                || self.standalone_boolean
                 || (field.bit_offset == 0
                     && usize::from(field.bits) == self.bit_length
                     && matches!(field.bits, 8 | 16 | 32 | 64))
@@ -97,12 +100,16 @@ impl ProcessDataLayout {
             .with_context(|| format!("no editable IODD output field named {name:?}"))?;
         let value =
             output_value(field, input).with_context(|| format!("desired value for {name}"))?;
-        insert_bits(
-            &mut image,
-            field.bit_offset,
-            u16::from(field.bits),
-            &value.to_be_bytes(),
-        )?;
+        if self.standalone_boolean {
+            image[0] = if value == 0 { 0 } else { 0xFF };
+        } else {
+            insert_bits(
+                &mut image,
+                field.bit_offset,
+                u16::from(field.bits),
+                &value.to_be_bytes(),
+            )?;
+        }
         Ok(image)
     }
 
@@ -113,6 +120,21 @@ impl ProcessDataLayout {
             "{}: invalid process data width",
             self.id
         );
+        if self.standalone_boolean {
+            ensure!(
+                !self.packed
+                    && matches!(self.bit_length, 1 | 8)
+                    && matches!(
+                        self.fields.as_slice(),
+                        [Field {
+                            kind: Kind::Bool,
+                            bit_offset: 0,
+                            ..
+                        }]
+                    ),
+                "standalone Boolean output requires a single Boolean in one byte"
+            );
+        }
         let mut names = HashSet::new();
         let mut mapped = [false; MAX_INPUT * 8];
         for field in &self.fields {
@@ -947,6 +969,7 @@ fn parse_process_item<'a, 'input>(
         id: id.into(),
         bit_length: bits,
         packed: matches!(kind, Some("RecordT" | "ArrayT")),
+        standalone_boolean: false,
         condition,
         fields: Vec::new(),
         needs_input: Vec::new(),
@@ -1063,6 +1086,10 @@ fn parse_process_item<'a, 'input>(
             dt.and_then(|dt| field(dt, info, name, 0, units)),
         )?;
     }
+    layout.standalone_boolean = kind == Some("BooleanT")
+        && node.has_tag_name((IODD_NAMESPACE, "ProcessDataOut"))
+        && matches!(bits, 1 | 8)
+        && layout.fields.len() == 1;
     if missing_unit {
         layout.needs_input.push(
             "Review engineering units and scaling where the IODD has no display metadata".into(),

@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Standalone IODD Boolean outputs use 00 and FF for reviewed writes. Checked reads and offline decoding retain noncanonical bytes with an interpretation warning. Preflight and readback compare the exact image.
+
 - An explicit empty IODD process data layout can be imported for status, ISDU, parameter snapshots and diagnostics. Acyclic-only profiles block cyclic input and output paths and keep the applicable device workflows available.
 
 - Import an output-only IODD layout into a profile for offline output inspection, status, ISDU reads and reviewed outputs. Workbench rejects input monitoring and capture before opening a cyclic session. Manual input mappings are retained for later review.

@@ -418,6 +418,52 @@ def verify(cli, profile, server):
     assert receipt["readback"] == "000B" and acyclic.read_bytes() == saved
     assert all("/pdin" not in address and "/pdout" not in address for address in server.requests[before_requests:])
 
+    bool_source = profile.parent / "standalone-boolean.xml"
+    bool_source.write_text(input_xml.replace("</ProcessData>", """
+          <ProcessDataOut id="OUT_BOOL" bitLength="1">
+            <Datatype xsi:type="BooleanT"/><Name textId="switch"/>
+          </ProcessDataOut>
+        </ProcessData>""", 1), encoding="utf-8", newline="\n")
+    bool_profile = import_for_write(bool_source)
+    bool_layout = tomllib.loads(bool_profile.read_text(encoding="utf-8"))["iodd"]["output"]
+    assert bool_layout["standalone_boolean"] and "packed" not in bool_layout
+    typed_on = ["process-output", "--expected", "00", "--field", "switch", "--desired-value", "true"]
+    raw_on = ["process-output", "--expected", "00", "--desired", "FF"]
+    typed_plan = preview(typed_on, target=bool_profile)
+    assert typed_plan == preview(raw_on, target=bool_profile)
+    bool_review = typed_plan["target_and_request"]["process_output_review"]
+    assert bool_review["standalone_boolean"] and bool_review["changed_unmapped_bits"] == []
+    assert bool_review["fields"][0]["expected"] == {"bits_hex": "00", "raw": "false", "value": "false"}
+    assert bool_review["fields"][0]["proposed"] == {"bits_hex": "FF", "raw": "true", "value": "true"}
+    before_requests = len(server.requests)
+    assert "requires 00 (false) or FF (true)" in run([*raw_on[:-1], "02"], target=bool_profile, status=1)
+    assert len(server.requests) == before_requests
+
+    server.output = "00"
+    _, receipt = apply(typed_on, "readback_matched", target=bool_profile)
+    assert receipt["readback"] == server.output == "FF"
+    typed_off = ["process-output", "--expected", "FF", "--field", "switch", "--desired-value", "false"]
+    _, receipt = apply(typed_off, "readback_matched", target=bool_profile)
+    assert receipt["readback"] == server.output == "00"
+    server.output = "02"
+    live = run(["process-output"], command="read-current", target=bool_profile)
+    assert live["value"] == "02" and live["iodd_output"]["fields"][0]["value"]["raw"] == "true"
+    assert "noncanonical" in live["iodd_output"]["encoding_warning"]
+    assert decode_output(bool_profile, "02")["iodd_output"] == live["iodd_output"]
+    assert "encoding_warning" not in decode_output(bool_profile, "FF")["iodd_output"]
+    normalize = [*typed_on[:2], "02", *typed_on[3:]]
+    normalized_plan = preview(normalize, target=bool_profile)
+    assert "noncanonical" in normalized_plan["target_and_request"]["process_output_review"]["expected_encoding_warning"]
+    server.output = "01"
+    before_writes = len(server.writes)
+    assert "expected current" in run(
+        normalize, target=bool_profile, confirm=normalized_plan["confirmation"], status=1)
+    assert len(server.writes) == before_writes
+    server.output = "02"
+    server.next_write = "ignore"
+    _, receipt = apply(normalize, "unconfirmed", status=1, target=bool_profile)
+    assert receipt["gateway_code"] == 200 and receipt["readback"] == "02"
+
     configured = import_for_write(ROOT / "samples/sensor.xml")
     formats = import_for_write(ROOT / "samples/sensor-formats.xml")
     relocated_source = profile.parent / "relocated-index.xml"
@@ -798,7 +844,7 @@ def verify(cli, profile, server):
     request, receipt = apply(packed_record, "readback_matched", target=whole_record)
     assert request["request_data"]["subindex"] == 0
     assert receipt["readback"] == "FFEC810A41000000"
-    print("PASS: checked reads and ISDU writes by index or IODD ID, typed compound member edits, observed, offline, and staged process outputs including output-only profiles, acyclic-only profiles and diagnostic reads, exact target checks, exact and StringT readback, and single dispatch on uncertain outcomes")
+    print("PASS: checked reads and ISDU writes by index or IODD ID, typed compound member edits, observed, offline, and staged process outputs including standalone Boolean outputs, output-only profiles, acyclic-only profiles and diagnostic reads, exact target checks, exact and StringT readback, and single dispatch on uncertain outcomes")
 
 
 def main():

@@ -148,6 +148,12 @@ pub(super) fn show_output_fields(ui: &mut Ui, output: &DecodedOutput) {
         };
         ui.small(format!("{basis} · {condition}"));
     }
+    if output.standalone_boolean {
+        ui.small("Standalone Boolean · 00 false · FF true");
+    }
+    if let Some(warning) = &output.encoding_warning {
+        ui.colored_label(WARNING, warning);
+    }
     if let Some(error) = &output.decode_error {
         ui.colored_label(WARNING, error);
     }
