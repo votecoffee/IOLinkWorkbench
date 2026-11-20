@@ -1,4 +1,4 @@
-//! IODD V1.1.5 7.5.3.1.8/.9 lexical defaults; generated locally, never sent.
+//! Temporal encoding and IODD V1.1.5 7.5.3.1.8/.9 lexical defaults.
 use super::{ERA_THRESHOLD, TICKS_PER_SECOND, UNIX_OFFSET};
 use anyhow::{Context, Result, ensure};
 use chrono::NaiveDate;
@@ -15,17 +15,17 @@ pub struct DefaultConversion {
 fn digits(text: &str) -> Result<u32> {
     ensure!(
         !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit()),
-        "temporal default requires ASCII decimal digits"
+        "temporal value requires ASCII decimal digits"
     );
     text.parse()
-        .context("temporal default numeric component is too large")
+        .context("temporal numeric component is too large")
 }
 
 fn millis(text: Option<&str>) -> Result<u32> {
     let Some(text) = text else { return Ok(0) };
     ensure!(
         (1..=3).contains(&text.len()),
-        "temporal default permits one to three fractional digits"
+        "temporal value permits one to three fractional digits"
     );
     Ok(digits(text)? * 10u32.pow(3 - text.len() as u32))
 }
@@ -36,20 +36,17 @@ fn fraction(millis: u32) -> (u64, bool) {
 }
 
 fn date(text: &str) -> Result<(u64, bool)> {
-    ensure!(text.is_ascii(), "TimeT default requires an ASCII date");
+    ensure!(text.is_ascii(), "TimeT requires an ASCII calendar value");
     ensure!(
-        text.len() == 10 || (19..=23).contains(&text.len()),
-        "TimeT default requires yyyy-mm-dd or yyyy-mm-ddThh:mm:ss[.fff], without a timezone"
+        text.len() == 10 || text.len() >= 19,
+        "invalid TimeT calendar value length"
     );
     ensure!(
         &text[4..5] == "-" && &text[7..8] == "-",
         "invalid TimeT date separators"
     );
     let year = digits(&text[..4])?;
-    ensure!(
-        year > 0,
-        "TimeT default year zero is not an XML Schema date"
-    );
+    ensure!(year > 0, "TimeT year zero is outside the calendar range");
     let mut day = NaiveDate::from_ymd_opt(year as i32, digits(&text[5..7])?, digits(&text[8..10])?)
         .context("invalid TimeT calendar date")?;
     let (mut hour, minute, second, millis) = if text.len() == 10 {
@@ -64,7 +61,7 @@ fn date(text: &str) -> Result<(u64, bool)> {
         } else {
             ensure!(
                 &text[19..20] == ".",
-                "TimeT defaults do not include timezone suffixes"
+                "invalid TimeT fractional seconds separator"
             );
             Some(&text[20..])
         };
@@ -91,7 +88,7 @@ fn date(text: &str) -> Result<(u64, bool)> {
     ensure!(
         (i64::from(ERA_THRESHOLD)..i64::from(ERA_THRESHOLD) + TICKS_PER_SECOND as i64)
             .contains(&seconds),
-        "TimeT default is outside the unambiguous default era window [1984-01-01T00:00:00, 2120-02-07T06:28:16); no rollover context is inferred"
+        "TimeT is outside the unambiguous default era window [1984-01-01T00:00:00, 2120-02-07T06:28:16); no rollover context is inferred"
     );
     let (fraction, exact) = fraction(millis);
     Ok((
@@ -106,8 +103,10 @@ fn duration(text: &str) -> Result<(u64, bool)> {
         Some(b'+') => (false, &text[1..]),
         _ => (false, text),
     };
-    let body = body.strip_prefix("PT").and_then(|text| text.strip_suffix('S'))
-        .context("TimeSpanT default requires [+-]PTseconds[.fff]S; days, hours and minutes are not accepted")?;
+    let body = body
+        .strip_prefix("PT")
+        .and_then(|text| text.strip_suffix('S'))
+        .context("TimeSpanT requires [+-]PTseconds[.fff]S")?;
     let (seconds, fractional) = body
         .split_once('.')
         .map_or((body, None), |(seconds, fraction)| {
@@ -115,7 +114,7 @@ fn duration(text: &str) -> Result<(u64, bool)> {
         });
     ensure!(
         !seconds.is_empty() && seconds.bytes().all(|byte| byte.is_ascii_digit()),
-        "TimeSpanT default requires ASCII seconds"
+        "TimeSpanT requires ASCII seconds"
     );
     let significant = seconds.trim_start_matches('0');
     let seconds: u64 = if significant.is_empty() {
@@ -123,7 +122,7 @@ fn duration(text: &str) -> Result<(u64, bool)> {
     } else {
         ensure!(
             significant.len() <= 10,
-            "TimeSpanT default seconds exceed the signed 64-bit tick range"
+            "TimeSpanT seconds exceed the signed 64-bit tick range"
         );
         significant.parse()?
     };
@@ -136,7 +135,7 @@ fn duration(text: &str) -> Result<(u64, bool)> {
     };
     ensure!(
         magnitude <= limit,
-        "TimeSpanT default exceeds the signed 64-bit tick range"
+        "TimeSpanT exceeds the signed 64-bit tick range"
     );
     let ticks = if negative {
         -(magnitude as i128)
@@ -144,6 +143,23 @@ fn duration(text: &str) -> Result<(u64, bool)> {
         magnitude as i128
     } as i64;
     Ok((ticks as u64, exact))
+}
+
+pub(in crate::iodd::parameters) fn encode_typed(datatype: &str, input: &str) -> Result<Vec<u8>> {
+    let ticks = match datatype {
+        "TimeT" => {
+            let utc = input
+                .strip_suffix('Z')
+                .filter(|time| time.contains('T'))
+                .context("TimeT entry requires yyyy-mm-ddThh:mm:ss[.fff]Z in UTC")?;
+            date(utc)
+                .context("encode TimeT as yyyy-mm-ddThh:mm:ss[.fff]Z")?
+                .0
+        }
+        "TimeSpanT" => duration(input)?.0,
+        _ => anyhow::bail!("unsupported temporal datatype"),
+    };
+    Ok(ticks.to_be_bytes().to_vec())
 }
 
 pub(in crate::iodd::parameters) fn encode(

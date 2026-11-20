@@ -81,7 +81,7 @@ enum WriteOperation {
             conflicts_with = "desired_value"
         )]
         desired: Option<String>,
-        /// Proposed unscaled IODD value (Boolean, number, text or comma-separated 0xNN octets).
+        /// Proposed unscaled IODD value, including UTC time and signed duration where supported.
         #[arg(long, allow_negative_numbers = true)]
         desired_value: Option<String>,
     },

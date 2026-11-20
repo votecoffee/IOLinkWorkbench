@@ -386,6 +386,36 @@ pub(super) fn render(
                 views.push((name, label, app, None, None));
             }
         }
+        if name == "time" {
+            use iolink_workbench::transport::write::{Operation, Plan};
+            let mut app = App::new();
+            app.profile = profile.clone();
+            app.profile.connection.gateway = Gateway::IfmAl1350;
+            app.profile.connection.endpoint = "https://127.0.0.1:9".into();
+            app.profile.connection.ifm_firmware = "3.1.42".into();
+            app.profile
+                .iodd
+                .as_mut()
+                .and_then(|iodd| {
+                    iodd.parameters
+                        .iter_mut()
+                        .find(|parameter| parameter.index == 71)
+                })
+                .context("missing synthetic time parameter")?
+                .access = iodd::Access::ReadWrite;
+            app.setup.sync(&app.profile);
+            app.setup.page = super::super::setup::Page::Writes;
+            let operation = Operation::isdu_typed(
+                &app.profile,
+                71,
+                0,
+                "9DFF440000000000".into(),
+                "1984-01-01T00:00:00.001Z",
+            )?;
+            app.writes
+                .stage(Plan::new(&app.profile, "SYNTHETIC-MASTER", operation)?);
+            views.push((name, "writes-time-review", app, None, None));
+        }
     }
 
     for (name, state, snapshots) in [
@@ -456,16 +486,23 @@ pub(super) fn render(
                 "self-test must not inject input events"
             );
             let output = ctx.run(input, |ctx| app.render(ctx));
-            if label == "writes-text-review" {
+            let review_note = match label {
+                "writes-text-review" => {
+                    Some("Readback accepts the same IODD text with different zero padding.")
+                }
+                "writes-time-review" => Some(
+                    "Typed input uses milliseconds. Fractions round by less than one tick. See exact ticks in the details.",
+                ),
+                _ => None,
+            };
+            if let Some(review_note) = review_note {
                 let mut texts = Vec::new();
                 for shape in &output.shapes {
                     text_shapes(&shape.shape, &mut texts);
                 }
                 ensure!(
-                    texts.contains(
-                        &"Readback accepts the same IODD text with different zero padding."
-                    ),
-                    "text readback policy is missing from the write review"
+                    texts.contains(&review_note),
+                    "required note is missing from {label}"
                 );
             }
             if let Some(expected) = expected_observation {
@@ -546,7 +583,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 101);
+        assert_eq!(cases.len(), 102);
         assert!(
             cases
                 .iter()

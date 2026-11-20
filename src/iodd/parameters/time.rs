@@ -8,7 +8,7 @@ const UNIX_OFFSET: i64 = 2_208_988_800;
 
 mod defaults;
 pub use defaults::DefaultConversion;
-pub(super) use defaults::encode as encode_default;
+pub(super) use defaults::{encode as encode_default, encode_typed};
 
 #[derive(Debug, Serialize)]
 pub struct TimeValue {

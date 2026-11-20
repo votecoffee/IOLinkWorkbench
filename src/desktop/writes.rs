@@ -167,12 +167,23 @@ impl Draft {
         let label = match datatype {
             Some("BooleanT") => "Desired Boolean (true or false)",
             Some("Float32T") => "Desired Float32 (unscaled)",
+            Some("TimeT") => "Desired UTC time",
+            Some("TimeSpanT") => "Desired duration",
             Some("StringT") => "Desired text",
             Some("OctetStringT") => "Desired bytes (0xNN,0xNN)",
             Some(_) => "Desired integer (unscaled decimal)",
             None => "Desired parameter hex",
         };
         text_entry(ui, label, &mut self.desired);
+        match datatype {
+            Some("TimeT") => {
+                ui.small("yyyy-mm-ddThh:mm:ss[.fff]Z · up to millisecond precision");
+            }
+            Some("TimeSpanT") => {
+                ui.small("[+-]PTseconds[.fff]S · up to millisecond precision");
+            }
+            _ => {}
+        }
         if let Some(parameter) = typed
             && let Some(length) = parameter
                 .fixed_length
@@ -489,10 +500,18 @@ fn show_review(ui: &mut Ui, plan: &Plan) {
             preserved_read_only,
             ..
         }) => {
-            ui.label(match interpretation.raw_value.as_deref() {
+            let value = interpretation
+                .time_value
+                .as_ref()
+                .map(|time| time.value.as_str())
+                .or(interpretation.raw_value.as_deref());
+            ui.label(match value {
                 Some(value) => format!("IODD · {name} · {datatype} · {value}"),
                 None => format!("IODD · {name} · {datatype}"),
             });
+            if interpretation.time_value.is_some() {
+                ui.small("Typed input uses milliseconds. Fractions round by less than one tick. See exact ticks in the details.");
+            }
             if !preserved_read_only.is_empty() {
                 let subindexes = preserved_read_only
                     .iter()

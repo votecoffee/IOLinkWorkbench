@@ -138,6 +138,7 @@ impl Parameter {
             "BooleanT" => self.bits == Some(1),
             "IntegerT" | "UIntegerT" => matches!(self.bits, Some(8 | 16 | 32 | 64)),
             "Float32T" => self.bits == Some(32),
+            "TimeT" | "TimeSpanT" => self.bits.is_none_or(|bits| bits == 64),
             "StringT" | "OctetStringT" => {
                 matches!(self.fixed_length, Some(1..=232))
                     && (self.datatype == "OctetStringT"
@@ -154,6 +155,7 @@ impl Parameter {
         );
         match self.datatype.as_str() {
             "StringT" | "OctetStringT" => super::text::encode(self, input),
+            "TimeT" | "TimeSpanT" => super::time::encode_typed(&self.datatype, input),
             _ => super::assessment::numeric_bytes(self, input),
         }
     }

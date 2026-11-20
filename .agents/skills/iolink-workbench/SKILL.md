@@ -45,6 +45,8 @@ Physical writes require explicit user approval for the proposed target and opera
 
 For a single supported `StringT` value, the preview includes the IODD encoding and length for readback. Preflight compares exact bytes. After acknowledgement, `text_readback_matched` identifies equal decoded text with different zero padding and retains the exact returned bytes.
 
+Typed `TimeT` drafts take an explicit UTC timestamp ending in `Z`. Typed `TimeSpanT` drafts take `[+-]PTseconds[.fff]S`. Review the exact eight bytes and ticks because fractional values at millisecond precision may round to the next tick in magnitude. Temporal preflight and readback compare exact bytes.
+
 ## Changes and delivery
 
 For research/cleanup, start with `docs/RESEARCH.md` and the artifact retention section of `docs/DEVELOPMENT.md`. Preserve original vendor inputs, read-only references and current/previous releases. Verify active ownership, resolved boundaries and archive hashes before removing loose evidence or rebuildable output. Use maintained verifiers with explicit fixtures instead of new copied private release scripts. Cleanup receipts and raw/source material remain ignored; cleanup alone does not require a new application build.

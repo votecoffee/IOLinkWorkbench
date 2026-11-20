@@ -30,8 +30,12 @@ For a supported read/write parameter or enabled subindex, choose **IODD value** 
 
 - For Boolean parameters, enter `true` or `false`. For 8-, 16-, 32- or 64-bit integers, enter an unscaled decimal number.
 - For `Float32T`, enter an unscaled decimal number or exponent form, such as `-2.5` or `2.5e-1`. Explicit `INF` and `-INF` are supported, subject to the same IODD checks. Use `--desired-value=-INF` for the negative literal in the CLI. The preview shows the resulting 32-bit encoding.
+- For `TimeT`, enter `yyyy-mm-ddThh:mm:ss[.fff]Z`, such as `1984-01-01T00:00:00.001Z`. Typed entry uses UTC and the default era window from `1984-01-01T00:00:00Z` inclusive to `2120-02-07T06:28:16Z` exclusive.
+- For `TimeSpanT`, enter signed seconds as `[+-]PTseconds[.fff]S`, such as `PT2.75S` or `-PT0.001S`. In the CLI, pass a negative duration as `--desired-value=-PT0.001S`.
 - For `StringT`, enter the exact text, including any leading or trailing spaces. The IODD must specify UTF-8 or US-ASCII and a fixed byte length. Workbench zero-pads to that length. To clear a text value, select **Write empty text** in the GUI or pass `--desired-value=` in the CLI.
 - For `OctetStringT`, enter comma-separated `0xNN` entries, such as `0x00,0x80,0xFF,0x2C`. Supply exactly the number of octets declared in the IODD.
+
+Typed timestamps and durations accept up to three fractional digits. A fractional component that falls between IO-Link ticks rounds away from zero by less than one `2^-32`-second tick, so the decoded millisecond display preserves the entered value. The preview shows the exact eight bytes, ticks, and decoded value. Readback still requires an exact byte match for these datatypes. [IO-Link interface specification, Annex F.2.8–F.2.9](https://io-link.com/fileadmin/user_upload/Downloads/Package_2024/IOL-Interface-Spec_10002_V114_Jun24.pdf)
 
 If index 64 is a signed 16-bit parameter and its current bytes are `0001`, entering `-2` produces `FFFE` in the preview.
 
@@ -70,4 +74,4 @@ Monitoring, capture and optional data feeds use read-only paths. The reviewed wr
 
 ## Verification
 
-`python tools/verify_writes.py PATH_TO_CLI` uses an isolated loopback peer. It checks all three current-value reads, all four write paths, offline typed and raw ISDU previews, protected record bits and packed array writes, identity and value mismatches, exact and padding-aware readback, and a lost write reply with one dispatch. `cargo test --locked --bin iolink-workbench desktop::writes::tests` exercises offline GUI drafts, a current read alongside a held acquisition owner, approval guards, and close behavior with a held loopback write reply. Real firmware, machine conditions and actuator effects await physical qualification.
+`python tools/verify_writes.py PATH_TO_CLI` uses an isolated loopback peer. It checks all three current-value reads, all four write paths, offline typed and raw ISDU previews including temporal values, protected record bits and packed array writes, identity and value mismatches, exact and padding-aware readback, and a lost write reply with one dispatch. `cargo test --locked --bin iolink-workbench desktop::writes::tests` exercises offline GUI drafts, a current read alongside a held acquisition owner, approval guards, and close behavior with a held loopback write reply. Real firmware, machine conditions and actuator effects await physical qualification.

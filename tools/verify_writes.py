@@ -201,6 +201,7 @@ def verify(cli, profile, server):
 
     values = import_writable_sample("sensor-values")
     strings = import_writable_sample("sensor-strings")
+    temporal = import_writable_sample("sensor-time")
     member = ["isdu", "--index", "66", "--subindex", "3", "--expected", "FF", "--desired", "0A"]
     signed = ["isdu", "--index", "64", "--expected", "0001", "--desired", "FFFE"]
     typed_signed = [*signed[:-2], "--desired-value", "-2"]
@@ -210,6 +211,10 @@ def verify(cli, profile, server):
     typed_text = ["isdu", "--index", "77", "--expected", "58", "--desired-value", " µm "]
     typed_octets = ["isdu", "--index", "79", "--subindex", "2", "--expected", "00000000",
                     "--desired-value", "0x00,0x80,0xFF,0x2C"]
+    typed_time = ["isdu", "--index", "71", "--expected", "9DFF440000000000",
+                  "--desired-value", "1984-01-01T00:00:00.001Z"]
+    span_address = ["isdu", "--index", "73", "--subindex", "2", "--expected", "0000000000000000"]
+    typed_span = [*span_address, "--desired-value=-PT0.001S"]
     compound = ["isdu", "--index", "66", "--expected", "FFEC010A41000000", "--desired", "FFEC000A42000000"]
     array = ["isdu", "--index", "67", "--expected", "A2C49570", "--desired", "A2C495F0"]
     before = len(server.requests)
@@ -285,6 +290,25 @@ def verify(cli, profile, server):
     assert "octet count differs from the declared length" in run(
         [*typed_octets[:-1], "0x00,0x80,0xFF"], status=1, target=strings)
     assert "invalid octet" in run([*typed_octets[:-1], "0x00,0xXX,0xFF,0x2C"], status=1, target=strings)
+    assert preview(typed_time, target=temporal) == preview(
+        [*typed_time[:-2], "--desired", "9DFF440000418938"], target=temporal)
+    assert preview(typed_span, target=temporal) == preview(
+        [*span_address, "--desired", "FFFFFFFFFFBE76C8"], target=temporal)
+    time_detail = preview(typed_time, target=temporal)["target_and_request"]["isdu_value_review"]["interpretation"]["time_value"]
+    span_detail = preview(typed_span, target=temporal)["target_and_request"]["isdu_value_review"]["interpretation"]["time_value"]
+    assert time_detail["value"] == "1984-01-01 00:00:00.001 UTC" and time_detail["sub_millisecond_truncated"]
+    assert span_detail["value"] == "-00:00:00.001" and span_detail["raw_ticks"] == "-4294968"
+    rollover = preview([*typed_time[:-1], "2036-02-07T06:28:16Z"], target=temporal)["target_and_request"]
+    assert rollover["request_data"]["value"] == "0000000000000000"
+    minimum = preview([*span_address, "--desired-value=-PT2147483648S"], target=temporal)["target_and_request"]
+    assert minimum["request_data"]["value"] == "8000000000000000"
+    for invalid in ("1984-01-01T00:00:00", "1984-01-01T00:00:00+01:00", "1984-01-01Z"):
+        assert "requires yyyy-mm-ddThh:mm:ss[.fff]Z" in run([*typed_time[:-1], invalid], status=1, target=temporal)
+    for invalid in ("1983-12-31T23:59:59.999Z", "2120-02-07T06:28:16Z"):
+        assert "outside the unambiguous default era window" in run([*typed_time[:-1], invalid], status=1, target=temporal)
+    assert "one to three fractional digits" in run(
+        [*typed_time[:-1], "1984-01-01T00:00:00.0001Z"], status=1, target=temporal)
+    assert "signed 64-bit tick range" in run([*span_address, "--desired-value=-PT2147483648.001S"], status=1, target=temporal)
     overlap = preview([*signed[:-1], "01F4"], target=configured)["target_and_request"]["isdu_value_review"]
     assert overlap["interpretation"]["value_assessment"]["status"] == "definition_needs_review"
     assert "manual_review" in overlap
@@ -358,6 +382,17 @@ def verify(cli, profile, server):
     _, receipt = apply(typed_octets, "readback_matched", target=strings)
     assert receipt["readback"] == "0080FF2C"
 
+    server.parameters[71, 0] = "9DFF440000000000"
+    _, receipt = apply(typed_time, "readback_matched", target=temporal)
+    assert receipt["readback"] == "9DFF440000418938"
+    server.parameters[73, 2] = "0000000000000000"
+    _, receipt = apply(typed_span, "readback_matched", target=temporal)
+    assert receipt["readback"] == "FFFFFFFFFFBE76C8"
+    server.parameters[73, 2] = "0000000000000000"
+    server.next_isdu_readback = "FFFFFFFFFFBE76C7"
+    _, receipt = apply(typed_span, "unconfirmed", status=1, target=temporal)
+    assert receipt["readback"] == "FFFFFFFFFFBE76C7"
+
     compound_plan = preview(compound, target=formats)
     server.parameters[66, 0] = "FFED010A41000000"
     writes = len(server.writes)
@@ -374,7 +409,7 @@ def verify(cli, profile, server):
     server.parameters[67, 0] = array[4]
     _, receipt = apply(array, "readback_matched", target=arrays)
     assert receipt["readback"] == server.parameters[67, 0] == array[-1]
-    print("PASS: checked reads, typed ISDU entry and compound member review, exact target checks, four write paths, exact and StringT readback, and single dispatch on uncertain outcomes")
+    print("PASS: checked reads, typed ISDU entry including time and duration, compound member review, exact target checks, exact and StringT readback, and single dispatch on uncertain outcomes")
 
 
 def main():
