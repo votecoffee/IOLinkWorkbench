@@ -89,10 +89,81 @@ pub struct Review {
     pub iodd_stamp: Option<crate::iodd::stamp::Report>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct Comparison {
+    pub same_wire_bytes: bool,
+    pub same_saved_parameter_definition: bool,
+    pub observed_device_ids_match: Option<bool>,
+    /// Present when both saved definitions and observed device-type identifiers match
+    /// and both complete composite values can be decoded.
+    pub changed_members: Option<Vec<MemberChange>>,
+    pub left: Review,
+    pub right: Review,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MemberChange {
+    pub subindex: u8,
+    pub name: String,
+    pub left_raw_hex: String,
+    pub right_raw_hex: String,
+}
+
+impl Comparison {
+    pub fn text(&self) -> String {
+        let comparison = format!(
+            "Wire bytes {} · saved parameter definition {}\nObserved vendor and device IDs {}",
+            if self.same_wire_bytes {
+                "match"
+            } else {
+                "differ"
+            },
+            if self.same_saved_parameter_definition {
+                "matches"
+            } else {
+                "differs"
+            },
+            match self.observed_device_ids_match {
+                Some(true) => "match",
+                Some(false) => "differ",
+                None => "incomplete",
+            },
+        );
+        let members = self
+            .changed_members
+            .as_ref()
+            .map(|members| {
+                if members.is_empty() {
+                    "Mapped member bytes match".into()
+                } else {
+                    members
+                        .iter()
+                        .map(|member| {
+                            format!(
+                                "{} [{}] · {} → {}",
+                                member.name,
+                                member.subindex,
+                                member.left_raw_hex,
+                                member.right_raw_hex
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                }
+            })
+            .unwrap_or_else(|| "Mapped member comparison unavailable".into());
+        format!(
+            "{comparison}\n{members}\n\nLeft\n{}\n\nRight\n{}",
+            self.left.text(),
+            self.right.text()
+        )
+    }
+}
+
 impl Review {
     pub fn text(&self) -> String {
         format!(
-            "Saved parameter snapshot · {}\nProducer {} · decoder {}\n{}\n{} · index {}:{}\nMaster {} · firmware {} · port {} · {}\nIdentity {} · vendor {:?} · device {:?} · serial {:?}\nHost read {} · total operation {} µs\n{}\n\n{}",
+            "Saved parameter snapshot · {}\nProducer {} · decoder {}\n{}\n{} · index {}:{}\nMaster {} · firmware {} · serial {:?} · port {} · {}\nIdentity {} · vendor {:?} · device {:?} · product {:?} · serial {:?}\nConnection diagnostics · status {:?} · port event {:?} · device event {:?}\nHost read {} · total operation {} µs\n{}\n\n{}",
             self.observation.route,
             self.workbench_version,
             self.decoder_version,
@@ -105,18 +176,107 @@ impl Review {
             self.subindex,
             self.observation.model,
             self.observation.firmware,
+            self.observation.master_serial,
             self.observation.port,
             self.observation.port_mode,
             self.identity_check,
             self.observation.identity.vendor_id,
             self.observation.identity.device_id,
+            self.observation.identity.product_id,
             self.observation.identity.serial,
+            self.observation.device_status,
+            self.observation.port_event,
+            self.observation.device_event,
             self.host_read_utc,
             self.read_duration_us,
             self.decoded.text(),
             self.declared_default.text()
         )
     }
+}
+
+/// Compare two independently saved observations at the same ISDU address.
+pub fn compare(left: &Snapshot, right: &Snapshot) -> Result<Comparison> {
+    let left_review = left.review()?;
+    let right_review = right.review()?;
+    ensure!(
+        (left.index, left.subindex) == (right.index, right.subindex),
+        "parameter snapshots address different ISDU targets ({}:{} and {}:{})",
+        left.index,
+        left.subindex,
+        right.index,
+        right.subindex
+    );
+    let left_parameter = left.profile.parameter(&left.parameter_id)?;
+    let right_parameter = right.profile.parameter(&right.parameter_id)?;
+    let same_saved_parameter_definition = left_parameter == right_parameter;
+    let a = &left.observation.identity;
+    let b = &right.observation.identity;
+    let observed_device_ids_match = compare_device_ids(a, b);
+    let product_conflict = a
+        .product_id
+        .as_ref()
+        .zip(b.product_id.as_ref())
+        .is_some_and(|(a, b)| a != b);
+    let changed_members = if same_saved_parameter_definition
+        && observed_device_ids_match == Some(true)
+        && !product_conflict
+    {
+        compare_members(&left_review.decoded, &right_review.decoded)
+    } else {
+        None
+    };
+    Ok(Comparison {
+        same_wire_bytes: left.raw_hex == right.raw_hex,
+        same_saved_parameter_definition,
+        observed_device_ids_match,
+        changed_members,
+        left: left_review,
+        right: right_review,
+    })
+}
+
+fn compare_device_ids(left: &Identity, right: &Identity) -> Option<bool> {
+    let vendors = left.vendor_id.zip(right.vendor_id);
+    let devices = left.device_id.zip(right.device_id);
+    if vendors.is_some_and(|(a, b)| a != b) || devices.is_some_and(|(a, b)| a != b) {
+        Some(false)
+    } else if vendors.is_some() && devices.is_some() {
+        Some(true)
+    } else {
+        None
+    }
+}
+
+fn compare_members(left: &DecodedParameter, right: &DecodedParameter) -> Option<Vec<MemberChange>> {
+    if left.needs_review() || right.needs_review() {
+        return None;
+    }
+    let items =
+        |value: &DecodedParameter| -> usize { value.record_items.len() + value.array_items.len() };
+    if items(left) == 0 || items(left) != items(right) {
+        return None;
+    }
+    let pairs = left
+        .record_items
+        .iter()
+        .chain(&left.array_items)
+        .zip(right.record_items.iter().chain(&right.array_items));
+    let mut changes = Vec::new();
+    for (left, right) in pairs {
+        if left.subindex != right.subindex || left.bit_offset != right.bit_offset {
+            return None;
+        }
+        if left.value.raw_hex != right.value.raw_hex {
+            changes.push(MemberChange {
+                subindex: left.subindex,
+                name: left.name.clone(),
+                left_raw_hex: left.value.raw_hex.clone(),
+                right_raw_hex: right.value.raw_hex.clone(),
+            });
+        }
+    }
+    Some(changes)
 }
 
 /// Exactly one named parameter read on the existing independent acyclic client.

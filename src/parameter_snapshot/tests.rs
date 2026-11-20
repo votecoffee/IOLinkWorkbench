@@ -114,6 +114,36 @@ fn malformed_parameter_responses_remain_saveable_for_offline_review() -> Result<
 }
 
 #[test]
+fn comparison_preserves_wire_differences_and_gates_mapped_deltas() -> Result<()> {
+    let fixture = sample()?;
+    let (left, _) = read(&fixture.profile, "V_SIM_Record", 0)?;
+    let mut right = left.clone();
+    assert_eq!(compare(&left, &right)?.changed_members.unwrap().len(), 0);
+    right.raw_hex = "FFED010A54455354".into();
+    right.observation.device_event = Some("36350".into());
+    let difference = compare(&left, &right)?;
+    assert!(!difference.same_wire_bytes && difference.same_saved_parameter_definition);
+    assert_eq!(difference.observed_device_ids_match, Some(true));
+    let changes = difference.changed_members.as_ref().unwrap();
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].subindex, 1);
+    assert_eq!(changes[0].left_raw_hex, "FFEC");
+    assert_eq!(changes[0].right_raw_hex, "FFED");
+    assert!(difference.text().contains("36350"));
+
+    right.observation.identity.device_id = None;
+    let difference = compare(&left, &right)?;
+    assert_eq!(difference.observed_device_ids_match, None);
+    assert!(difference.changed_members.is_none());
+    right.observation.identity.device_id = left.observation.identity.device_id;
+    right.raw_hex = "FF".into();
+    let difference = compare(&left, &right)?;
+    assert!(difference.right.decoded.needs_review() && difference.changed_members.is_none());
+    assert!(compare(&left, &fixture).is_err());
+    Ok(())
+}
+
+#[test]
 fn existing_destinations_and_failed_validation_preserve_pinned_bytes() -> Result<()> {
     let mut snapshot = sample()?;
     let folder = tempfile::tempdir()?;

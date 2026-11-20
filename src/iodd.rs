@@ -63,6 +63,8 @@ pub struct ProcessDataLayout {
     pub packed: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub standalone_boolean: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub padded_integer: bool,
     pub condition: Option<String>,
     pub fields: Vec<Field>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -71,7 +73,30 @@ pub struct ProcessDataLayout {
 
 impl ProcessDataLayout {
     pub fn bytes(&self) -> usize {
+        if self.padded_integer
+            && let Some(width) = self.integer_padding_width()
+        {
+            return width;
+        }
         self.bit_length.div_ceil(8)
+    }
+
+    fn integer_padding_width(&self) -> Option<usize> {
+        let [field] = self.fields.as_slice() else {
+            return None;
+        };
+        if self.packed
+            || self.standalone_boolean
+            || !matches!(field.kind, Kind::Signed | Kind::Unsigned)
+            || field.bit_offset != 0
+            || !(2..64).contains(&field.bits)
+        {
+            return None;
+        }
+        let bits = usize::from(field.bits);
+        let width = parameters::integer_container_bytes(u16::from(field.bits));
+        (bits < width * 8 && (self.bit_length == bits || self.bit_length == width * 8))
+            .then_some(width)
     }
 
     pub fn editable_output_fields(&self) -> impl Iterator<Item = &Field> {
@@ -80,6 +105,7 @@ impl ProcessDataLayout {
             // covering a full wire container has no separate padding to regenerate.
             self.packed
                 || self.standalone_boolean
+                || self.padded_integer
                 || (field.bit_offset == 0
                     && usize::from(field.bits) == self.bit_length
                     && matches!(field.bits, 8 | 16 | 32 | 64))
@@ -102,6 +128,9 @@ impl ProcessDataLayout {
             output_value(field, input).with_context(|| format!("desired value for {name}"))?;
         if self.standalone_boolean {
             image[0] = if value == 0 { 0 } else { 0xFF };
+        } else if self.padded_integer {
+            let start = 8 - image.len();
+            image.copy_from_slice(&value.to_be_bytes()[start..]);
         } else {
             insert_bits(
                 &mut image,
@@ -135,6 +164,10 @@ impl ProcessDataLayout {
                 "standalone Boolean output requires a single Boolean in one byte"
             );
         }
+        ensure!(
+            !self.padded_integer || self.integer_padding_width().is_some(),
+            "padded integer output requires a standalone signed or unsigned field in its wire container"
+        );
         let mut names = HashSet::new();
         let mut mapped = [false; MAX_INPUT * 8];
         for field in &self.fields {
@@ -164,6 +197,21 @@ impl ProcessDataLayout {
         }
         Ok(())
     }
+}
+
+// Caller has validated the integer geometry and confirmed a wire-sized payload.
+fn integer_padding_matches(field: &Field, payload: &[u8]) -> bool {
+    let bits = usize::from(field.bits);
+    let mut word = [0; 8];
+    word[8 - payload.len()..].copy_from_slice(payload);
+    let word = u64::from_be_bytes(word);
+    let negative = field.kind == Kind::Signed && word & (1 << (bits - 1)) != 0;
+    let padding = if negative {
+        (1 << (payload.len() * 8 - bits)) - 1
+    } else {
+        0
+    };
+    word >> bits == padding
 }
 
 fn output_value(field: &Field, input: &str) -> Result<u64> {
@@ -970,6 +1018,7 @@ fn parse_process_item<'a, 'input>(
         bit_length: bits,
         packed: matches!(kind, Some("RecordT" | "ArrayT")),
         standalone_boolean: false,
+        padded_integer: false,
         condition,
         fields: Vec::new(),
         needs_input: Vec::new(),
@@ -1090,6 +1139,9 @@ fn parse_process_item<'a, 'input>(
         && node.has_tag_name((IODD_NAMESPACE, "ProcessDataOut"))
         && matches!(bits, 1 | 8)
         && layout.fields.len() == 1;
+    layout.padded_integer = matches!(kind, Some("IntegerT" | "UIntegerT"))
+        && node.has_tag_name((IODD_NAMESPACE, "ProcessDataOut"))
+        && layout.integer_padding_width().is_some();
     if missing_unit {
         layout.needs_input.push(
             "Review engineering units and scaling where the IODD has no display metadata".into(),

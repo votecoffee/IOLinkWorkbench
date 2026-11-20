@@ -464,6 +464,37 @@ def verify(cli, profile, server):
     _, receipt = apply(normalize, "unconfirmed", status=1, target=bool_profile)
     assert receipt["gateway_code"] == 200 and receipt["readback"] == "02"
 
+    integer_source = profile.parent / "standalone-integer.xml"
+    integer_source.write_text(input_xml.replace("</ProcessData>", """
+          <ProcessDataOut id="OUT_INT" bitLength="16">
+            <Datatype xsi:type="IntegerT" bitLength="12"/><Name textId="setpoint"/>
+          </ProcessDataOut>
+        </ProcessData>""", 1), encoding="utf-8", newline="\n")
+    integer_profile = import_for_write(integer_source)
+    integer_layout = tomllib.loads(integer_profile.read_text(encoding="utf-8"))["iodd"]["output"]
+    assert integer_layout["padded_integer"] and "packed" not in integer_layout
+    typed_negative = ["process-output", "--expected", "0FFF", "--field", "setpoint", "--desired-value=-2048"]
+    raw_negative = ["process-output", "--expected", "0FFF", "--desired", "F800"]
+    server.output = "0FFF"
+    live = run(["process-output"], command="read-current", target=integer_profile)
+    assert live["value"] == "0FFF"
+    assert live["iodd_output"]["fields"][0]["value"]["raw"] == "-1"
+    assert "noncanonical" in live["iodd_output"]["encoding_warning"]
+    assert decode_output(integer_profile, "0FFF")["iodd_output"] == live["iodd_output"]
+    before_requests = len(server.requests)
+    plan = preview(typed_negative, target=integer_profile)
+    assert plan == preview(raw_negative, target=integer_profile)
+    integer_review = plan["target_and_request"]["process_output_review"]
+    assert integer_review["padded_integer"] and integer_review["changed_unmapped_bits"] == []
+    assert "noncanonical" in integer_review["expected_encoding_warning"]
+    assert integer_review["fields"][0]["proposed"]["raw"] == "-2048"
+    assert "requires canonical sign or zero padding" in run(
+        [*raw_negative[:-1], "0800"], target=integer_profile, status=1)
+    assert len(server.requests) == before_requests
+    _, receipt = apply(typed_negative, "readback_matched", target=integer_profile)
+    assert receipt["readback"] == server.output == "F800"
+    assert "encoding_warning" not in decode_output(integer_profile, "F800")["iodd_output"]
+
     configured = import_for_write(ROOT / "samples/sensor.xml")
     formats = import_for_write(ROOT / "samples/sensor-formats.xml")
     relocated_source = profile.parent / "relocated-index.xml"
@@ -844,7 +875,7 @@ def verify(cli, profile, server):
     request, receipt = apply(packed_record, "readback_matched", target=whole_record)
     assert request["request_data"]["subindex"] == 0
     assert receipt["readback"] == "FFEC810A41000000"
-    print("PASS: checked reads and ISDU writes by index or IODD ID, typed compound member edits, observed, offline, and staged process outputs including standalone Boolean outputs, output-only profiles, acyclic-only profiles and diagnostic reads, exact target checks, exact and StringT readback, and single dispatch on uncertain outcomes")
+    print("PASS: checked reads and ISDU writes by index or IODD ID, typed compound member edits, observed, offline, and staged process outputs including standalone Boolean and padded integer outputs, output-only profiles, acyclic-only profiles and diagnostic reads, exact target checks, exact and StringT readback, and single dispatch on uncertain outcomes")
 
 
 def main():

@@ -221,13 +221,14 @@ impl Draft {
                 FieldKind::Signed | FieldKind::Unsigned => "Desired integer (unscaled decimal)",
             };
             text_entry(ui, label, &mut self.desired);
-            if profile
-                .output_layout()
-                .is_some_and(|layout| layout.standalone_boolean)
-            {
-                ui.small("Standalone Boolean · 00 false · FF true");
-            } else {
-                ui.small("Preview builds the full output image and preserves all other bits.");
+            if let Some(layout) = profile.output_layout() {
+                if layout.standalone_boolean {
+                    ui.small("Standalone Boolean · 00 false · FF true");
+                } else if layout.padded_integer {
+                    ui.small("Preview extends the integer to its full wire width.");
+                } else {
+                    ui.small("Preview builds the full output image and preserves all other bits.");
+                }
             }
         }
     }
@@ -800,6 +801,9 @@ fn show_review(ui: &mut Ui, plan: &Plan) {
         }
         if output.standalone_boolean {
             ui.small("Standalone Boolean · 00 false · FF true");
+        }
+        if output.padded_integer {
+            ui.small("Standalone integer · signed values extend the sign bit · unsigned values extend with zeros");
         }
         if let Some(warning) = &output.expected_encoding_warning {
             ui.colored_label(WARNING, warning);

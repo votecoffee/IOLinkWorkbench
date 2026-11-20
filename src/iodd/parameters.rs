@@ -23,7 +23,7 @@ pub(crate) use text::decode as decode_text_parameter;
 pub use time::{DefaultConversion as TimeDefaultConversion, TimeValue};
 pub use value::{DecodedParameter, RecordValue};
 
-fn integer_container_bytes(bits: u16) -> usize {
+pub(super) fn integer_container_bytes(bits: u16) -> usize {
     usize::from(bits).div_ceil(8).next_power_of_two()
 }
 
@@ -262,17 +262,8 @@ impl Parameter {
             );
             // Packed members and legacy local values keep their original byte width.
             // An additional wire-width representation has to extend the number cleanly.
-            let mut word = [0; 8];
-            word[8 - payload.len()..].copy_from_slice(payload);
-            let word = u64::from_be_bytes(word);
-            let negative = field.kind == Kind::Signed && word & (1 << (bits - 1)) != 0;
-            let padding = if negative {
-                (1 << (payload.len() * 8 - bits)) - 1
-            } else {
-                0
-            };
             ensure!(
-                word >> bits == padding,
+                super::integer_padding_matches(&field, payload),
                 "integer container padding differs from the IODD datatype"
             );
         }

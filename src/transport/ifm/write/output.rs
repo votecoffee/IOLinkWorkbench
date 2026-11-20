@@ -13,6 +13,8 @@ pub struct ProcessOutputReview {
     pub fields: Vec<OutputFieldReview>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub standalone_boolean: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub padded_integer: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expected_encoding_warning: Option<String>,
     pub changed_unmapped_bits: Vec<usize>,
@@ -44,7 +46,7 @@ impl ProcessOutputReview {
             });
         }
         let mut changed_unmapped_bits = Vec::new();
-        if !layout.standalone_boolean {
+        if !layout.standalone_boolean && !layout.padded_integer {
             for (bit, mapped) in mapped.iter().enumerate().take(width * 8) {
                 let byte = width - 1 - bit / 8;
                 if (before[byte] ^ after[byte]) & (1 << (bit % 8)) == 0 {
@@ -65,6 +67,7 @@ impl ProcessOutputReview {
             condition: layout.condition.clone(),
             fields,
             standalone_boolean: layout.standalone_boolean,
+            padded_integer: layout.padded_integer,
             expected_encoding_warning: layout.output_encoding_warning(before),
             changed_unmapped_bits,
             needs_input: layout.needs_input.clone(),

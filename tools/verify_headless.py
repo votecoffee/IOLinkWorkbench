@@ -414,6 +414,100 @@ def verify_display_preferences(cli, source, output):
     return preferred
 
 
+def verify_port_statuses(cli, output):
+    output.mkdir()
+    source = (ROOT / "samples/simulator.toml").read_text(encoding="utf-8")
+
+    def profile(name, port, origin=None, firmware=None):
+        endpoint = "" if origin is None else (
+            f'endpoint = "{origin}"\nifm_mode = 3\nifm_cycle_unit = "microseconds"\n'
+        )
+        if firmware is not None:
+            endpoint += f'ifm_firmware = "{firmware}"\n'
+        contents = source.replace("port = 1\n", f"port = {port}\n{endpoint}timeout_ms = 4500\n")
+        if origin is not None:
+            contents = contents.replace('gateway = "simulator"', 'gateway = "ifm_al1350"')
+        path = output / f"{name}.toml"
+        path.write_text(contents, encoding="utf-8")
+        return path
+
+    simulations = [profile("sim-2", 2), profile("sim-1", 1)]
+    simulated = tomllib.loads(run(cli, "status-ports", *simulations))
+    assert simulated["gateway"] == "simulator"
+    assert [entry["port"] for entry in simulated["ports"]] == [2, 1]
+    assert all(entry["status"]["route"] == "synthetic simulator" for entry in simulated["ports"])
+
+    class PortGateway(BaseHTTPRequestHandler):
+        def log_message(self, *_args):
+            pass
+
+        def do_POST(self):
+            request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            self.server.requests.append(request)
+            assert request["adr"] == "/getdatamulti" and self.path == "/"
+            paths = request["data"]["datatosend"]
+            port = next(n for n in range(1, 5) if f"/iolinkmaster/port[{n}]/mode" in paths)
+            prefix = f"/iolinkmaster/port[{port}]"
+            if port in (1, 2) and self.server.barrier is not None:
+                self.server.barrier.wait(timeout=3)
+            data = dict(Gateway.data)
+            data[Gateway.port + "/iolinkdevice/deviceid"] = 2 if port == 3 else 1
+            data[Gateway.port + "/mastercycletime_actual"] = 1200 * port
+            data[Gateway.port + "/mode"] = 0 if port == 4 else 3
+            if port == self.server.different_master_port:
+                data["/deviceinfo/serialnumber"] = "OTHER-MASTER"
+            allowed = {key.replace(Gateway.port, prefix): value for key, value in data.items()}
+            assert all(key in allowed for key in paths), paths
+            response = {
+                "code": 200, "cid": request["cid"],
+                "data": {key: {"code": 200, "data": allowed[key]} for key in paths},
+            }
+            body = json.dumps(response).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    with ThreadingHTTPServer(("127.0.0.1", 0), PortGateway) as server:
+        server.requests = []
+        server.barrier = threading.Barrier(2)
+        server.different_master_port = None
+        host = f"http://127.0.0.1:{server.server_port}"
+        ports = [profile(f"port-{port}", port, host + ("/" if port == 2 else "")) for port in range(1, 5)]
+        other_origin = profile("other-origin", 2, "http://127.0.0.1:1")
+        conflicting = [profile(f"firmware-{port}", port, host, f"3.1.{port}") for port in (1, 2)]
+        worker = threading.Thread(target=server.serve_forever)
+        worker.start()
+        try:
+            for selection in [(ports[0], ports[0]), (ports[0], simulations[0]),
+                              (ports[0], other_origin), tuple(conflicting)]:
+                run(cli, "status-ports", *selection, expected=1)
+                assert not server.requests
+            report = tomllib.loads(run(cli, "status-ports", ports[1], ports[0]))
+            assert report["gateway"] == "ifm_al1350" and not report["observed_master_conflict"]
+            assert len(server.requests) == 2
+            assert [entry["port"] for entry in report["ports"]] == [2, 1]
+            for entry in report["ports"]:
+                assert entry["read_duration_us"] > 0 and entry["host_finished_utc"].endswith("Z")
+                assert entry["status"]["route"] == "AL1350 loopback fixture"
+                assert entry["status"]["port_cycle_us"] == 1200 * entry["port"]
+                assert entry["status"]["freshness"] == "snapshots"
+            server.barrier = None
+            partial = tomllib.loads(run(cli, "status-ports", ports[2], ports[0], ports[3], expected=1))["ports"]
+            assert [entry["port"] for entry in partial] == [3, 1, 4]
+            assert "identity mismatch" in partial[0]["error"] and partial[0]["status"]["identity"]["device_id"] == 2
+            assert "error" not in partial[1] and "identity_check" in partial[1]
+            assert "mode" in partial[2]["error"] and "status" not in partial[2]
+            server.different_master_port = 2
+            report = tomllib.loads(run(cli, "status-ports", *ports[:2], expected=1))
+            assert report["observed_master_conflict"]
+            assert len(server.requests) == 7
+        finally:
+            server.shutdown()
+            worker.join()
+
+
 def verify_parameter_snapshots(cli, profile, output, loopback=False):
     output.mkdir()
     original = profile.read_bytes()
@@ -437,6 +531,27 @@ def verify_parameter_snapshots(cli, profile, output, loopback=False):
             assert review["decoded"].get(key) == reading.get(key)
         run(cli, "read-parameter", preferred, variable, "--subindex", subindex, "--snapshot", path, expected=1)
         assert Gateway.requests == before_requests and path.read_bytes() == pinned
+    record = output / "V_SIM_Record-0.json"
+    record_bytes = record.read_bytes()
+    changed_record = json.loads(record_bytes)
+    changed_record["raw_hex"] = "FFED010A54455354"
+    changed_record["observation"]["device_event"] = "36350"
+    second = output / "changed-record.json"
+    second.write_text(json.dumps(changed_record), encoding="utf-8")
+    second_bytes = second.read_bytes()
+    before_requests = Gateway.requests
+    comparison = tomllib.loads(run(cli, "compare-parameters", record, record))
+    assert comparison["same_wire_bytes"] and comparison["changed_members"] == []
+    comparison = tomllib.loads(run(cli, "compare-parameters", record, second))
+    assert not comparison["same_wire_bytes"] and comparison["same_saved_parameter_definition"]
+    assert comparison["observed_device_ids_match"]
+    assert comparison["right"]["observation"]["device_event"] == "36350"
+    assert [(item["subindex"], item["left_raw_hex"], item["right_raw_hex"])
+            for item in comparison["changed_members"]] == [(1, "FFEC", "FFED")]
+    run(cli, "compare-parameters", record, output / "V_SIM_Record-1.json", expected=1)
+    assert Gateway.requests == before_requests
+    assert record.read_bytes() == record_bytes and second.read_bytes() == second_bytes
+
     # Reopening never resolves saved paths or endpoints. A decoder error is distinct from corrupt context.
     document = json.loads((output / "V_SIM_Threshold-0.json").read_text(encoding="utf-8"))
     document["profile"]["connection"]["endpoint"] = "http://127.0.0.1:1"
@@ -447,6 +562,8 @@ def verify_parameter_snapshots(cli, profile, output, loopback=False):
     before_requests = Gateway.requests
     review = tomllib.loads(run(cli, "review-parameter", short, expected=1))
     assert review["decoded"]["raw_hex"] == "FF" and review["decoded"]["decode_error"]
+    comparison = tomllib.loads(run(cli, "compare-parameters", output / "V_SIM_Threshold-0.json", short, expected=1))
+    assert comparison["right"]["decoded"]["raw_hex"] == "FF" and "changed_members" not in comparison
     assert Gateway.requests == before_requests
     document["index"] = 19
     bad = output / "wrong-query.json"
@@ -1323,6 +1440,7 @@ def main():
     verify_defaults(cli, scratch / "defaults")
     verify_temporal_defaults(cli, scratch / "temporal-defaults")
     verify_connection_settings(cli, scratch / "connection-settings")
+    verify_port_statuses(cli, scratch / "port-statuses")
     verify_identity_settings(cli, scratch / "identity-settings")
     verify_mapping_settings(cli, scratch / "mapping-settings")
     verify_logging_settings(cli, scratch / "logging-settings")
@@ -1716,7 +1834,7 @@ kind = "bool"
 
     print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
-          "named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline reopening, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
+          "named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status reads and partial reports, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 
 

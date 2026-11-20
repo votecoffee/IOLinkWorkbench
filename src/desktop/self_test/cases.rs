@@ -165,6 +165,7 @@ fn apply_output_fixture(profile: &mut Profile) -> Result<()> {
         bit_length: 13,
         packed: true,
         standalone_boolean: false,
+        padded_integer: false,
         condition: None,
         fields: vec![Field {
             name: "Enable".into(),

@@ -135,6 +135,7 @@ fn typed_output_draft_stages_only_the_selected_field_offline() -> Result<()> {
         bit_length: 13,
         packed: true,
         standalone_boolean: false,
+        padded_integer: false,
         condition: None,
         fields: vec![iolink_workbench::decode::Field {
             name: "Enable".into(),

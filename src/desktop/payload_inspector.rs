@@ -151,6 +151,9 @@ pub(super) fn show_output_fields(ui: &mut Ui, output: &DecodedOutput) {
     if output.standalone_boolean {
         ui.small("Standalone Boolean · 00 false · FF true");
     }
+    if output.padded_integer {
+        ui.small("Standalone integer · signed values extend the sign bit · unsigned values extend with zeros");
+    }
     if let Some(warning) = &output.encoding_warning {
         ui.colored_label(WARNING, warning);
     }

@@ -7,9 +7,11 @@ use serde::{Deserialize, Serialize};
 use std::time::Instant;
 
 mod ifm;
+mod ports;
 mod simulator;
 
 pub use ifm::write;
+pub use ports::{PortStatus, PortStatusReport, read_port_statuses};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

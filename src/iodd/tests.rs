@@ -119,12 +119,71 @@ fn standalone_output_booleans_use_one_octet_with_explicit_legacy_observations() 
 }
 
 #[test]
+fn standalone_integer_outputs_regenerate_canonical_high_bits() -> Result<()> {
+    use crate::profile::Profile;
+    for (declared, bits, datatype, before, input, after) in [
+        (12, 12, "IntegerT", "0001", "-2048", "F800"),
+        (16, 12, "IntegerT", "FFFF", "2047", "07FF"),
+        (17, 17, "UIntegerT", "00000000", "93786", "00016E5A"),
+        (32, 20, "UIntegerT", "00000000", "1048575", "000FFFFF"),
+        (
+            63,
+            63,
+            "IntegerT",
+            "0000000000000000",
+            "-4611686018427387904",
+            "C000000000000000",
+        ),
+    ] {
+        let xml = SENSOR.replace("</ProcessData>", &format!(
+            r#"<ProcessDataOut id="OUT" bitLength="{declared}"><Datatype xsi:type="{datatype}" bitLength="{bits}"/><Name textId="integer"/></ProcessDataOut></ProcessData>"#,
+        ));
+        let catalog = parse(&xml, "synthetic standalone integer".into())?;
+        let mut profile = Profile::default();
+        let (identity, imported) = catalog.select(Some("SIM-SENSOR"), None)?;
+        profile.apply_iodd(identity, imported);
+        let serialized = toml::to_string(&profile)?;
+        let reloaded = Profile::parse(&serialized)?;
+        let layout = reloaded.output_layout().unwrap();
+        assert!(layout.padded_integer && !layout.packed);
+        let expected_after = crate::decode::parse_hex(after)?;
+        let edited =
+            layout.edit_output_field(crate::decode::parse_hex(before)?, "integer", input)?;
+        assert_eq!(edited, expected_after);
+        layout.check_proposed_output(&edited)?;
+        let decoded = layout.decode_output(&edited, None);
+        assert!(decoded.encoding_warning.is_none());
+        assert_eq!(decoded.fields[0].value.raw, input);
+        let mut malformed = edited.clone();
+        malformed[0] ^= 0x80;
+        assert!(layout.check_proposed_output(&malformed).is_err());
+        let observed = layout.decode_output(&malformed, None);
+        assert!(observed.encoding_warning.is_some());
+        assert_eq!(observed.fields[0].value.raw, input);
+        assert!(
+            layout
+                .edit_output_field(edited, "integer", "18446744073709551615")
+                .is_err()
+        );
+        let legacy = Profile::parse(&serialized.replace("padded_integer = true\n", ""))?;
+        let legacy = legacy.output_layout().unwrap();
+        assert!(!legacy.padded_integer && legacy.editable_output_fields().count() == 0);
+        assert_eq!(legacy.bytes(), (declared as usize).div_ceil(8));
+        let mut contradictory = layout.clone();
+        contradictory.fields.clear();
+        assert!(contradictory.validate().is_err());
+    }
+    Ok(())
+}
+
+#[test]
 fn typed_output_field_edits_keep_wire_width_and_neighboring_bits() -> Result<()> {
     let mut layout = ProcessDataLayout {
         id: "OUT".into(),
         bit_length: 72,
         packed: true,
         standalone_boolean: false,
+        padded_integer: false,
         condition: None,
         fields: vec![Field {
             name: "Wide value".into(),

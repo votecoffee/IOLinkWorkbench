@@ -2,6 +2,12 @@
 
 ## Windows preview
 
+- Standalone IODD integer output editing regenerates sign or zero padding in the applicable wire container. Checked and offline reads retain mismatched padding and flag it for review.
+
+- Saved parameter snapshots compare exact bytes and retain independent decoded values, identity and diagnostics. Matching composite definitions and observed device types permit per-member comparisons.
+
+- CLI status reports read up to four explicitly profiled ports of one master concurrently, retaining each result and identity check when another port fails. Verified on simulator and AL1350 loopback.
+
 - Standalone IODD Boolean outputs use 00 and FF for reviewed writes. Checked reads and offline decoding retain noncanonical bytes with an interpretation warning. Preflight and readback compare the exact image.
 
 - An explicit empty IODD process data layout can be imported for status, ISDU, parameter snapshots and diagnostics. Acyclic-only profiles block cyclic input and output paths and keep the applicable device workflows available.
@@ -136,7 +142,7 @@
 - Maintain operational/developer documentation, AGENTS.md and the Codex skill as public workflows evolve. See [interface design and acceptance criteria](docs/INTERFACES.md); C FFI remains future work.
 
 - Add one documented source-counter or timestamp transport once selected hardware exposes it. Qualify timestamp clock, counter wrap, update semantics and firmware-specific behavior.
-- Add multiple independent port sessions with per-port identity, status, and capture accounting.
+- Add independent cyclic sessions with per-port status, reconnect and capture accounting. Concurrent status checks already work through the CLI. Add a GUI view once the multi-port workflow is defined.
 - Expand IODD handling for profile snippets and remaining IODD Checker semantic rules. Checksum consistency is implemented; official Checker execution and vendor authenticity remain separate. Add representative sanitized fixtures for supported device families.
 - Add event-history acquisition only when a selected transport documents event delivery, ordering, and loss semantics. Current explicit diagnostics are snapshots with unknown source event loss.
 - Expand remaining datatype-specific displays and profile-specific decoding. IODD RecordT/ArrayT elements are simple datatypes; unsupported complex elements stay on the raw/manual path.

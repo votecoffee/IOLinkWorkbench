@@ -1,4 +1,4 @@
-use super::ProcessDataLayout;
+use super::{ProcessDataLayout, integer_padding_matches};
 use crate::decode::{Field, Value};
 use anyhow::{Result, bail, ensure};
 use serde::Serialize;
@@ -13,6 +13,8 @@ pub struct DecodedOutput {
     pub fields: Vec<DecodedOutputField>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub standalone_boolean: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub padded_integer: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub encoding_warning: Option<String>,
     pub needs_input: Vec<String>,
@@ -44,6 +46,12 @@ impl ProcessDataLayout {
             !self.standalone_boolean || matches!(payload, [0x00] | [0xFF]),
             "standalone Boolean output requires 00 (false) or FF (true)"
         );
+        if self.padded_integer {
+            ensure!(
+                integer_padding_matches(&self.fields[0], payload),
+                "standalone integer output requires canonical sign or zero padding"
+            );
+        }
         Ok(())
     }
 
@@ -54,6 +62,11 @@ impl ProcessDataLayout {
             return Some(format!(
                 "Standalone Boolean byte {byte:02X} is noncanonical. Workbench interprets it as true."
             ));
+        }
+        if self.padded_integer && !integer_padding_matches(&self.fields[0], payload) {
+            return Some(
+                "Standalone integer byte padding is noncanonical. The displayed value uses only the declared data bits.".into(),
+            );
         }
         None
     }
@@ -109,6 +122,7 @@ impl ProcessDataLayout {
             recorded_condition_confirmation,
             fields,
             standalone_boolean: self.standalone_boolean,
+            padded_integer: self.padded_integer,
             encoding_warning: decode_error
                 .is_none()
                 .then(|| self.output_encoding_warning(payload))

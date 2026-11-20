@@ -176,6 +176,8 @@ enum Command {
     },
     /// Reopen a saved parameter snapshot offline, using its embedded profile.
     ReviewParameter { snapshot: PathBuf },
+    /// Compare exact bytes, saved definitions, diagnostics and decoded values from two snapshots.
+    CompareParameters { left: PathBuf, right: PathBuf },
     /// Decode a recorded ISDU payload offline, using the saved IODD catalog.
     DecodeParameter {
         profile: PathBuf,
@@ -220,6 +222,11 @@ enum Command {
         profile: PathBuf,
         #[arg(long)]
         verify_product_id: bool,
+    },
+    /// Read status for one to four explicitly profiled ports of the same master.
+    StatusPorts {
+        #[arg(required = true, num_args = 1..=4)]
+        profiles: Vec<PathBuf>,
     },
     /// Read one explicit acyclic ISDU parameter using a separate client.
     Isdu {
@@ -553,6 +560,16 @@ fn main() -> Result<()> {
                 "parameter payload needs decoding review; raw bytes retained above"
             );
         }
+        Command::CompareParameters { left, right } => {
+            let left = parameter_snapshot::Snapshot::load(&left)?;
+            let right = parameter_snapshot::Snapshot::load(&right)?;
+            let comparison = parameter_snapshot::compare(&left, &right)?;
+            print!("{}", toml::to_string_pretty(&comparison)?);
+            ensure!(
+                !comparison.left.decoded.needs_review() && !comparison.right.decoded.needs_review(),
+                "parameter payload needs decoding review; raw bytes retained above"
+            );
+        }
         Command::DecodeParameter {
             profile,
             id,
@@ -712,6 +729,18 @@ fn main() -> Result<()> {
             }
             println!("identity_check = {check:?}");
             print!("{}", toml::to_string_pretty(&status)?);
+        }
+        Command::StatusPorts { profiles } => {
+            let profiles = profiles
+                .iter()
+                .map(|path| Profile::load(path))
+                .collect::<Result<Vec<_>>>()?;
+            let report = transport::read_port_statuses(&profiles)?;
+            print!("{}", toml::to_string_pretty(&report)?);
+            ensure!(
+                report.all_successful(),
+                "one or more port status checks failed; see the port report above"
+            );
         }
         Command::Isdu {
             profile,

@@ -512,8 +512,9 @@ impl Offline {
 
 pub struct Saved {
     path: String,
-    worker: Option<super::Worker<iolink_workbench::parameter_snapshot::Review>>,
-    result: Option<iolink_workbench::parameter_snapshot::Review>,
+    compare_path: String,
+    worker: Option<super::Worker<String>>,
+    result: Option<String>,
     error: String,
 }
 
@@ -521,6 +522,7 @@ impl Default for Saved {
     fn default() -> Self {
         Self {
             path: ".local/parameter.json".into(),
+            compare_path: String::new(),
             worker: None,
             result: None,
             error: String::new(),
@@ -577,21 +579,26 @@ impl Saved {
             )
             .clicked()
         {
-            let path = self.path.clone();
-            match super::background("offline-parameter-snapshot", move || {
-                iolink_workbench::parameter_snapshot::Snapshot::load(std::path::Path::new(&path))?
-                    .review()
-            }) {
-                Ok(worker) => {
-                    self.worker = Some(worker);
-                    self.result = None;
-                    self.error.clear();
-                }
-                Err(error) => self.error = error.to_string(),
-            }
+            self.open(false);
         }
+        ui.collapsing("Compare two snapshots", |ui| {
+            ui.small("Compare two separate reads at the same index and subindex. Each snapshot keeps its own identity and connection diagnostics.");
+            if ui.add_enabled(
+                self.worker.is_none(),
+                egui::TextEdit::singleline(&mut self.compare_path).hint_text("Second snapshot JSON path"),
+            ).changed() {
+                self.result = None;
+                self.error.clear();
+            }
+            if ui.add_enabled(
+                self.worker.is_none() && !self.path.trim().is_empty() && !self.compare_path.trim().is_empty(),
+                egui::Button::new("Compare snapshots offline"),
+            ).clicked() {
+                self.open(true);
+            }
+        });
         if self.worker.is_some() {
-            ui.label("Opening snapshot…");
+            ui.label("Reading snapshot files…");
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(50));
         }
@@ -599,7 +606,29 @@ impl Saved {
             ui.colored_label(WARNING, &self.error);
         }
         if let Some(review) = &self.result {
-            ui.monospace(review.text());
+            ui.monospace(review);
+        }
+    }
+
+    fn open(&mut self, compare: bool) {
+        use iolink_workbench::parameter_snapshot::{self, Snapshot};
+        let path = std::path::PathBuf::from(&self.path);
+        let other = compare.then(|| std::path::PathBuf::from(&self.compare_path));
+        match super::background("offline-parameter-snapshot", move || {
+            let snapshot = Snapshot::load(&path)?;
+            if let Some(other) = other {
+                return Ok(
+                    parameter_snapshot::compare(&snapshot, &Snapshot::load(&other)?)?.text(),
+                );
+            }
+            Ok(snapshot.review()?.text())
+        }) {
+            Ok(worker) => {
+                self.worker = Some(worker);
+                self.result = None;
+                self.error.clear();
+            }
+            Err(error) => self.error = error.to_string(),
         }
     }
 }
