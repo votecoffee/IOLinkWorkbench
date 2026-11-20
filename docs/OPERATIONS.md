@@ -65,7 +65,7 @@ Rotation is checked before the next row. Time rotation uses receive elapsed time
 
 ## Timing, loss and saved evidence
 
-A timed run starts its requested duration once CSV and optional feed setup are ready. The duration includes gateway connection attempts. CSV, feeds and the report share the start time recorded before local setup. Report `elapsed_us` measures from that origin through acquisition end, before final drain.
+A timed run starts its requested duration once CSV and optional feed setup are ready. The duration includes gateway connection attempts. CSV, feeds and the report share the start time recorded before local setup. `local_setup_us` measures from that origin to acquisition start. `elapsed_us` measures from the same origin through acquisition end, before final drain. Timing views show the difference as the acquisition window. Saved captures without a setup measurement show that breakdown as unavailable.
 
 Final-run timing and saved review retain [terminal host receive age](CAPTURE_REVIEW.md#terminal-host-receive-age): the interval from the final accepted receive to acquisition end, before writer drain. It is separate from source age and current GUI cache age. Missing measurements stay unavailable. Exact last-row checks require complete received-input coverage; filtered/dropped CSV does not identify the final receive.
 

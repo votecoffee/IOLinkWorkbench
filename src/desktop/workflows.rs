@@ -323,6 +323,11 @@ impl App {
         if let Some(report) = &self.report {
             ui.separator();
             ui.heading("Run timing");
+            super::logger_metrics::acquisition_window(
+                ui,
+                report.elapsed_us,
+                Some(report.local_setup_us),
+            );
             for (label, stats) in [
                 (
                     "Host poll start spacing",

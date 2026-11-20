@@ -4,9 +4,15 @@ use crate::transport::Freshness;
 use anyhow::{Context, Result, ensure};
 
 pub(super) fn validate(manifest: &Manifest) -> Result<()> {
+    let acquisition_window = match manifest.local_setup_us {
+        Some(_) => manifest
+            .acquisition_window_us()
+            .context("local_setup_us exceeds elapsed_us")?,
+        None => manifest.elapsed_us,
+    };
     if let Some(age) = manifest.time_since_last_receive_us {
         ensure!(
-            age <= manifest.elapsed_us,
+            age <= acquisition_window,
             "time_since_last_receive_us exceeds the host acquisition window"
         );
         ensure!(
@@ -53,7 +59,7 @@ pub(super) fn validate(manifest: &Manifest) -> Result<()> {
         }
         if host_clock {
             ensure!(
-                spacing.longest_us <= manifest.elapsed_us,
+                spacing.longest_us <= acquisition_window,
                 "{name} exceeds the host acquisition window"
             );
         }

@@ -101,16 +101,7 @@ impl InterfaceReview {
                 recorded_disconnects: manifest.counts.disconnects,
                 recorded_reconnects: manifest.counts.reconnects,
                 recorded_logger_overruns: manifest.counts.logger_overruns,
-                recorded_timing: RecordedTiming {
-                    port_cycle_raw: status.and_then(|s| s.port_cycle_raw.clone()),
-                    port_cycle_us: status.and_then(|s| s.port_cycle_us),
-                    host_poll_start_spacing: manifest.host_poll_start_spacing.clone(),
-                    host_receive_spacing: manifest.host_receive_spacing.clone(),
-                    host_new_update_spacing: manifest.host_new_update_spacing.clone(),
-                    gateway_update_spacing: manifest.gateway_update_spacing.clone(),
-                    time_since_last_receive_us: manifest.time_since_last_receive_us,
-                    logger_metrics: manifest.logger_metrics.clone(),
-                },
+                recorded_timing: RecordedTiming::from_manifest(manifest),
                 cycle_context: crate::timing::assess(
                     profile,
                     manifest.requested_poll_us,

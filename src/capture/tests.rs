@@ -165,13 +165,14 @@ fn preparation_time_does_not_consume_a_timed_capture_window() -> Result<()> {
     )?;
     assert!(report.success(), "{report:?}");
     assert_eq!(report.requested_duration_ms, Some(250));
-    assert!(report.elapsed_us >= us(preparation + duration));
+    assert!(report.local_setup_us >= us(preparation));
+    assert!(report.elapsed_us - report.local_setup_us >= us(duration));
     let verified = crate::archive::verify(&output, None)?;
     assert!(verified.rows_checked > 0);
     let mut csv = csv::Reader::from_path(output.join("capture-0001.csv"))?;
     let first = csv.records().next().expect("verified capture has rows")?;
     assert_eq!(first.get(0), Some(report.utc_start.as_str()));
-    assert!(first[1].parse::<u64>()? >= us(preparation));
+    assert!(first[1].parse::<u64>()? >= report.local_setup_us);
     Ok(())
 }
 

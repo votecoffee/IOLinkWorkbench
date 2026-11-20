@@ -1150,6 +1150,18 @@ fn stop_and_flush_from_another_tab_can_review_the_recording() -> Result<()> {
     let rows = report.csv_rows_flushed;
     let parts = report.csv_parts;
     assert!(parts > 1);
+    let timing_window = format!(
+        "Local setup · {} µs · Acquisition window · {} µs",
+        report.local_setup_us,
+        report.elapsed_us - report.local_setup_us
+    );
+    app.tab = Tab::Diagnostics;
+    app.workspace.diagnostics = DiagnosticsPage::Timing;
+    assert!(
+        draw(&mut app, &ctx, size)
+            .iter()
+            .any(|(text, _)| text == &timing_window)
+    );
     // The operator can review the stored selection while a different selection is applied.
     app.profile
         .set_log_selection(iolink_workbench::profile::LogSelection::All)?;

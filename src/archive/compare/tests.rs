@@ -85,6 +85,71 @@ fn differing_exposure_blocks_counts_but_not_spacing() -> Result<()> {
 }
 
 #[test]
+fn counts_use_acquisition_exposure_and_require_both_windows() -> Result<()> {
+    let (scratch, path) = super::super::tests::fixture(false, false)?;
+    let other = copy(&path, scratch.path())?;
+    let manifest_path = other.join("capture.toml");
+    let offset = 1_000;
+    edit(&manifest_path, |manifest| {
+        for key in ["elapsed_us", "local_setup_us"] {
+            manifest[key] = (manifest[key].as_integer().unwrap() + offset).into();
+        }
+    })?;
+    // Shift host offsets with the report to model a run with longer preparation.
+    for entry in fs::read_dir(&other)? {
+        let file = entry?.path();
+        if file.extension().and_then(|suffix| suffix.to_str()) != Some("csv") {
+            continue;
+        }
+        let mut reader = csv::Reader::from_path(&file)?;
+        let mut shifted = csv::Writer::from_writer(Vec::new());
+        shifted.write_record(reader.headers()?)?;
+        for row in reader.records() {
+            let row = row?;
+            let elapsed = (row[1].parse::<i64>()? + offset).to_string();
+            shifted.write_record(row.iter().enumerate().map(|(index, cell)| {
+                if index == 1 { elapsed.as_str() } else { cell }
+            }))?;
+        }
+        drop(reader);
+        fs::write(file, shifted.into_inner()?)?;
+    }
+    let result = compare_captures(&path, &other)?;
+    assert_eq!(result.count_context, "matching_recorded_context");
+    assert!(
+        result
+            .settings
+            .iter()
+            .any(|v| v.name == "elapsed_us" && v.relation == "different")
+    );
+    assert!(
+        result
+            .settings
+            .iter()
+            .any(|v| v.name == "acquisition_window_us" && v.relation == "matching")
+    );
+
+    edit(&manifest_path, |manifest| {
+        manifest.as_table_mut().unwrap().remove("local_setup_us");
+    })?;
+    let mixed = compare_captures(&path, &other)?;
+    assert_eq!(mixed.count_context, "settings_unavailable");
+    assert_eq!(mixed.timing_context, "matching_recorded_context");
+    assert!(
+        mixed
+            .metrics
+            .iter()
+            .filter(|v| v.unit == "count" || v.name == "terminal_receive_age")
+            .all(|v| v.magnitude.is_none())
+    );
+    assert_eq!(
+        compare_captures(&other, &other)?.count_context,
+        "matching_recorded_context"
+    );
+    Ok(())
+}
+
+#[test]
 fn selection_changes_and_legacy_missing_context_suppress_deltas() -> Result<()> {
     let (scratch, path) = super::super::tests::fixture(false, false)?;
     let other = copy(&path, scratch.path())?;

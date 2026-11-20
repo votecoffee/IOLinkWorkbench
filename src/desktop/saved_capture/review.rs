@@ -61,6 +61,7 @@ pub fn show(ui: &mut Ui, review: &Review) {
     ui.small("Each independent time bin shows finite minimum–maximum and the last finite value. Amber marks bins containing blank/non-finite cells or multiple generations. No lines join bins; gaps and event ordering inside a bin require the original CSV. Hover for bin details.");
     ui.collapsing("Recorded acquisition timing", |ui| {
         let timing = &signal.recorded_timing;
+        crate::desktop::logger_metrics::acquisition_window(ui, signal.elapsed_us, timing.local_setup_us);
         crate::desktop::logger_metrics::receive_tail(ui, timing.time_since_last_receive_us);
         ui.label(format!("Requested host poll interval · {} µs · stale threshold {} µs", signal.requested_poll_us.map(|value| value.to_string()).unwrap_or_else(|| "unavailable".into()), signal.stale_threshold_us));
         ui.label(format!("IO-Link port cycle · {} µs · raw {}", timing.port_cycle_us.map(|value| value.to_string()).unwrap_or_else(|| "unknown".into()), timing.port_cycle_raw.as_deref().unwrap_or("unavailable")));

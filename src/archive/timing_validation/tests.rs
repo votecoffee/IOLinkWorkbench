@@ -51,6 +51,43 @@ fn malformed_spacing_is_rejected_by_all_archive_entry_points_without_publication
 }
 
 #[test]
+fn saved_setup_bounds_and_legacy_absence_are_checked() -> Result<()> {
+    let (scratch, path) = archive::tests::fixture(false, false)?;
+    let original = read(&path)?;
+    let setup = original["local_setup_us"].as_integer().unwrap();
+    let elapsed = original["elapsed_us"].as_integer().unwrap();
+    let fields = archive::review(&path, None, 2)?.signal.recorded_timing;
+    assert_eq!(fields.local_setup_us, Some(setup as u64));
+    assert_eq!(fields.acquisition_window_us, Some((elapsed - setup) as u64));
+
+    let mut invalid = original.clone();
+    invalid["local_setup_us"] = (elapsed + 1).into();
+    save(&path, &invalid)?;
+    assert!(format!("{:#}", archive::verify(&path, None).unwrap_err()).contains("local_setup_us"));
+
+    let csv = path.join("capture-0001.csv");
+    let first_row = csv::Reader::from_path(csv)?.records().next().unwrap()?;
+    let moved = first_row[1].parse::<i64>()? + 1;
+    invalid["local_setup_us"] = moved.into();
+    invalid["elapsed_us"] = (elapsed + moved - setup).into();
+    save(&path, &invalid)?;
+    let joined = scratch.path().join("joined.csv");
+    let error = archive::verify(&path, Some(&joined)).unwrap_err();
+    assert!(format!("{error:#}").contains("before acquisition start"));
+    assert!(!joined.exists());
+
+    let mut legacy = original;
+    legacy.as_table_mut().unwrap().remove("local_setup_us");
+    save(&path, &legacy)?;
+    let timing = archive::review_interfaces(&path, None)?
+        .acquisition
+        .recorded_timing;
+    assert_eq!(timing.local_setup_us, None);
+    assert_eq!(timing.acquisition_window_us, None);
+    Ok(())
+}
+
+#[test]
 fn available_observation_counts_are_crosschecked_without_using_selected_csv_rows() -> Result<()> {
     let (_scratch, path) = archive::tests::fixture(false, true)?;
     let original = read(&path)?;

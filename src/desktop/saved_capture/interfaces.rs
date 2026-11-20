@@ -37,6 +37,11 @@ pub(super) fn show_review(ui: &mut Ui, review: &InterfaceReview) {
     ui.collapsing("Recorded sampling timing", |ui| {
         ui.label(context.cycle_context.text());
         let timing = &context.recorded_timing;
+        crate::desktop::logger_metrics::acquisition_window(
+            ui,
+            context.elapsed_us,
+            timing.local_setup_us,
+        );
         crate::desktop::logger_metrics::receive_tail(ui, timing.time_since_last_receive_us);
         ui.label(format!(
             "Port cycle {} µs · raw {}",

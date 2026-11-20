@@ -155,8 +155,11 @@ fn relation<T: PartialEq>(left: &Option<T>, right: &Option<T>) -> &'static str {
     }
 }
 
-fn context(settings: &[ComparisonSetting], counts: bool) -> &'static str {
-    let relevant = |s: &&ComparisonSetting| counts || s.name != "elapsed_us";
+fn context(settings: &[ComparisonSetting], duration: Option<&str>) -> &'static str {
+    let relevant = |s: &&ComparisonSetting| match s.name {
+        "elapsed_us" | "acquisition_window_us" => duration == Some(s.name),
+        _ => true,
+    };
     if settings
         .iter()
         .filter(relevant)
@@ -224,7 +227,7 @@ fn review(data: Inspected) -> Result<InterfaceReview> {
 pub fn compare_captures(left: &Path, right: &Path) -> Result<CaptureComparison> {
     let left = inspect(left, None, None, None).context("left capture verification failed")?;
     let right = inspect(right, None, None, None).context("right capture verification failed")?;
-    let settings: Vec<_> = settings(&left)?
+    let mut settings: Vec<_> = settings(&left)?
         .into_iter()
         .zip(settings(&right)?)
         .map(|((name, left), (_, right))| ComparisonSetting {
@@ -234,8 +237,27 @@ pub fn compare_captures(left: &Path, right: &Path) -> Result<CaptureComparison> 
             right,
         })
         .collect();
-    let mut timing_context = context(&settings, false);
-    let mut count_context = context(&settings, true);
+    let left_window = left.manifest.acquisition_window_us();
+    let right_window = right.manifest.acquisition_window_us();
+    let (duration, delta_policy) = if left_window.is_some() || right_window.is_some() {
+        settings.push(ComparisonSetting {
+            name: "acquisition_window_us",
+            relation: relation(&left_window, &right_window),
+            left: left_window.map(|value| value.to_string()),
+            right: right_window.map(|value| value.to_string()),
+        });
+        (
+            "acquisition_window_us",
+            "right relative to left, for available metrics with matching required recorded settings; counts and terminal receive-age deltas also require both recorded acquisition windows to be present and equal; no rate normalization, interpolation, significance test or 1 ms acceptance",
+        )
+    } else {
+        (
+            "elapsed_us",
+            "right relative to left, only for available metrics with matching required recorded settings; counts and terminal receive-age deltas also require identical elapsed_us; unknown stays unknown; no rate normalization, interpolation, significance test or 1 ms acceptance",
+        )
+    };
+    let mut timing_context = context(&settings, None);
+    let mut count_context = context(&settings, Some(duration));
     let left = review(left)?;
     let right = review(right)?;
     let failed = |v: &InterfaceReview| {
@@ -439,7 +461,7 @@ pub fn compare_captures(left: &Path, right: &Path) -> Result<CaptureComparison> 
     Ok(CaptureComparison {
         format_version: 1,
         basis: "offline descriptive comparison of two verified saved captures; recorded configuration/route is not physical-origin proof; no live endpoint or IPC opened; independent clocks are not aligned; no combined loss score or performance verdict",
-        delta_policy: "right relative to left, only for available metrics with matching required recorded settings; counts and terminal receive-age deltas also require identical elapsed_us; unknown stays unknown; no rate normalization, interpolation, significance test or 1 ms acceptance",
+        delta_policy,
         timing_context,
         count_context,
         settings,

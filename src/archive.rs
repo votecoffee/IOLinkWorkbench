@@ -60,6 +60,7 @@ struct Manifest {
     profile: String,
     utc_start: String,
     elapsed_us: u64,
+    local_setup_us: Option<u64>,
     csv_parts: u64,
     csv_rows_flushed: u64,
     #[serde(default)]
@@ -88,6 +89,12 @@ struct Manifest {
     local_api: Option<crate::local_api::Summary>,
     mqtt: Option<crate::mqtt::Summary>,
     shared_memory: Option<crate::shared_memory::Summary>,
+}
+
+impl Manifest {
+    fn acquisition_window_us(&self) -> Option<u64> {
+        self.elapsed_us.checked_sub(self.local_setup_us?)
+    }
 }
 
 fn legacy_format() -> u32 {
@@ -190,6 +197,12 @@ fn validate_row(row: &Row<'_>, previous: Option<&Row<'_>>, manifest: &Manifest) 
     ensure!(
         row.host_elapsed_us <= manifest.elapsed_us,
         "receive timestamp is beyond capture end"
+    );
+    ensure!(
+        manifest
+            .local_setup_us
+            .is_none_or(|setup| row.host_elapsed_us >= setup),
+        "receive timestamp is before acquisition start (local_setup_us)"
     );
     if let Some(age) = manifest.time_since_last_receive_us {
         ensure!(

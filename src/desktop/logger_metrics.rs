@@ -1,6 +1,20 @@
 use eframe::egui::Ui;
 use iolink_workbench::capture::{Latency, LoggerMetrics};
 
+pub fn acquisition_window(ui: &mut Ui, elapsed_us: u64, setup_us: Option<u64>) {
+    let phases = match setup_us {
+        Some(setup) if setup <= elapsed_us => format!(
+            "Local setup · {setup} µs · Acquisition window · {} µs",
+            elapsed_us - setup
+        ),
+        _ => "Local setup and acquisition window · unavailable".into(),
+    };
+    ui.label(phases);
+    ui.small(format!(
+        "Session origin to acquisition end · {elapsed_us} µs"
+    ));
+}
+
 pub fn receive_tail(ui: &mut Ui, age_us: Option<u64>) {
     ui.label(match age_us {
         Some(age) => format!("Host receive age at acquisition end · {age} µs"),

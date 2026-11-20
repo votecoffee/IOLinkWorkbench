@@ -37,6 +37,10 @@ pub struct Bucket {
 
 #[derive(Debug, Serialize)]
 pub struct RecordedTiming {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub local_setup_us: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub acquisition_window_us: Option<u64>,
     pub port_cycle_raw: Option<String>,
     pub port_cycle_us: Option<u64>,
     pub host_poll_start_spacing: Option<Spacing>,
@@ -46,6 +50,24 @@ pub struct RecordedTiming {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub time_since_last_receive_us: Option<u64>,
     pub logger_metrics: Option<crate::capture::LoggerMetrics>,
+}
+
+impl RecordedTiming {
+    pub(super) fn from_manifest(manifest: &Manifest) -> Self {
+        let status = manifest.last_status.as_ref();
+        Self {
+            local_setup_us: manifest.local_setup_us,
+            acquisition_window_us: manifest.acquisition_window_us(),
+            port_cycle_raw: status.and_then(|status| status.port_cycle_raw.clone()),
+            port_cycle_us: status.and_then(|status| status.port_cycle_us),
+            host_poll_start_spacing: manifest.host_poll_start_spacing.clone(),
+            host_receive_spacing: manifest.host_receive_spacing.clone(),
+            host_new_update_spacing: manifest.host_new_update_spacing.clone(),
+            gateway_update_spacing: manifest.gateway_update_spacing.clone(),
+            time_since_last_receive_us: manifest.time_since_last_receive_us,
+            logger_metrics: manifest.logger_metrics.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -135,16 +157,7 @@ impl Collector {
                     },
                     1000,
                 )?,
-                recorded_timing: RecordedTiming {
-                    port_cycle_raw: status.and_then(|status| status.port_cycle_raw.clone()),
-                    port_cycle_us: status.and_then(|status| status.port_cycle_us),
-                    host_poll_start_spacing: manifest.host_poll_start_spacing.clone(),
-                    host_receive_spacing: manifest.host_receive_spacing.clone(),
-                    host_new_update_spacing: manifest.host_new_update_spacing.clone(),
-                    gateway_update_spacing: manifest.gateway_update_spacing.clone(),
-                    time_since_last_receive_us: manifest.time_since_last_receive_us,
-                    logger_metrics: manifest.logger_metrics.clone(),
-                },
+                recorded_timing: RecordedTiming::from_manifest(manifest),
                 available_fields: fields.iter().map(|field| (*field).clone()).collect(),
                 field: (*field).clone(),
                 numeric_basis: "approximate f64 statistics of saved typed CSV cells; Boolean false/true = 0/1; blank and non-finite cells excluded; first/last retain nonblank CSV text; original CSV unchanged",
