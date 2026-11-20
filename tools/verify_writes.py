@@ -53,9 +53,8 @@ class Gateway(BaseHTTPRequestHandler):
                 elif address == f"{DEVICE}/pdout/setdata":
                     state.output = data["newvalue"]
                 else:
-                    value = data["value"]
-                    if action == "condense_text":
-                        value = bytes.fromhex(value).rstrip(b"\0").hex().upper()
+                    value = data["value"] if state.next_isdu_readback is None else state.next_isdu_readback
+                    state.next_isdu_readback = None
                     state.parameters[data["index"], data["subindex"]] = value
             if action == "drop_response":
                 return
@@ -274,6 +273,7 @@ def verify(cli, profile, server):
     text_plan = preview(typed_text, target=strings)["target_and_request"]
     assert text_plan["request_data"]["value"] == "20C2B56D20000000"
     assert text_plan["isdu_value_review"]["interpretation"]["raw_value"] == " µm "
+    assert text_plan["text_readback"] == {"fixed_length": 8, "encoding": "UTF-8"}
     assert "exceeds the declared octet length" in run([*typed_text[:-1], "µ" * 5], status=1, target=strings)
     assert "text is not US-ASCII" in run(
         ["isdu", "--index", "78", "--subindex", "3", "--expected", "4F4B", "--desired-value", "µm"],
@@ -305,13 +305,55 @@ def verify(cli, profile, server):
     server.parameters[83, 0] = "3FA00000"
     _, receipt = apply(typed_float, "readback_matched", target=values)
     assert receipt["readback"] == "C0200000"
+    text_plan = preview(typed_text, target=strings)
+    server.parameters[77, 0] = "5800"
+    writes = len(server.writes)
+    assert "write blocked before dispatch" in run(
+        typed_text, confirm=text_plan["confirmation"], status=1, target=strings)
+    assert len(server.writes) == writes
+
     server.parameters[77, 0] = "58"
     _, receipt = apply(typed_text, "readback_matched", target=strings)
     assert receipt["readback"] == "20C2B56D20000000"
-    server.next_write = "condense_text"
-    _, receipt = apply([*typed_text[:4], "20C2B56D20000000", "--desired-value", "µm"],
-                       "unconfirmed", status=1, target=strings)
-    assert receipt["readback"] == "C2B56D"
+
+    text_update = [*typed_text[:-1], "µm"]
+    for readback, outcome, status in [
+        ("C2B56D", "text_readback_matched", 0),
+        ("C2B56D20", "unconfirmed", 1),
+        ("C2B56D0041", "unconfirmed", 1),
+        ("C2B56D" + "00" * 6, "unconfirmed", 1),
+        ("C2", "unconfirmed", 1),
+    ]:
+        server.parameters[77, 0] = "58"
+        server.next_isdu_readback = readback
+        _, receipt = apply(text_update, outcome, status=status, target=strings)
+        assert receipt["gateway_code"] == 200 and receipt["readback"] == readback
+
+    server.parameters[77, 0] = "58"
+    server.next_isdu_readback = "C2B56D"
+    server.next_write = "drop_response"
+    _, receipt = apply(text_update, "unconfirmed", status=1, target=strings)
+    assert receipt["gateway_code"] is None and receipt["readback"] is None
+    assert server.parameters[77, 0] == "C2B56D"
+
+    server.parameters[77, 0] = "58"
+    server.next_isdu_readback = "00"
+    _, receipt = apply([*typed_text[:-2], "--desired-value="], "text_readback_matched", target=strings)
+    assert receipt["readback"] == "00"
+
+    server.parameters[78, 3] = "5A"
+    server.next_isdu_readback = "4F4B0000"
+    ascii_member = ["isdu", "--index", "78", "--subindex", "3", "--expected", "5A", "--desired", "4F4B"]
+    member_request, receipt = apply(ascii_member, "text_readback_matched", target=strings)
+    assert member_request["text_readback"] == {"fixed_length": 4, "encoding": "US-ASCII"}
+    assert receipt["readback"] == "4F4B0000"
+
+    server.parameters[77, 0] = "58"
+    server.next_isdu_readback = "C2B56D"
+    unknown_request, receipt = apply([*typed_text[:-2], "--desired", "C2B56D0000000000"],
+                                     "unconfirmed", status=1)
+    assert "text_readback" not in unknown_request and receipt["readback"] == "C2B56D"
+
     server.parameters[79, 2] = "00000000"
     _, receipt = apply(typed_octets, "readback_matched", target=strings)
     assert receipt["readback"] == "0080FF2C"
@@ -325,10 +367,14 @@ def verify(cli, profile, server):
     server.parameters[66, 0] = compound[4]
     _, receipt = apply(compound, "readback_matched", target=formats)
     assert receipt["readback"] == server.parameters[66, 0] == compound[-1]
+    server.parameters[66, 0] = compound[4]
+    server.next_isdu_readback = compound[-1][:-2]
+    compound_request, receipt = apply(compound, "unconfirmed", status=1, target=formats)
+    assert "text_readback" not in compound_request and receipt["readback"] == compound[-1][:-2]
     server.parameters[67, 0] = array[4]
     _, receipt = apply(array, "readback_matched", target=arrays)
     assert receipt["readback"] == server.parameters[67, 0] == array[-1]
-    print("PASS: checked reads, typed ISDU entry and compound member review, exact target checks, four write paths, readback, and single dispatch on uncertain outcomes")
+    print("PASS: checked reads, typed ISDU entry and compound member review, exact target checks, four write paths, exact and StringT readback, and single dispatch on uncertain outcomes")
 
 
 def main():
@@ -347,6 +393,7 @@ def main():
         server.requests = []
         server.writes = []
         server.next_write = "ack"
+        server.next_isdu_readback = None
         text = (ROOT / "samples/simulator.toml").read_text(encoding="utf-8")
         text = text.replace('gateway = "simulator"', 'gateway = "ifm_al1350"')
         text = text.replace("port = 1", f'port = 2\nendpoint = "http://127.0.0.1:{server.server_port}"\n'

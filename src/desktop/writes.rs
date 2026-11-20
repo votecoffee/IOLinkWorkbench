@@ -228,6 +228,7 @@ impl WriteResult {
         Ok(Self {
             summary: match receipt.outcome {
                 Outcome::ReadbackMatched => "Gateway readback matched the requested value",
+                Outcome::TextReadbackMatched => "Gateway readback matched the IODD text",
                 Outcome::GatewayAcknowledged => "Gateway acknowledged the device command",
                 Outcome::Unconfirmed => {
                     "Write outcome unconfirmed. Inspect the target before another action."
@@ -510,6 +511,9 @@ fn show_review(ui: &mut Ui, plan: &Plan) {
             });
         }
         None => {}
+    }
+    if review.text_readback.is_some() {
+        ui.small("Readback accepts the same IODD text with different zero padding.");
     }
     ui.small("Apply checks the target and sends one write. A lost response leaves the outcome unconfirmed.");
 }

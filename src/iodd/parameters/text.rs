@@ -60,7 +60,7 @@ pub(super) fn encode(parameter: &Parameter, input: &str) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-pub(super) fn decode(
+pub(crate) fn decode(
     datatype: &str,
     length: Option<u16>,
     encoding: Option<&str>,

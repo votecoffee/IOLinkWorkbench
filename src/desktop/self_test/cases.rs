@@ -184,6 +184,7 @@ pub(super) fn render(
                 "device-iodd",
                 "writes-form",
                 "writes-review",
+                "writes-text-review",
                 "device-advanced",
                 "mapping-editor",
                 "parameters-raw",
@@ -301,23 +302,34 @@ pub(super) fn render(
                             _ => Page::Exports,
                         };
                     }
-                    "writes-form" | "writes-review" => {
+                    "writes-form" | "writes-review" | "writes-text-review" => {
+                        use iolink_workbench::transport::write::{Operation, Plan};
                         app.profile.connection.gateway = Gateway::IfmAl1350;
                         app.profile.connection.endpoint = "https://127.0.0.1:9".into();
                         app.profile.connection.ifm_firmware = "3.1.42".into();
                         app.setup.sync(&app.profile);
                         app.setup.page = Page::Writes;
-                        if label == "writes-review" {
-                            use iolink_workbench::transport::write::{Operation, Plan};
+                        let operation = match label {
+                            "writes-review" => Some(Operation::Isdu {
+                                index: 66,
+                                subindex: 0,
+                                expected: "FFEC010A41000000".into(),
+                                desired: "FFEC000A42000000".into(),
+                            }),
+                            "writes-text-review" => Some(Operation::isdu_typed(
+                                &app.profile,
+                                66,
+                                4,
+                                "41424344".into(),
+                                "OK",
+                            )?),
+                            _ => None,
+                        };
+                        if let Some(operation) = operation {
                             app.writes.stage(Plan::new(
                                 &app.profile,
                                 "SYNTHETIC-MASTER",
-                                Operation::Isdu {
-                                    index: 66,
-                                    subindex: 0,
-                                    expected: "FFEC010A41000000".into(),
-                                    desired: "FFEC000A42000000".into(),
-                                },
+                                operation,
                             )?);
                         }
                     }
@@ -444,6 +456,18 @@ pub(super) fn render(
                 "self-test must not inject input events"
             );
             let output = ctx.run(input, |ctx| app.render(ctx));
+            if label == "writes-text-review" {
+                let mut texts = Vec::new();
+                for shape in &output.shapes {
+                    text_shapes(&shape.shape, &mut texts);
+                }
+                ensure!(
+                    texts.contains(
+                        &"Readback accepts the same IODD text with different zero padding."
+                    ),
+                    "text readback policy is missing from the write review"
+                );
+            }
             if let Some(expected) = expected_observation {
                 let observation = Observation::at(
                     &app.live,
@@ -522,7 +546,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 100);
+        assert_eq!(cases.len(), 101);
         assert!(
             cases
                 .iter()

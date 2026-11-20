@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Reviewed single `StringT` writes distinguish exact readback from the same IODD text returned with different zero padding. Expected bytes still require an exact match before dispatch. Receipts retain the returned bytes.
+
 - The GUI and CLI encode typed Boolean, 8-, 16-, 32- and 64-bit integer, Float32, text and octet string ISDU drafts from the imported IODD. Exact expected hex and the common approval, preflight, and readback checks still apply.
 
 - ISDU write previews show the IODD interpretation of proposed bytes, including whole records and packed arrays. They reject supported datatype and value-domain failures offline and require bits outside declared writable members to match the expected image. Unsupported or ambiguous value definitions remain flagged for manual review. Bench qualification remains open.

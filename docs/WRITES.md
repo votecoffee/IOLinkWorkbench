@@ -30,7 +30,7 @@ For a supported read/write parameter or enabled subindex, choose **IODD value** 
 
 - For Boolean parameters, enter `true` or `false`. For 8-, 16-, 32- or 64-bit integers, enter an unscaled decimal number.
 - For `Float32T`, enter an unscaled decimal number or exponent form, such as `-2.5` or `2.5e-1`. Explicit `INF` and `-INF` are supported, subject to the same IODD checks. Use `--desired-value=-INF` for the negative literal in the CLI. The preview shows the resulting 32-bit encoding.
-- For `StringT`, enter the exact text, including any leading or trailing spaces. The IODD must specify UTF-8 or US-ASCII and a fixed byte length. Workbench zero-pads to that length. To clear a text value, select **Write empty text** in the GUI or pass `--desired-value=` in the CLI. A device that returns a condensed readback can produce an `unconfirmed` receipt because Workbench checks exact bytes. [IO-Link interface specification, Annex F.2.6](https://io-link.com/fileadmin/user_upload/Downloads/Package_2024/IOL-Interface-Spec_10002_V114_Jun24.pdf)
+- For `StringT`, enter the exact text, including any leading or trailing spaces. The IODD must specify UTF-8 or US-ASCII and a fixed byte length. Workbench zero-pads to that length. To clear a text value, select **Write empty text** in the GUI or pass `--desired-value=` in the CLI.
 - For `OctetStringT`, enter comma-separated `0xNN` entries, such as `0x00,0x80,0xFF,0x2C`. Supply exactly the number of octets declared in the IODD.
 
 If index 64 is a signed 16-bit parameter and its current bytes are `0001`, entering `-2` produces `FFFE` in the preview.
@@ -40,6 +40,8 @@ If index 64 is a signed 16-bit parameter and its current bytes are `0001`, enter
 ```
 
 The typed and raw forms produce the same confirmation when the reviewed bytes and target match. Use raw hex or `--desired` for other widths, unsupported datatypes, and whole compound images.
+
+For a single `StringT` value with a supported IODD definition, the preview includes a `text_readback` policy with the declared encoding and byte length. This covers an addressed scalar or one enabled record or array member. The live preflight still requires the exact expected bytes. After the gateway acknowledges the write, Workbench accepts different trailing zero padding if both byte strings decode to identical text under the approved policy. The confirmation includes the policy. Generate a new preview for text operations reviewed before v0.71.0. [IO-Link interface specification, Annex F.2.6](https://io-link.com/fileadmin/user_upload/Downloads/Package_2024/IOL-Interface-Spec_10002_V114_Jun24.pdf)
 
 The ISDU preview includes `isdu_value_review`. In the GUI, the parameter name, datatype and decoded value appear beneath the wire request. Expand **IODD value details** for named choices, range assessment and any engineering displays. For supported scalar, text, octet and time datatypes, preview rejects bytes that the declared datatype cannot decode. For supported numeric choices and ranges, it also rejects values outside well-formed definitions and values that cannot be compared with them. The check applies to the proposed bytes so an out-of-definition current value can still be corrected. Dispatch compares the exact expected bytes with a fresh read.
 
@@ -59,7 +61,8 @@ Review the exact operation against the device and machine state. To execute an a
 
 The CLI dispatches at most one write for each invocation. It makes a fresh readback for mode, readable ISDU parameters, and process outputs. The JSON receipt reports one of these outcomes.
 
-- `readback_matched` means the gateway reported the requested value after acknowledging the write. Process output readback describes the gateway image. Physical effect and persistence require separate bench evidence.
+- `readback_matched` means the gateway reported the exact requested value after acknowledging the write. Process output readback describes the gateway image. Physical effect and persistence require separate bench evidence.
+- `text_readback_matched` means one IODD `StringT` value decoded to the requested text with different zero padding. The receipt retains both the requested and observed hex. Changed characters, whitespace, malformed data, and responses beyond the declared width leave the result unconfirmed. Whole records and arrays and raw addresses without an IODD retain exact readback comparison.
 - `gateway_acknowledged` records the SystemCommand acknowledgement. Verify the command's effect according to the device documentation.
 - `unconfirmed` includes a gateway error, lost or malformed reply, or failed or different readback. The CLI returns exit 1 after printing the receipt. Inspect the current state before deciding on any further action.
 
@@ -67,4 +70,4 @@ Monitoring, capture and optional data feeds use read-only paths. The reviewed wr
 
 ## Verification
 
-`python tools/verify_writes.py PATH_TO_CLI` uses an isolated loopback peer. It checks all three current-value reads, all four write paths, offline typed and raw ISDU previews, protected record bits and packed array writes, identity and value mismatches, readback, and a lost write reply with one dispatch. `cargo test --locked --bin iolink-workbench desktop::writes::tests` exercises offline GUI drafts, a current read alongside a held acquisition owner, approval guards, and close behavior with a held loopback write reply. Real firmware, machine conditions and actuator effects await physical qualification.
+`python tools/verify_writes.py PATH_TO_CLI` uses an isolated loopback peer. It checks all three current-value reads, all four write paths, offline typed and raw ISDU previews, protected record bits and packed array writes, identity and value mismatches, exact and padding-aware readback, and a lost write reply with one dispatch. `cargo test --locked --bin iolink-workbench desktop::writes::tests` exercises offline GUI drafts, a current read alongside a held acquisition owner, approval guards, and close behavior with a held loopback write reply. Real firmware, machine conditions and actuator effects await physical qualification.

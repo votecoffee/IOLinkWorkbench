@@ -19,6 +19,7 @@ pub use assessment::{AssessmentStatus, ValueAssessment};
 pub use display::{Display, DisplayValue, NumberFormat};
 pub use record::{Record, RecordItem};
 pub(super) use standard::load as load_standard;
+pub(crate) use text::decode as decode_text_parameter;
 pub use time::{DefaultConversion as TimeDefaultConversion, TimeValue};
 pub use value::{DecodedParameter, RecordValue};
 

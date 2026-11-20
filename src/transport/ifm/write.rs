@@ -2,7 +2,7 @@
 use super::{Client, InputTransport, label, number};
 use crate::{
     decode::{MAX_INPUT, hex, parse_hex_bounded},
-    iodd::{Access, DecodedParameter, Parameter},
+    iodd::{Access, DecodedParameter, Parameter, decode_text_parameter},
     profile::{Connection, Gateway, Identity, Profile},
 };
 use anyhow::{Context, Result, ensure};
@@ -160,6 +160,40 @@ pub struct Review {
     pub command_meaning: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub isdu_value_review: Option<IsduValueReview>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text_readback: Option<TextReadback>,
+}
+
+#[derive(Serialize)]
+pub struct TextReadback {
+    fixed_length: u16,
+    encoding: String,
+}
+
+impl TextReadback {
+    fn for_parameter(parameter: &Parameter) -> Option<Self> {
+        if parameter.datatype != "StringT" || !parameter.supports_typed_write() {
+            return None;
+        }
+        Some(Self {
+            fixed_length: parameter.fixed_length?,
+            encoding: parameter.encoding.clone()?,
+        })
+    }
+
+    fn matches(&self, requested: &Value, observed: &Value) -> bool {
+        let decode = |value: &Value| {
+            let bytes = parse_hex_bounded(value.as_str()?, MAX_ISDU_BYTES).ok()?;
+            decode_text_parameter(
+                "StringT",
+                Some(self.fixed_length),
+                Some(&self.encoding),
+                &bytes,
+            )
+            .ok()
+        };
+        matches!((decode(requested), decode(observed)), (Some(requested), Some(observed)) if requested == observed)
+    }
 }
 
 #[derive(Serialize)]
@@ -195,6 +229,7 @@ pub struct Preview<'a> {
 #[serde(rename_all = "snake_case")]
 pub enum Outcome {
     ReadbackMatched,
+    TextReadbackMatched,
     GatewayAcknowledged,
     Unconfirmed,
 }
@@ -362,6 +397,7 @@ impl Plan {
             requested_value,
             command_meaning,
             isdu_value_review,
+            text_readback: iodd_parameter.and_then(TextReadback::for_parameter),
         };
         let confirmation = format!("{:x}", Sha256::digest(serde_json::to_vec(&review)?));
         Ok(Self {
@@ -430,6 +466,13 @@ impl Plan {
             Ok(value) => {
                 if value.as_ref() == Some(&self.review.requested_value) {
                     receipt.outcome = Outcome::ReadbackMatched;
+                } else if let Some(policy) = &self.review.text_readback
+                    && let Some(observed) = &value
+                    && policy.matches(&self.review.requested_value, observed)
+                {
+                    receipt.outcome = Outcome::TextReadbackMatched;
+                    receipt.detail =
+                        Some("The same IODD text was returned with different zero padding".into());
                 } else {
                     receipt.detail =
                         Some("Gateway acknowledged the write but readback differed".into());
