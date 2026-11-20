@@ -194,6 +194,11 @@ def verify(cli, profile, server):
     arrays = import_for_write(array_source)
     write_only_source = profile.parent / "record-with-write-only.xml"
     record_text = (ROOT / "samples/sensor-formats.xml").read_text(encoding="utf-8")
+    whole_record_source = profile.parent / "whole-record-only.xml"
+    whole_record_source.write_text(record_text.replace(
+        'RecordT" bitLength="64" subindexAccessSupported="true"',
+        'RecordT" bitLength="64" subindexAccessSupported="false"'), encoding="utf-8", newline="\n")
+    whole_record = import_for_write(whole_record_source)
     write_only_source.write_text(record_text.replace('subindex="2" bitOffset="40"',
                                  'subindex="2" bitOffset="40" accessRightRestriction="wo"'),
                                  encoding="utf-8", newline="\n")
@@ -243,6 +248,9 @@ def verify(cli, profile, server):
     typed_span = [*span_address, "--desired-value=-PT0.001S"]
     compound = ["isdu", "--index", "66", "--expected", "FFEC010A41000000", "--desired", "FFEC000A42000000"]
     array = ["isdu", "--index", "67", "--expected", "A2C49570", "--desired", "A2C495F0"]
+    packed_record = ["isdu", "--parameter-id", "V_SIM_Record", "--expected", "FFEC800A41000000",
+                     "--member-subindex", "2", "--desired-value", "true"]
+    packed_array = [*array[:-2], "--member-subindex", "6", "--desired-value", "-1"]
     before = len(server.requests)
     for command, options in [("write", signed[3:]), ("read-current", [])]:
         assert "--index" in run(["isdu", *options], status=2, target=formats, command=command)
@@ -267,6 +275,23 @@ def verify(cli, profile, server):
     assert "confirmation mismatch" in run(
         named_signed, confirm=signed_by_id["confirmation"], status=1, target=relocated)
     assert preview(named_member, target=formats) == preview(member, target=formats)
+    assert "does not permit access to this subindex" in run(member, status=1, target=whole_record)
+    record_edit = preview(packed_record, target=whole_record)
+    assert record_edit == preview([*packed_record[:5], "--desired", "FFEC810A41000000"], target=whole_record)
+    assert [element["subindex"] for element in record_edit["isdu_comparison"]["changed_members"]] == [2]
+    assert preview(packed_array, target=arrays) == preview(array, target=arrays)
+    assert "does not declare this member read/write" in run(
+        [*packed_record[:6], "1", *packed_record[7:]], status=1, target=whole_record)
+    assert "greater than zero" in run([*packed_array[:6], "0", *packed_array[7:]], status=1, target=arrays)
+    assert "no declared subindex" in run([*packed_array[:6], "8", *packed_array[7:]], status=1, target=arrays)
+    assert "whole-parameter write" in run([*packed_array, "--subindex", "2"], status=1, target=arrays)
+    assert "cannot be used with" in run([*array, "--member-subindex", "6"], status=2, target=arrays)
+    assert "expected compound payload width" in run(
+        [*packed_record[:4], "01", *packed_record[5:]], status=1, target=whole_record)
+    assert "write-only and cannot be verified by readback" in run(packed_record, status=1, target=write_only_record)
+    assert "requires an IODD declaration" in run(packed_array, status=1)
+    assert "whole IODD record or array" in run(
+        [*typed_signed, "--member-subindex", "1"], status=1, target=formats)
     assert "does not declare this parameter read/write" in run(
         ["isdu", "--index", "65", "--expected", "01", "--desired", "02"], status=1, target=configured)
     assert "does not declare this parameter read/write" in run(
@@ -522,9 +547,18 @@ def verify(cli, profile, server):
     compound_request, receipt = apply(compound, "unconfirmed", status=1, target=formats)
     assert "text_readback" not in compound_request and receipt["readback"] == compound[-1][:-2]
     server.parameters[67, 0] = array[4]
-    _, receipt = apply(array, "readback_matched", target=arrays)
+    _, receipt = apply(packed_array, "readback_matched", target=arrays)
     assert receipt["readback"] == server.parameters[67, 0] == array[-1]
-    print("PASS: checked reads and ISDU writes by index or IODD ID, expected and proposed comparisons, compound member review, exact target checks, exact and StringT readback, and single dispatch on uncertain outcomes")
+    server.parameters[66, 0] = "FFED800A41000000"
+    writes = len(server.writes)
+    assert "write blocked before dispatch" in run(
+        packed_record, confirm=record_edit["confirmation"], status=1, target=whole_record)
+    assert len(server.writes) == writes
+    server.parameters[66, 0] = packed_record[4]
+    request, receipt = apply(packed_record, "readback_matched", target=whole_record)
+    assert request["request_data"]["subindex"] == 0
+    assert receipt["readback"] == "FFEC810A41000000"
+    print("PASS: checked reads and ISDU writes by index or IODD ID, typed compound member edits, exact target checks, exact and StringT readback, and single dispatch on uncertain outcomes")
 
 
 def main():

@@ -203,9 +203,48 @@ pub(crate) fn extract_bits(payload: &[u8], bit_offset: u16, width: u16) -> Resul
     Ok(bytes)
 }
 
+/// Copy the right-aligned value's low bits into a big-endian packed image.
+pub(crate) fn insert_bits(
+    payload: &mut [u8],
+    bit_offset: u16,
+    width: u16,
+    value: &[u8],
+) -> Result<()> {
+    let width = usize::from(width);
+    let offset = usize::from(bit_offset);
+    ensure!(
+        width > 0 && offset + width <= payload.len() * 8,
+        "member exceeds image width"
+    );
+    ensure!(
+        width <= value.len() * 8,
+        "encoded member is shorter than its declared width"
+    );
+    let length = payload.len();
+    for bit in 0..width {
+        let absolute = offset + bit;
+        let mask = 1 << (absolute % 8);
+        let bit_value = (value[value.len() - 1 - bit / 8] >> (bit % 8)) & 1;
+        let byte = &mut payload[length - 1 - absolute / 8];
+        *byte = (*byte & !mask) | (bit_value << (absolute % 8));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn insert_bits_changes_only_the_selected_unaligned_bits() -> Result<()> {
+        let mut image = [0xa5, 0x5a];
+        insert_bits(&mut image, 3, 12, &[0xff, 0xef])?;
+        assert_eq!(image, [0xff, 0x7a]);
+        assert_eq!(extract_bits(&image, 3, 12)?, [0x0f, 0xef]);
+        assert!(insert_bits(&mut image, 3, 12, &[0xff]).is_err());
+        assert_eq!(image, [0xff, 0x7a]);
+        Ok(())
+    }
 
     #[test]
     fn signed_unaligned_big_endian_and_scaled() -> Result<()> {

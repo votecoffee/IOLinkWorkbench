@@ -310,12 +310,13 @@ pub(super) fn render(
                         app.setup.sync(&app.profile);
                         app.setup.page = Page::Writes;
                         let operation = match label {
-                            "writes-review" => Some(Operation::Isdu {
-                                index: 66,
-                                subindex: 0,
-                                expected: "FFEC010A41000000".into(),
-                                desired: "FFEC000A42000000".into(),
-                            }),
+                            "writes-review" => Some(Operation::isdu_member(
+                                &app.profile,
+                                66,
+                                2,
+                                "FFEC010A41000000".into(),
+                                "false",
+                            )?),
                             "writes-text-review" => Some(Operation::isdu_typed(
                                 &app.profile,
                                 66,
@@ -487,7 +488,7 @@ pub(super) fn render(
             );
             let output = ctx.run(input, |ctx| app.render(ctx));
             let review_note = match label {
-                "writes-review" => Some("Changed IODD members (2)"),
+                "writes-review" => Some("Changed IODD members (1)"),
                 "writes-text-review" => {
                     Some("Readback accepts the same IODD text with different zero padding.")
                 }

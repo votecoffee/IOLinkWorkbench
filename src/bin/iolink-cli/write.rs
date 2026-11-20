@@ -112,6 +112,9 @@ enum WriteOperation {
         /// Proposed unscaled IODD value, including UTC time and signed duration where supported.
         #[arg(long, allow_negative_numbers = true)]
         desired_value: Option<String>,
+        /// Member to edit within the expected whole image at subindex 0.
+        #[arg(long, requires = "desired_value", conflicts_with = "desired")]
+        member_subindex: Option<u8>,
     },
     /// Send a single documented IO-Link SystemCommand byte.
     DeviceCommand {
@@ -139,10 +142,19 @@ impl WriteOperation {
                 expected,
                 desired,
                 desired_value,
+                member_subindex,
             } => {
                 let (index, subindex) = address.resolve(profile)?;
                 if let Some(value) = desired_value {
-                    Operation::isdu_typed(profile, index, subindex, expected, &value)?
+                    if let Some(member) = member_subindex {
+                        ensure!(
+                            subindex == 0,
+                            "member editing requires a whole-parameter write at subindex 0"
+                        );
+                        Operation::isdu_member(profile, index, member, expected, &value)?
+                    } else {
+                        Operation::isdu_typed(profile, index, subindex, expected, &value)?
+                    }
                 } else {
                     Operation::Isdu {
                         index,

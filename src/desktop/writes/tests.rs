@@ -124,6 +124,50 @@ fn typed_isdu_draft_stages_exact_bytes_and_requires_explicit_empty_text() -> Res
 }
 
 #[test]
+fn typed_member_draft_builds_a_whole_image_even_with_subindex_access_disabled() -> Result<()> {
+    let mut profile = fixture_iodd_profile()?;
+    let record = profile
+        .iodd
+        .as_mut()
+        .and_then(|iodd| {
+            iodd.parameters
+                .iter_mut()
+                .find(|parameter| parameter.index == 66)
+        })
+        .and_then(|parameter| parameter.record.as_mut())
+        .context("missing synthetic record")?;
+    record.subindex_access = false;
+    let draft = Draft {
+        kind: Kind::Parameter,
+        index: 66,
+        expected: "FFEC800A41000000".into(),
+        desired: "true".into(),
+        typed_desired: true,
+        member_subindex: 2,
+        ..Default::default()
+    };
+    let point = draft.read_point().context("missing whole write point")?;
+    assert_eq!(
+        point
+            .typed_isdu_members(&profile)
+            .iter()
+            .map(|(index, _)| *index)
+            .collect::<Vec<_>>(),
+        [2, 3, 4]
+    );
+    let plan = Plan::new(&profile, "SYNTHETIC-MASTER", draft.operation(&profile)?)?;
+    assert_eq!(
+        plan.review().request_data,
+        json!({"index":66,"subindex":0,"value":"FFEC810A41000000"})
+    );
+    assert_eq!(
+        plan.isdu_comparison().unwrap().changed_members[0].subindex,
+        2
+    );
+    Ok(())
+}
+
+#[test]
 fn named_write_picker_filters_targets_and_changed_address_clears_values() -> Result<()> {
     let mut profile = fixture_iodd_profile()?;
     let mut draft = Draft {

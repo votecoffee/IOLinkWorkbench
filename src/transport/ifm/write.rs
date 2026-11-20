@@ -57,6 +57,27 @@ impl Operation {
             desired: hex(&bytes),
         })
     }
+
+    /// Derive a whole-parameter write image by replacing one writable IODD member.
+    pub fn isdu_member(
+        profile: &Profile,
+        index: u16,
+        member_subindex: u8,
+        expected: String,
+        value: &str,
+    ) -> Result<Self> {
+        let parameter = ReadPoint::Isdu { index, subindex: 0 }
+            .validate(profile)?
+            .context("member editing requires an IODD declaration for this parameter")?;
+        let before = parse_hex_bounded(&expected, MAX_ISDU_BYTES)?;
+        let proposed = parameter.edit_packed_member(&before, member_subindex, value)?;
+        Ok(Self::Isdu {
+            index,
+            subindex: 0,
+            expected,
+            desired: hex(&proposed),
+        })
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize)]
@@ -171,6 +192,20 @@ impl ReadPoint {
         self.validate(profile)
             .ok()?
             .filter(|parameter| parameter.supports_typed_write())
+    }
+
+    /// Members that can be edited in a whole-image draft, including when direct subindex access is unavailable.
+    pub fn typed_isdu_members(self, profile: &Profile) -> Vec<(u8, &Parameter)> {
+        if !matches!(self, Self::Isdu { subindex: 0, .. }) {
+            return Vec::new();
+        }
+        let Some(parameter) = self.validate(profile).ok().flatten() else {
+            return Vec::new();
+        };
+        if parameter.check_write_layout().is_err() {
+            return Vec::new();
+        }
+        parameter.typed_write_members().collect()
     }
 
     fn validate(self, profile: &Profile) -> Result<Option<&Parameter>> {

@@ -51,6 +51,8 @@ Checked ISDU current-value reads show Observed IODD details in the GUI and an op
 
 For a matched IODD parameter, the offline preview compares the supplied expected bytes with the proposed bytes and lists changed record or array members. CLI JSON stores this in `isdu_comparison`. Preflight still reads the current bytes independently before dispatch.
 
+For a one-member whole-image edit, keep the write at subindex 0 and supply the complete expected bytes. Use Edit one member or CLI `--member-subindex` with `--desired-value`. Inspect the resulting complete wire image and changed member before approval.
+
 For a single supported `StringT` value, the preview includes the IODD encoding and length for readback. Preflight compares exact bytes. After acknowledgement, `text_readback_matched` identifies equal decoded text with different zero padding and retains the exact returned bytes.
 
 Typed integer ISDU drafts support 2- to 64-bit values in 1-, 2-, 4- or 8-byte containers. A standalone typed Boolean true encodes as `FF`. Generate a new preview for typed true operations reviewed before v0.73.0. Existing compact representations still decode.

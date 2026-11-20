@@ -1,5 +1,5 @@
 use super::{Access, AssessmentStatus, DisplayValue, Parameter};
-use crate::decode::{extract_bits, hex};
+use crate::decode::{extract_bits, hex, insert_bits};
 use anyhow::{Context, Result, bail, ensure};
 use serde::Serialize;
 
@@ -185,6 +185,62 @@ impl Parameter {
             }
         }
         Ok(())
+    }
+
+    pub(crate) fn typed_write_members(&self) -> impl Iterator<Item = (u8, &Parameter)> {
+        let record = self.record.iter().flat_map(|record| {
+            record
+                .items
+                .iter()
+                .map(|item| (item.subindex, &item.parameter))
+        });
+        let array = self
+            .array
+            .iter()
+            .flat_map(|array| (1..=array.count).map(move |index| (index, array.element.as_ref())));
+        record.chain(array).filter(|(_, member)| {
+            member.access == Access::ReadWrite && member.supports_typed_write()
+        })
+    }
+
+    pub(crate) fn edit_packed_member(
+        &self,
+        expected: &[u8],
+        subindex: u8,
+        input: &str,
+    ) -> Result<Vec<u8>> {
+        self.check_write_layout()?;
+        ensure!(
+            self.record.is_some() || self.array.is_some(),
+            "member editing requires a whole IODD record or array"
+        );
+        ensure!(subindex > 0, "select a member subindex greater than zero");
+        let member = self.target(subindex)?;
+        ensure!(
+            member.access == Access::ReadWrite,
+            "IODD does not declare this member read/write"
+        );
+        ensure!(
+            self.width().map(|bits| usize::from(bits).div_ceil(8)) == Some(expected.len()),
+            "expected compound payload width differs from the IODD"
+        );
+        let offset = if let Some(array) = &self.array {
+            array.geometry()?.offset(subindex)
+        } else {
+            self.record
+                .iter()
+                .flat_map(|record| &record.items)
+                .find(|item| item.subindex == subindex)
+                .context("record member layout is unavailable")?
+                .bit_offset
+        };
+        let encoded = member
+            .encode_typed_write(input)
+            .with_context(|| format!("desired value for member {subindex} ({})", member.name))?;
+        let width = member.width().context("member width is unavailable")?;
+        let mut proposed = expected.to_vec();
+        insert_bits(&mut proposed, offset, width, &encoded)?;
+        Ok(proposed)
     }
 
     /// Review a write image offline. A compound image may change only declared writable bits.

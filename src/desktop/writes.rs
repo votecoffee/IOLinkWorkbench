@@ -36,6 +36,7 @@ struct Draft {
     expected: String,
     desired: String,
     typed_desired: bool,
+    member_subindex: u8,
     empty_text: bool,
     index: u16,
     subindex: u8,
@@ -76,13 +77,27 @@ impl Draft {
                     !self.desired.is_empty() || self.empty_text,
                     "Enter a desired IODD value"
                 );
-                Operation::isdu_typed(
-                    profile,
-                    self.index,
-                    self.subindex,
-                    self.expected.clone(),
-                    &self.desired,
-                )?
+                if self.member_subindex > 0 {
+                    ensure!(
+                        self.subindex == 0,
+                        "member editing requires a whole-parameter write at subindex 0"
+                    );
+                    Operation::isdu_member(
+                        profile,
+                        self.index,
+                        self.member_subindex,
+                        self.expected.clone(),
+                        &self.desired,
+                    )?
+                } else {
+                    Operation::isdu_typed(
+                        profile,
+                        self.index,
+                        self.subindex,
+                        self.expected.clone(),
+                        &self.desired,
+                    )?
+                }
             }
             Kind::Parameter => Operation::Isdu {
                 index: self.index,
@@ -105,6 +120,7 @@ impl Draft {
         self.expected.clear();
         self.desired.clear();
         self.typed_desired = false;
+        self.member_subindex = 0;
         self.empty_text = false;
     }
 
@@ -173,11 +189,23 @@ impl Draft {
         };
         let previous = self.typed_desired;
         let parameter = point.typed_isdu_parameter(profile);
+        let members = if parameter.is_none() {
+            point.typed_isdu_members(profile)
+        } else {
+            Vec::new()
+        };
         if let Some(parameter) = parameter {
             ui.small(format!("{} · {}", parameter.name, parameter.datatype));
+        }
+        if parameter.is_some() || !members.is_empty() {
             ui.horizontal_wrapped(|ui| {
                 ui.selectable_value(&mut self.typed_desired, false, "Raw hex");
-                ui.selectable_value(&mut self.typed_desired, true, "IODD value");
+                let label = if members.is_empty() {
+                    "IODD value"
+                } else {
+                    "Edit one member"
+                };
+                ui.selectable_value(&mut self.typed_desired, true, label);
             });
         } else {
             self.typed_desired = false;
@@ -185,8 +213,46 @@ impl Draft {
         if previous != self.typed_desired {
             self.desired.clear();
             self.empty_text = false;
+            self.member_subindex = 0;
         }
-        let typed = parameter.filter(|_| self.typed_desired);
+        let typed = if self.typed_desired && !members.is_empty() {
+            let before = self.member_subindex;
+            let member_label = |subindex: u8, parameter: &iolink_workbench::iodd::Parameter| {
+                format!("{} · {} · {}", subindex, parameter.name, parameter.datatype)
+            };
+            let current = members
+                .iter()
+                .find(|(subindex, _)| *subindex == before)
+                .map_or_else(
+                    || "Select a member".into(),
+                    |&(subindex, parameter)| member_label(subindex, parameter),
+                );
+            egui::ComboBox::from_id_salt("write-image-member")
+                .selected_text(current)
+                .show_ui(ui, |ui| {
+                    for &(subindex, parameter) in &members {
+                        ui.selectable_value(
+                            &mut self.member_subindex,
+                            subindex,
+                            member_label(subindex, parameter),
+                        );
+                    }
+                });
+            ui.small("The request writes the complete image at subindex 0.");
+            if before != self.member_subindex {
+                self.desired.clear();
+                self.empty_text = false;
+            }
+            let Some((_, member)) = members
+                .into_iter()
+                .find(|(subindex, _)| *subindex == self.member_subindex)
+            else {
+                return;
+            };
+            Some(member)
+        } else {
+            parameter.filter(|_| self.typed_desired)
+        };
         let datatype = typed.map(|parameter| parameter.datatype.as_str());
         let label = match datatype {
             Some("BooleanT") => "Desired Boolean (true or false)",

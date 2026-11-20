@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- A typed member edit can build a complete record or array write at subindex 0, including for IODDs with direct subindex access disabled. The proposed image keeps every bit outside the selected member.
+
 - ISDU previews show expected and proposed IODD values together, with before-and-after member bytes for whole records and arrays. The comparison appears in CLI preview and receipt JSON.
 
 - The CLI accepts an exact imported IODD parameter ID for checked ISDU reads and reviewed writes. The resolved index and subindex are the addresses used for review and approval.
