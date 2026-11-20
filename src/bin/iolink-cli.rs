@@ -37,6 +37,8 @@ struct Cli {
 enum Command {
     /// Preview an AL1350 write offline, or execute the exact reviewed operation with --confirm.
     Write(write::Arguments),
+    /// Read a prospective AL1350 write target after checking the master and applicable device pins.
+    ReadCurrent(write::ReadArguments),
     /// Read one consistent Windows shared-memory snapshot; no profile/gateway access.
     ReadSharedMemory {
         name: String,
@@ -296,6 +298,7 @@ impl IoddOptions {
 fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Write(args) => write::run(args)?,
+        Command::ReadCurrent(args) => write::read_current(args)?,
         Command::CompareCaptures { left, right } => {
             print!(
                 "{}",

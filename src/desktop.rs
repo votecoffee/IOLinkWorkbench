@@ -215,7 +215,7 @@ impl App {
             Some(
                 "An acquisition session is already active; wait for its completion before starting another",
             )
-        } else if self.writes.busy() {
+        } else if self.writes.writing() {
             Some("A reviewed write is in progress")
         } else if self.setup.pending() {
             Some("Apply or discard pending profile edits before starting a session")

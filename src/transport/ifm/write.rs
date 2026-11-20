@@ -1,4 +1,4 @@
-//! Explicit single-write operations for the documented AL1350 IoT Core route.
+//! Checked reads and explicit single-write operations for the AL1350 IoT Core route.
 use super::{Client, InputTransport, label, number};
 use crate::{
     decode::{MAX_INPUT, hex, parse_hex_bounded},
@@ -35,6 +35,83 @@ pub enum Operation {
     },
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ReadPoint {
+    PortMode,
+    Isdu { index: u16, subindex: u8 },
+    ProcessOutput,
+}
+
+struct Target {
+    connection: Connection,
+    endpoint: String,
+    master_serial: String,
+    expected_device: Option<Identity>,
+}
+
+/// A checked read of a prospective write target. It contains no desired value or write request.
+pub struct CurrentRead {
+    target: Target,
+    point: ReadPoint,
+}
+
+#[derive(Serialize)]
+pub struct CurrentValue {
+    pub endpoint: String,
+    pub port: u8,
+    pub master_serial: String,
+    pub firmware: String,
+    pub expected_device: Option<Identity>,
+    pub point: ReadPoint,
+    pub observed_utc: String,
+    pub value: Value,
+}
+
+impl CurrentValue {
+    pub fn value_text(&self) -> String {
+        self.value
+            .as_str()
+            .map_or_else(|| self.value.to_string(), str::to_owned)
+    }
+}
+
+impl CurrentRead {
+    pub fn new(profile: &Profile, master_serial: &str, point: ReadPoint) -> Result<Self> {
+        let target = Target::new(profile, master_serial, point != ReadPoint::PortMode)?;
+        point.validate(profile)?;
+        Ok(Self { target, point })
+    }
+
+    pub fn read(self) -> Result<CurrentValue> {
+        let mut client = Client::new(&self.target.connection)?;
+        let value = self.target.read(&mut client, self.point)?;
+        Ok(CurrentValue {
+            endpoint: self.target.endpoint,
+            port: self.target.connection.port,
+            master_serial: self.target.master_serial,
+            firmware: self.target.connection.ifm_firmware,
+            expected_device: self.target.expected_device,
+            point: self.point,
+            observed_utc: Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
+            value,
+        })
+    }
+}
+
+impl ReadPoint {
+    fn validate(self, profile: &Profile) -> Result<()> {
+        if let Self::Isdu { index, subindex } = self {
+            ensure!(
+                matches!(index, 4..=254 | 256..=0x41ff | 0x4300..=0x4fff),
+                "use a parameter index supported by this write path. Use device-command for SystemCommand"
+            );
+            check_iodd_access(profile, index, subindex)?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Serialize)]
 pub struct Review {
     format_version: u32,
@@ -54,10 +131,10 @@ pub struct Review {
 }
 
 pub struct Plan {
-    connection: Connection,
+    target: Target,
     review: Review,
     confirmation: String,
-    operation: Operation,
+    point: Option<ReadPoint>,
 }
 
 #[derive(Serialize)]
@@ -84,14 +161,13 @@ pub struct Receipt<'a> {
     pub detail: Option<String>,
 }
 
-impl Plan {
-    /// Construct a review entirely offline. Credentials stay in the existing transport.
-    pub fn new(profile: &Profile, master_serial: &str, operation: Operation) -> Result<Self> {
+impl Target {
+    fn new(profile: &Profile, master_serial: &str, device: bool) -> Result<Self> {
         profile.validate()?;
         let connection = &profile.connection;
         ensure!(
             connection.gateway == Gateway::IfmAl1350,
-            "writes use the AL1350 adapter"
+            "checked write targets use the AL1350 adapter"
         );
         super::check_route(connection)?;
         let firmware = &connection.ifm_firmware;
@@ -106,11 +182,7 @@ impl Plan {
             "set the expected AL1350 serial number"
         );
 
-        let port = format!("/iolinkmaster/port[{}]", connection.port);
-        let device = format!("{port}/iolinkdevice");
-        let expected_device = if matches!(operation, Operation::PortMode { .. }) {
-            None
-        } else {
+        let expected_device = if device {
             let pins = &profile.expected_identity;
             ensure!(
                 pins.vendor_id.is_some_and(|id| id != 0)
@@ -122,7 +194,35 @@ impl Plan {
                 "expected Product ID differs from the selected IODD variant"
             );
             Some(pins.clone())
+        } else {
+            None
         };
+        Ok(Self {
+            connection: connection.clone(),
+            endpoint: connection.origin()?.to_string(),
+            master_serial: master_serial.into(),
+            expected_device,
+        })
+    }
+}
+
+impl Plan {
+    /// Construct a review entirely offline. Credentials stay in the existing transport.
+    pub fn new(profile: &Profile, master_serial: &str, operation: Operation) -> Result<Self> {
+        let point = match operation {
+            Operation::PortMode { .. } => Some(ReadPoint::PortMode),
+            Operation::Isdu {
+                index, subindex, ..
+            } => Some(ReadPoint::Isdu { index, subindex }),
+            Operation::ProcessOutput { .. } => Some(ReadPoint::ProcessOutput),
+            Operation::DeviceCommand { .. } => None,
+        };
+        let target = Target::new(profile, master_serial, point != Some(ReadPoint::PortMode))?;
+        if let Some(point) = point {
+            point.validate(profile)?;
+        }
+        let port = format!("/iolinkmaster/port[{}]", target.connection.port);
+        let device = format!("{port}/iolinkdevice");
         let (kind, address, request_data, expected_value, requested_value, command_meaning) =
             match &operation {
                 Operation::PortMode { expected, desired } => (
@@ -139,11 +239,6 @@ impl Plan {
                     expected,
                     desired,
                 } => {
-                    ensure!(
-                        matches!(*index, 4..=254 | 256..=0x41ff | 0x4300..=0x4fff),
-                        "use a parameter index supported by this write path. Use device-command for SystemCommand"
-                    );
-                    check_iodd_access(profile, *index, *subindex)?;
                     let before = hex(&parse_hex_bounded(expected, MAX_ISDU_BYTES)?);
                     let after = hex(&parse_hex_bounded(desired, MAX_ISDU_BYTES)?);
                     (
@@ -198,12 +293,15 @@ impl Plan {
         let review = Review {
             format_version: 1,
             model: "AL1350",
-            endpoint: connection.origin()?.to_string(),
-            firmware: firmware.clone(),
-            master_serial: master_serial.into(),
-            port: connection.port,
-            numeric_io_link_mode: expected_device.as_ref().and(connection.ifm_mode),
-            expected_device,
+            endpoint: target.endpoint.clone(),
+            firmware: target.connection.ifm_firmware.clone(),
+            master_serial: target.master_serial.clone(),
+            port: target.connection.port,
+            numeric_io_link_mode: target
+                .expected_device
+                .as_ref()
+                .and(target.connection.ifm_mode),
+            expected_device: target.expected_device.clone(),
             operation: kind,
             address,
             request_data,
@@ -213,10 +311,10 @@ impl Plan {
         };
         let confirmation = format!("{:x}", Sha256::digest(serde_json::to_vec(&review)?));
         Ok(Self {
-            connection: connection.clone(),
+            target,
             review,
             confirmation,
-            operation,
+            point,
         })
     }
 
@@ -241,7 +339,7 @@ impl Plan {
             confirmation == self.confirmation,
             "confirmation mismatch. Generate and review the write preview again"
         );
-        let mut client = Client::new(&self.connection)?;
+        let mut client = Client::new(&self.target.connection)?;
         let current = self
             .read_current(&mut client)
             .context("write preflight failed before dispatch")?;
@@ -270,7 +368,7 @@ impl Plan {
             receipt.detail = Some("Gateway did not return a success code for the write".into());
             return Ok(receipt);
         }
-        if matches!(self.operation, Operation::DeviceCommand { .. }) {
+        if self.point.is_none() {
             receipt.outcome = Outcome::GatewayAcknowledged;
             return Ok(receipt);
         }
@@ -294,7 +392,18 @@ impl Plan {
     }
 
     fn read_current(&self, client: &mut Client) -> Result<Option<Value>> {
-        if matches!(self.operation, Operation::PortMode { .. }) {
+        if let Some(point) = self.point {
+            self.target.read(client, point).map(Some)
+        } else {
+            self.target.check_device(client)?;
+            Ok(None)
+        }
+    }
+}
+
+impl Target {
+    fn read(&self, client: &mut Client, point: ReadPoint) -> Result<Value> {
+        if point == ReadPoint::PortMode {
             let mode = format!("{}/mode", client.port);
             let model = "/deviceinfo/productcode";
             let firmware = "/deviceinfo/swrevision";
@@ -303,23 +412,40 @@ impl Plan {
                 client.multi(&[model.into(), firmware.into(), serial.into(), mode.clone()])?;
             let get = |path| Client::data(&response, path);
             ensure!(
-                get(model).as_str() == Some(self.review.model),
+                get(model).as_str() == Some("AL1350"),
                 "AL1350 model pin mismatch"
             );
             ensure!(
-                get(firmware).as_str() == Some(self.review.firmware.as_str()),
+                get(firmware).as_str() == Some(self.connection.ifm_firmware.as_str()),
                 "AL1350 firmware pin mismatch"
             );
             self.check_serial(label(get(serial)).as_deref())?;
             let current = number(get(&mode))
                 .and_then(|mode| u8::try_from(mode).ok())
                 .context("AL1350 port did not report a numeric mode")?;
-            return Ok(Some(json!(current)));
+            return Ok(json!(current));
         }
+        self.check_device(client)?;
+        match point {
+            ReadPoint::Isdu { index, subindex } => {
+                Ok(json!(hex(&client.read_isdu(index, subindex)?)))
+            }
+            ReadPoint::ProcessOutput => {
+                let address = format!("{}/pdout/getdata", client.device);
+                let (_, response) = client.request(&address, json!({}))?;
+                let value = response["data"]["value"]
+                    .as_str()
+                    .context("AL1350 process output is not a hex string")?;
+                Ok(json!(hex(&parse_hex_bounded(value, MAX_INPUT)?)))
+            }
+            ReadPoint::PortMode => unreachable!("port mode handled before device lookup"),
+        }
+    }
+
+    fn check_device(&self, client: &mut Client) -> Result<()> {
         let mut status = client.connect()?;
         self.check_serial(status.master_serial.as_deref())?;
         let expected = self
-            .review
             .expected_device
             .as_ref()
             .context("device write target missing identity pins")?;
@@ -330,26 +456,12 @@ impl Plan {
             status.identity.serial = Some(read_id(client, 21)?);
         }
         expected.verify_all(&status.identity)?;
-        match &self.operation {
-            Operation::Isdu {
-                index, subindex, ..
-            } => Ok(Some(json!(hex(&client.read_isdu(*index, *subindex)?)))),
-            Operation::DeviceCommand { .. } => Ok(None),
-            Operation::ProcessOutput { .. } => {
-                let address = format!("{}/pdout/getdata", client.device);
-                let (_, response) = client.request(&address, json!({}))?;
-                let value = response["data"]["value"]
-                    .as_str()
-                    .context("AL1350 process output is not a hex string")?;
-                Ok(Some(json!(hex(&parse_hex_bounded(value, MAX_INPUT)?))))
-            }
-            Operation::PortMode { .. } => unreachable!("port mode handled before device lookup"),
-        }
+        Ok(())
     }
 
     fn check_serial(&self, actual: Option<&str>) -> Result<()> {
         ensure!(
-            actual == Some(self.review.master_serial.as_str()),
+            actual == Some(self.master_serial.as_str()),
             "AL1350 serial pin mismatch or unavailable"
         );
         Ok(())

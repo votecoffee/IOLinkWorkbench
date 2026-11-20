@@ -2,7 +2,7 @@ use anyhow::{Result, ensure};
 use clap::{Args, Subcommand};
 use iolink_workbench::{
     profile::Profile,
-    transport::write::{Operation, Outcome, Plan},
+    transport::write::{CurrentRead, Operation, Outcome, Plan, ReadPoint},
 };
 use std::path::PathBuf;
 
@@ -17,6 +17,43 @@ pub(super) struct Arguments {
     confirm: Option<String>,
     #[command(subcommand)]
     operation: WriteOperation,
+}
+
+#[derive(Args)]
+pub(super) struct ReadArguments {
+    profile: PathBuf,
+    /// Exact master serial as shown by status or the vendor tool.
+    #[arg(long)]
+    master_serial: String,
+    #[command(subcommand)]
+    point: CurrentPoint,
+}
+
+#[derive(Subcommand)]
+enum CurrentPoint {
+    /// Read the current numeric operating mode.
+    PortMode,
+    /// Read the current raw value of a prospective ISDU write target.
+    Isdu {
+        #[arg(long)]
+        index: u16,
+        #[arg(long, default_value_t = 0)]
+        subindex: u8,
+    },
+    /// Read the complete process output image reported by the gateway.
+    ProcessOutput,
+}
+
+pub(super) fn read_current(args: ReadArguments) -> Result<()> {
+    let point = match args.point {
+        CurrentPoint::PortMode => ReadPoint::PortMode,
+        CurrentPoint::Isdu { index, subindex } => ReadPoint::Isdu { index, subindex },
+        CurrentPoint::ProcessOutput => ReadPoint::ProcessOutput,
+    };
+    let profile = Profile::load(&args.profile)?;
+    let reading = CurrentRead::new(&profile, &args.master_serial, point)?.read()?;
+    println!("{}", serde_json::to_string_pretty(&reading)?);
+    Ok(())
 }
 
 #[derive(Subcommand)]

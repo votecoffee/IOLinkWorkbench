@@ -1,7 +1,9 @@
 use super::{ACCENT, App, Gateway, Profile, WARNING, Worker, background, completed};
 use anyhow::{Context, Result, ensure};
 use eframe::egui::{self, Ui};
-use iolink_workbench::transport::write::{Operation, Outcome, Plan};
+use iolink_workbench::transport::write::{
+    CurrentRead, CurrentValue, Operation, Outcome, Plan, ReadPoint,
+};
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 enum Kind {
@@ -35,6 +37,18 @@ struct Draft {
 }
 
 impl Draft {
+    fn read_point(&self) -> Option<ReadPoint> {
+        match self.kind {
+            Kind::Mode => Some(ReadPoint::PortMode),
+            Kind::Parameter => Some(ReadPoint::Isdu {
+                index: self.index,
+                subindex: self.subindex,
+            }),
+            Kind::Command => None,
+            Kind::Output => Some(ReadPoint::ProcessOutput),
+        }
+    }
+
     fn operation(&self) -> Result<Operation> {
         Ok(match self.kind {
             Kind::Mode => Operation::PortMode {
@@ -160,18 +174,30 @@ pub(super) struct Panel {
     approved: bool,
     error: Option<String>,
     worker: Option<Worker<WriteResult>>,
+    read_worker: Option<Worker<CurrentValue>>,
+    current: Option<CurrentValue>,
     result: Option<WriteResult>,
     dispatched_target: String,
 }
 
+enum Action {
+    ReadCurrent,
+    Apply,
+}
+
 impl Panel {
     pub(super) fn busy(&self) -> bool {
+        self.writing() || self.read_worker.is_some()
+    }
+
+    pub(super) fn writing(&self) -> bool {
         self.worker.is_some()
     }
 
     pub(super) fn clear_draft(&mut self) {
         self.master_serial.clear();
         self.draft = Draft::default();
+        self.current = None;
         self.clear_review();
     }
 
@@ -187,6 +213,19 @@ impl Panel {
     }
 
     pub(super) fn update(&mut self, message: &mut String) -> bool {
+        if let Some(result) = completed(&mut self.read_worker) {
+            match result {
+                Ok(current) => {
+                    self.current = Some(current);
+                    *message = "Current value read · review it in Device → Writes".into();
+                }
+                Err(error) => {
+                    let detail = format!("Current-value read failed · {error:#}");
+                    self.error = Some(detail.clone());
+                    *message = detail;
+                }
+            }
+        }
         let Some(result) = completed(&mut self.worker) else {
             return false;
         };
@@ -202,20 +241,36 @@ impl Panel {
         unconfirmed
     }
 
-    fn show(&mut self, ui: &mut Ui, profile: &Profile, blocked: Option<&str>) -> bool {
+    fn current_for_draft(&self) -> Option<&CurrentValue> {
+        self.current.as_ref().filter(|value| {
+            self.draft.read_point() == Some(value.point)
+                && self.master_serial == value.master_serial
+        })
+    }
+
+    fn show(
+        &mut self,
+        ui: &mut Ui,
+        profile: &Profile,
+        blocked: Option<&str>,
+        read_blocked: Option<&str>,
+    ) -> Option<Action> {
         ui.heading("Reviewed AL1350 writes");
         if let Some(reason) = blocked {
             ui.colored_label(WARNING, reason);
         }
-        let mut apply = false;
+        let mut action = None;
         if !self.busy() && profile.connection.gateway == Gateway::IfmAl1350 {
             if let Some(plan) = &self.review {
                 show_review(ui, plan);
                 ui.add_enabled_ui(blocked.is_none(), |ui| {
                     ui.checkbox(&mut self.approved, "I approve this exact write");
-                    apply = ui
+                    if ui
                         .add_enabled(self.approved, egui::Button::new("Apply reviewed write"))
-                        .clicked();
+                        .clicked()
+                    {
+                        action = Some(Action::Apply);
+                    }
                 });
                 if ui.button("Edit write").clicked() {
                     self.clear_review();
@@ -227,6 +282,19 @@ impl Panel {
                 ));
                 text_entry(ui, "Expected master serial", &mut self.master_serial);
                 self.draft.show(ui);
+                if self.draft.read_point().is_some() {
+                    if ui
+                        .add_enabled(
+                            read_blocked.is_none(),
+                            egui::Button::new("Read current value"),
+                        )
+                        .on_disabled_hover_text(read_blocked.unwrap_or_default())
+                        .clicked()
+                    {
+                        action = Some(Action::ReadCurrent);
+                    }
+                    self.show_current_value(ui);
+                }
                 if ui
                     .add_enabled(
                         blocked.is_none(),
@@ -269,7 +337,27 @@ impl Panel {
                 });
             }
         }
-        apply
+        action
+    }
+
+    fn show_current_value(&mut self, ui: &mut Ui) {
+        let Some(current) = self.current_for_draft() else {
+            return;
+        };
+        let value = current.value_text();
+        let use_value = ui
+            .horizontal_wrapped(|ui| {
+                ui.label(format!("Observed value · {value}"))
+                    .on_hover_text(format!(
+                        "{} · Port {} · {}",
+                        current.endpoint, current.port, current.observed_utc
+                    ));
+                ui.button("Use as expected value").clicked()
+            })
+            .inner;
+        if use_value {
+            self.draft.expected = value;
+        }
     }
 }
 
@@ -316,24 +404,58 @@ fn show_review(ui: &mut Ui, plan: &Plan) {
 
 impl App {
     fn write_block_reason(&self) -> Option<&'static str> {
-        self.start_block_reason().or_else(|| {
-            if self.acyclic.busy() {
-                Some("Wait for the active parameter read before writing")
-            } else if self.profile.connection.gateway != Gateway::IfmAl1350 {
-                Some("Apply an AL1350 profile to prepare a write")
-            } else {
-                None
-            }
-        })
+        self.start_block_reason()
+            .or_else(|| self.current_read_block_reason())
+    }
+
+    fn current_read_block_reason(&self) -> Option<&'static str> {
+        if self.closing {
+            Some("Application is closing")
+        } else if self.writes.writing() {
+            Some("A reviewed write is in progress")
+        } else if self.writes.read_worker.is_some() {
+            Some("Reading the current value…")
+        } else if self.acyclic.busy() {
+            Some("Wait for the active parameter read")
+        } else if self.setup.pending() || self.setup.busy() {
+            Some("Finish inspection and apply or discard profile edits")
+        } else if self.profile.connection.gateway != Gateway::IfmAl1350 {
+            Some("Apply an AL1350 profile to prepare a write")
+        } else {
+            None
+        }
     }
 
     pub(super) fn write_page(&mut self, ui: &mut Ui) {
         let blocked = self.write_block_reason();
-        if self.writes.show(ui, &self.profile, blocked)
-            && let Err(error) = self.start_reviewed_write()
-        {
+        let read_blocked = self.current_read_block_reason();
+        let result = match self.writes.show(ui, &self.profile, blocked, read_blocked) {
+            Some(Action::ReadCurrent) => self.start_current_read(),
+            Some(Action::Apply) => self.start_reviewed_write(),
+            None => Ok(()),
+        };
+        if let Err(error) = result {
             self.writes.error = Some(format!("{error:#}"));
         }
+    }
+
+    fn start_current_read(&mut self) -> Result<()> {
+        if let Some(reason) = self.current_read_block_reason() {
+            anyhow::bail!(reason);
+        }
+        let point = self
+            .writes
+            .draft
+            .read_point()
+            .context("Choose a readable write target")?;
+        let read = CurrentRead::new(&self.profile, &self.writes.master_serial, point)?;
+        let worker = background("al1350-current-value", move || read.read())
+            .context("Could not start the current-value read")?;
+        self.writes.clear_review();
+        self.writes.current = None;
+        self.writes.read_worker = Some(worker);
+        self.message = "Reading the current write target value…".into();
+        Ok(())
     }
 
     fn start_reviewed_write(&mut self) -> Result<()> {
@@ -357,6 +479,7 @@ impl App {
         self.writes.worker = Some(worker);
         self.writes.error = None;
         self.writes.result = None;
+        self.writes.current = None;
         self.writes.dispatched_target = target;
         self.live = Default::default();
         self.message = "Checking the target and applying the reviewed write…".into();

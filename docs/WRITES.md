@@ -12,7 +12,7 @@ The GUI and CLI support four one-shot operations for the AL1350 IoT Core 3.1.x i
 ## GUI
 
 1. Apply an AL1350 profile for the approved bench endpoint and port. Under **Device → Writes**, enter the expected master serial and choose **Port mode**, **ISDU parameter**, **Device command**, or **Process output**.
-2. Enter the operation values and choose **Preview write offline**. Review the endpoint, firmware, port, identity pins, expected value, service address and payload. **Edit write** returns to the draft and clears approval. Applying another profile or editing the applied connection or identity also clears the draft and approval.
+2. For mode, ISDU or process output, choose **Read current value** to check the target and see its reported value. **Use as expected value** copies it into the draft for that master and point. This uses an independent read and can run during monitoring or capture. Enter the desired value, then choose **Preview write offline**. Review the endpoint, firmware, port, identity pins, expected value, service address and payload. **Edit write** returns to the draft and clears approval. Applying another profile or editing the applied connection or identity also clears the draft and approval.
 3. Select **I approve this exact write** and choose **Apply reviewed write**. The write worker blocks new acquisition and acyclic reads until it finishes. **Last write result** shows the dispatched target, outcome and exact JSON receipt when available. If normal window close is pending when the outcome becomes unconfirmed, the app returns to Writes so the result can be reviewed.
 
 ## CLI
@@ -24,6 +24,14 @@ Preview runs offline and prints JSON with the destination, wire address, payload
 ```powershell
 .\iolink-cli.exe write --help
 .\iolink-cli.exe write $profile --master-serial $serial isdu --index 65 --expected 01 --desired 02
+```
+
+`read-current` uses the same target checks as write preflight. It returns JSON with the master, port, point, UTC observation time and `value`. The value is a number for a port mode and uppercase hex for ISDU or process output. Use the observed value as `--expected` when preparing the separate write. Execution checks the value again.
+
+```powershell
+.\iolink-cli.exe read-current $profile --master-serial $serial port-mode
+.\iolink-cli.exe read-current $profile --master-serial $serial isdu --index 65
+.\iolink-cli.exe read-current $profile --master-serial $serial process-output
 ```
 
 Review the exact operation against the device and machine state. To execute an approved operation, repeat the command with `--confirm CODE` immediately before the operation name, using the `confirmation` from its preview. The code binds the reviewed destination, operation, identity pins, expected value and payload. The preflight reads and the write are separate requests. Coordinate ownership of the target port and device during the write. The gateway can enforce its own write restrictions, including the documented PLC-running restriction for mode and process outputs.
@@ -38,4 +46,4 @@ Monitoring, capture and optional data feeds use read-only paths. The reviewed wr
 
 ## Verification
 
-`python tools/verify_writes.py PATH_TO_CLI` uses an isolated loopback peer. It checks all four request paths, offline confirmation, identity and value mismatches, readback, and a lost write reply with one dispatch. `cargo test --locked --bin iolink-workbench desktop::writes::tests` exercises offline GUI drafts, approval guards, and close behavior with a held loopback write reply. Real firmware, machine conditions and actuator effects await physical qualification.
+`python tools/verify_writes.py PATH_TO_CLI` uses an isolated loopback peer. It checks all three current-value reads, all four write paths, offline confirmation, identity and value mismatches, readback, and a lost write reply with one dispatch. `cargo test --locked --bin iolink-workbench desktop::writes::tests` exercises offline GUI drafts, a current read alongside a held acquisition owner, approval guards, and close behavior with a held loopback write reply. Real firmware, machine conditions and actuator effects await physical qualification.

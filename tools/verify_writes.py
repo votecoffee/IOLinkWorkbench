@@ -70,8 +70,8 @@ def verify(cli, profile, server):
     env = os.environ.copy()
     env.pop("IOLINK_IFM_PASSWORD", None)
 
-    def run(operation, *, serial=SERIAL, confirm=None, status=0, target=profile):
-        args = [cli, "write", target, "--master-serial", serial]
+    def run(operation, *, serial=SERIAL, confirm=None, status=0, target=profile, command="write"):
+        args = [cli, command, target, "--master-serial", serial]
         if confirm is not None:
             args.extend(["--confirm", confirm])
         process = subprocess.run([*args, *operation], env=env, capture_output=True,
@@ -100,6 +100,12 @@ def verify(cli, profile, server):
     plan = preview(mode)
     assert "confirmation mismatch" in run([*mode[:-1], "1"], confirm=plan["confirmation"], status=1)
     assert not server.requests
+    observed = run(["port-mode"], command="read-current")
+    assert observed["point"] == {"kind": "port_mode"} and observed["value"] == 3
+    assert observed["master_serial"] == SERIAL and observed["port"] == 2
+    assert observed["observed_utc"].endswith("Z")
+    assert "serial pin mismatch" in run(["port-mode"], serial="OTHER-MASTER", status=1,
+                                        command="read-current")
     wrong_master = preview(mode, serial="OTHER-MASTER")
     assert "serial pin mismatch" in run(mode, serial="OTHER-MASTER", confirm=wrong_master["confirmation"], status=1)
     assert not server.writes
@@ -113,9 +119,17 @@ def verify(cli, profile, server):
     parameter = ["isdu", "--index", "65", "--subindex", "1", "--expected", "0001", "--desired", "0002"]
     pin = preview(parameter)["confirmation"]
     server.vendor = 1234
+    assert "identity mismatch" in run(parameter[:5], status=1, command="read-current")
     assert "identity mismatch" in run(parameter, confirm=pin, status=1)
     assert len(server.writes) == 2
     server.vendor = 65535
+    observed = run(parameter[:5], command="read-current")
+    assert observed["point"] == {"kind": "isdu", "index": 65, "subindex": 1}
+    assert observed["value"] == "0001"
+    server.parameters[65, 1] = "0003"
+    assert "expected current" in run(parameter, confirm=pin, status=1)
+    assert len(server.writes) == 2
+    server.parameters[65, 1] = "0001"
     request, receipt = apply(parameter, "readback_matched")
     assert request["request_data"] == {"index": 65, "subindex": 1, "value": "0002"}
     assert receipt["readback"] == "0002"
@@ -130,6 +144,9 @@ def verify(cli, profile, server):
     assert receipt["gateway_code"] is None
 
     output = ["process-output", "--expected", "01 02", "--desired", "03 04"]
+    observed = run(["process-output"], command="read-current")
+    assert observed["point"] == {"kind": "process_output"} and observed["value"] == "0102"
+    assert len(server.writes) == 5
     server.next_write = "ignore"
     _, receipt = apply(output, "unconfirmed", status=1)
     assert receipt["gateway_code"] == 200 and receipt["readback"] == "0102"
@@ -153,7 +170,7 @@ def verify(cli, profile, server):
     assert "does not declare this parameter read/write" in run(
         ["isdu", "--index", "65", "--expected", "01", "--desired", "02"], status=1, target=configured)
     assert len(server.requests) == before
-    print("PASS: offline plans, exact target and value checks, four write paths, readback, and single dispatch on uncertain outcomes")
+    print("PASS: checked current-value reads, offline plans, exact target checks, four write paths, readback, and single dispatch on uncertain outcomes")
 
 
 def main():

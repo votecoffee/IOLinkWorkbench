@@ -2,7 +2,7 @@
 
 Read and log one IO-Link sensor on one configured port from a portable Windows x64 desktop application or headless CLI. The application opens offline with a synthetic sensor. Its first hardware adapter targets the ifm AL1350 IoT Core HTTP(S) snapshot API.
 
-The GUI and CLI also support previewed, explicitly confirmed AL1350 writes. [Reviewed write operations](docs/WRITES.md)
+The GUI and CLI also support checked current-value reads and explicitly confirmed AL1350 writes. [Reviewed write operations](docs/WRITES.md)
 
 ## Table of Contents
 

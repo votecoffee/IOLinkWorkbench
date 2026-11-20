@@ -112,6 +112,69 @@ fn read_request(listener: &TcpListener) -> Result<(TcpStream, Value)> {
     Ok((stream, serde_json::from_slice(&payload)?))
 }
 
+fn reply_with_identity(listener: &TcpListener) -> Result<()> {
+    let (mut stream, preflight) = read_request(listener)?;
+    ensure!(
+        preflight["adr"] == "/getdatamulti",
+        "expected identity preflight"
+    );
+    let body = json!({"cid":preflight["cid"], "code":200, "data":{
+        "/deviceinfo/productcode":{"code":200,"data":"AL1350"},
+        "/deviceinfo/swrevision":{"code":200,"data":"3.1.42"},
+        "/deviceinfo/serialnumber":{"code":200,"data":"BENCH-MASTER"},
+        "/iolinkmaster/port[1]/mode":{"code":200,"data":3},
+        "/iolinkmaster/port[1]/iolinkdevice/vendorid":{"code":200,"data":65535},
+        "/iolinkmaster/port[1]/iolinkdevice/deviceid":{"code":200,"data":1},
+    }})
+    .to_string();
+    write!(
+        stream,
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    )?;
+    Ok(())
+}
+
+#[test]
+fn current_value_uses_an_independent_read_and_stays_bound_to_the_draft() -> Result<()> {
+    let _serial = WORKER_TEST_LOCK.lock().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    listener.set_nonblocking(true)?;
+    let mut app = App::new();
+    app.profile = fixture_profile(format!("http://{}", listener.local_addr()?))?;
+    app.setup.sync(&app.profile);
+    app.writes.master_serial = "BENCH-MASTER".into();
+    app.writes.draft.expected = "1".into();
+    let (_hold_capture, completion) = mpsc::channel();
+    app.worker = Some(completion);
+    assert!(app.write_block_reason().is_some());
+    assert!(app.current_read_block_reason().is_none());
+
+    let peer = thread::spawn(move || reply_with_identity(&listener));
+    app.start_current_read()?;
+    assert_eq!(app.pending_jobs(), 2);
+    assert!(!app.writes.writing());
+    peer.join().unwrap()?;
+    let ctx = EguiContext::default();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while app.writes.busy() && Instant::now() < deadline {
+        let _ = ctx.run(Default::default(), |ctx| app.render(ctx));
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(app.pending_jobs(), 1);
+    assert_eq!(app.writes.draft.expected, "1");
+    assert_eq!(app.writes.current_for_draft().unwrap().value_text(), "3");
+    assert!(app.writes.review.is_none() && !app.writes.approved);
+    app.writes.master_serial = "DIFFERENT-MASTER".into();
+    assert!(app.writes.current_for_draft().is_none());
+    app.writes.master_serial = "BENCH-MASTER".into();
+    app.writes.draft.kind = Kind::Output;
+    assert!(app.writes.current_for_draft().is_none());
+    app.writes.clear_draft();
+    assert!(app.writes.current.is_none());
+    Ok(())
+}
+
 #[test]
 fn reviewed_gui_write_waits_on_close_and_retains_a_lost_reply() -> Result<()> {
     let _serial = WORKER_TEST_LOCK.lock().unwrap();
@@ -149,26 +212,7 @@ fn reviewed_gui_write_waits_on_close_and_retains_a_lost_reply() -> Result<()> {
     let (observed, request_sent) = mpsc::channel();
     let (release, release_reply) = mpsc::channel();
     let peer = thread::spawn(move || -> Result<()> {
-        let (mut stream, preflight) = read_request(&listener)?;
-        ensure!(
-            preflight["adr"] == "/getdatamulti",
-            "expected identity preflight"
-        );
-        let body = json!({"cid":preflight["cid"], "code":200, "data":{
-            "/deviceinfo/productcode":{"code":200,"data":"AL1350"},
-            "/deviceinfo/swrevision":{"code":200,"data":"3.1.42"},
-            "/deviceinfo/serialnumber":{"code":200,"data":"BENCH-MASTER"},
-            "/iolinkmaster/port[1]/mode":{"code":200,"data":3},
-            "/iolinkmaster/port[1]/iolinkdevice/vendorid":{"code":200,"data":65535},
-            "/iolinkmaster/port[1]/iolinkdevice/deviceid":{"code":200,"data":1},
-        }})
-        .to_string();
-        write!(
-            stream,
-            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-            body.len()
-        )?;
-        drop(stream);
+        reply_with_identity(&listener)?;
         let (stream, write) = read_request(&listener)?;
         ensure!(write["adr"] == "/iolinkmaster/port[1]/iolinkdevice/iolwriteacyclic");
         ensure!(write["data"] == json!({"index":2,"subindex":0,"value":"A0"}));

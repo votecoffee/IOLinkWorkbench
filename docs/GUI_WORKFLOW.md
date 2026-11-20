@@ -48,7 +48,7 @@ Invalid enabled settings block Start and offer a link to the relevant **Integrat
 
 ## Reviewed hardware writes
 
-**Device → Writes** is the separate AL1350 workflow for a port mode, ISDU parameter, device command, or complete process output image. Enter the master serial and operation values, then choose **Preview write offline**. Review the target and request, check **I approve this exact write**, and choose **Apply reviewed write**. The last result follows the dispatched target and remains available if you navigate away. [Write guide](WRITES.md)
+**Device → Writes** is the separate AL1350 workflow for a port mode, ISDU parameter, device command, or complete process output image. Enter the master serial and choose the operation. For a readable value, **Read current value** checks the target and **Use as expected value** copies the observation into the draft. Enter the desired value and choose **Preview write offline**. Review the target and request, check **I approve this exact write**, and choose **Apply reviewed write**. The last result shows the target and remains available after navigation. [Write guide](WRITES.md)
 
 ## Finding a recording
 

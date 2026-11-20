@@ -96,7 +96,7 @@ impl App {
                 }
                 ui.label(if self.closing {
                     "CLOSING"
-                } else if self.writes.busy() {
+                } else if self.writes.writing() {
                     "WRITE IN PROGRESS"
                 } else if self.worker.is_some() && self.stop.requested() {
                     "STOPPING / FLUSHING"
@@ -106,6 +106,8 @@ impl App {
                     "RECORDING CSV"
                 } else if self.worker.is_some() {
                     "MONITORING"
+                } else if self.writes.busy() {
+                    "READING CURRENT VALUE"
                 } else {
                     "OFFLINE"
                 });
