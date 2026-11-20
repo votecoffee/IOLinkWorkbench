@@ -4,6 +4,7 @@ use iolink_workbench::{
     decode,
     iodd::{Access, Parameter},
     profile::Profile,
+    transport::write::isdu_write_target,
 };
 
 #[derive(Default)]
@@ -13,12 +14,63 @@ pub(super) struct Picker {
     filter: String,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Browse {
+    All,
+    Writable,
+}
+
+impl Browse {
+    fn allows(self, parent: &Parameter, subindex: u8) -> bool {
+        self == Self::All || isdu_write_target(parent, subindex).is_ok()
+    }
+
+    fn includes(self, parent: &Parameter) -> bool {
+        if self.allows(parent, 0) {
+            return true;
+        }
+        if !parent.subindex_access() || parent.access != Access::ReadWrite {
+            return false;
+        }
+        parent.record.as_ref().is_some_and(|record| {
+            record
+                .items
+                .iter()
+                .any(|item| self.allows(parent, item.subindex))
+        }) || (parent.array.is_some() && self.allows(parent, 1))
+    }
+
+    fn subindex_label(self, parent: &Parameter, subindex: u8) -> String {
+        if self.allows(parent, subindex) {
+            format!("Subindex {subindex}")
+        } else {
+            "Select writable subindex".into()
+        }
+    }
+}
+
 impl Picker {
     fn show<'a>(
         &mut self,
         ui: &mut Ui,
         profile: &'a Profile,
         salt: &str,
+    ) -> Option<(&'a Parameter, &'a Parameter)> {
+        self.show_matching(ui, profile, salt, Browse::All)
+    }
+
+    pub(super) fn show_for_write(&mut self, ui: &mut Ui, profile: &Profile) -> Option<(u16, u8)> {
+        let (parent, _) =
+            self.show_matching(ui, profile, "write-iodd-parameter", Browse::Writable)?;
+        Some((parent.index, self.subindex))
+    }
+
+    fn show_matching<'a>(
+        &mut self,
+        ui: &mut Ui,
+        profile: &'a Profile,
+        salt: &str,
+        browse: Browse,
     ) -> Option<(&'a Parameter, &'a Parameter)> {
         let Some(imported) = &profile.iodd else {
             ui.label("Import an IODD from Device → IODD import to browse named parameters.");
@@ -49,6 +101,7 @@ impl Picker {
         let matches: Vec<_> = imported
             .parameters
             .iter()
+            .filter(|parameter| browse.includes(parameter))
             .filter(|parameter| {
                 query.is_empty()
                     || index == Some(parameter.index)
@@ -62,7 +115,7 @@ impl Picker {
                 imported
                     .parameters
                     .iter()
-                    .find(|parameter| parameter.id == id)
+                    .find(|parameter| parameter.id == id && browse.includes(parameter))
             });
             let label = selection.map_or_else(
                 || "Select parameter".into(),
@@ -96,7 +149,13 @@ impl Picker {
                     });
             });
             if matches.is_empty() {
-                ui.small("No matching parameters");
+                ui.small(if browse == Browse::Writable {
+                    "No matching writable parameters"
+                } else {
+                    "No matching parameters"
+                });
+            } else if browse == Browse::Writable {
+                ui.small(format!("{} matching writable parameters", matches.len()));
             } else {
                 ui.small(format!(
                     "{} of {} parameters",
@@ -113,10 +172,9 @@ impl Picker {
         if self.selected != before {
             self.subindex = 0;
         }
-        let parent = imported
-            .parameters
-            .iter()
-            .find(|parameter| Some(&parameter.id) == self.selected.as_ref())?;
+        let parent = imported.parameters.iter().find(|parameter| {
+            Some(&parameter.id) == self.selected.as_ref() && browse.includes(parameter)
+        })?;
         let subindex = &mut self.subindex;
         if let Some(record) = &parent.record {
             ui.label(format!(
@@ -124,10 +182,16 @@ impl Picker {
                 record.subindex_access
             ));
             egui::ComboBox::from_id_salt((salt, "subindex"))
-                .selected_text(format!("Subindex {subindex}"))
+                .selected_text(browse.subindex_label(parent, *subindex))
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(subindex, 0, "0 · whole record");
-                    for item in &record.items {
+                    if browse.allows(parent, 0) {
+                        ui.selectable_value(subindex, 0, "0 · whole record");
+                    }
+                    for item in record
+                        .items
+                        .iter()
+                        .filter(|item| browse.allows(parent, item.subindex))
+                    {
                         ui.selectable_value(
                             subindex,
                             item.subindex,
@@ -144,15 +208,22 @@ impl Picker {
                 array.subindex_access
             ));
             egui::ComboBox::from_id_salt((salt, "subindex"))
-                .selected_text(format!("Subindex {subindex}"))
+                .selected_text(browse.subindex_label(parent, *subindex))
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(subindex, 0, "0 · whole array");
-                    for element in 1..=array.count {
+                    if browse.allows(parent, 0) {
+                        ui.selectable_value(subindex, 0, "0 · whole array");
+                    }
+                    for element in
+                        (1..=array.count).filter(|&element| browse.allows(parent, element))
+                    {
                         ui.selectable_value(subindex, element, format!("Element {element}"));
                     }
                 });
         } else {
             *subindex = 0;
+        }
+        if !browse.allows(parent, *subindex) {
+            return None;
         }
         let target = parent.target(*subindex).ok()?;
         ui.label(format!(

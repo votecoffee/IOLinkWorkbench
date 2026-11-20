@@ -21,6 +21,18 @@ fn fixture_profile(endpoint: String) -> Result<Profile> {
     Ok(profile)
 }
 
+fn fixture_iodd_profile() -> Result<Profile> {
+    let mut profile = fixture_profile("https://127.0.0.1:9".into())?;
+    let catalog = iolink_workbench::iodd::parse(
+        include_str!("../../../samples/sensor-formats.xml"),
+        "synthetic write form".into(),
+    )?;
+    let (_, imported) = catalog.select(None, None)?;
+    profile.input_bytes = imported.input_bytes;
+    profile.iodd = Some(imported);
+    Ok(profile)
+}
+
 #[test]
 fn draft_forms_stage_the_shared_wire_preview_offline() -> Result<()> {
     let profile = fixture_profile("https://127.0.0.1:9".into())?;
@@ -83,14 +95,7 @@ fn draft_forms_stage_the_shared_wire_preview_offline() -> Result<()> {
 
 #[test]
 fn typed_isdu_draft_stages_exact_bytes_and_requires_explicit_empty_text() -> Result<()> {
-    let mut profile = fixture_profile("https://127.0.0.1:9".into())?;
-    let catalog = iolink_workbench::iodd::parse(
-        include_str!("../../../samples/sensor-formats.xml"),
-        "synthetic write form".into(),
-    )?;
-    let (_, imported) = catalog.select(None, None)?;
-    profile.input_bytes = imported.input_bytes;
-    profile.iodd = Some(imported);
+    let profile = fixture_iodd_profile()?;
     let mut draft = Draft {
         kind: Kind::Parameter,
         index: 64,
@@ -115,6 +120,65 @@ fn typed_isdu_draft_stages_exact_bytes_and_requires_explicit_empty_text() -> Res
     draft.empty_text = true;
     let plan = Plan::new(&profile, "SYNTHETIC-MASTER", draft.operation(&profile)?)?;
     assert_eq!(plan.review().request_data["value"], "00000000");
+    Ok(())
+}
+
+#[test]
+fn named_write_picker_filters_targets_and_changed_address_clears_values() -> Result<()> {
+    let mut profile = fixture_iodd_profile()?;
+    let mut draft = Draft {
+        kind: Kind::Parameter,
+        index: 64,
+        expected: "0001".into(),
+        desired: "-2".into(),
+        typed_desired: true,
+        ..Default::default()
+    };
+    let browse = |picker: &mut Picker, profile: &Profile| {
+        let ctx = EguiContext::default();
+        let mut target = None;
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                target = picker.show_for_write(ui, profile);
+            });
+        });
+        target
+    };
+
+    draft.iodd_picker.selected = Some("V_SIM_History".into());
+    assert_eq!(browse(&mut draft.iodd_picker, &profile), None);
+    draft.iodd_picker.selected = Some("V_SIM_Record".into());
+    draft.iodd_picker.subindex = 1;
+    assert_eq!(browse(&mut draft.iodd_picker, &profile), None);
+    draft.iodd_picker.subindex = 2;
+    let target = browse(&mut draft.iodd_picker, &profile).context("missing writable member")?;
+    assert_eq!(target, (66, 2));
+    assert_eq!((draft.index, draft.subindex), (64, 0));
+    draft.set_parameter_address(target);
+    assert!(draft.expected.is_empty() && draft.desired.is_empty() && !draft.typed_desired);
+    draft.expected = "00".into();
+    draft.desired = "FF".into();
+    let plan = Plan::new(&profile, "SYNTHETIC-MASTER", draft.operation(&profile)?)?;
+    assert_eq!(
+        plan.review().request_data,
+        json!({"index": 66, "subindex": 2, "value": "FF"})
+    );
+
+    let record = profile
+        .iodd
+        .as_mut()
+        .and_then(|iodd| {
+            iodd.parameters
+                .iter_mut()
+                .find(|parameter| parameter.index == 66)
+        })
+        .and_then(|parameter| parameter.record.as_mut())
+        .context("missing synthetic record")?;
+    record.items[3].parameter.access = iolink_workbench::iodd::Access::WriteOnly;
+    draft.iodd_picker.subindex = 0;
+    assert_eq!(browse(&mut draft.iodd_picker, &profile), None);
+    draft.iodd_picker.subindex = 2;
+    assert_eq!(browse(&mut draft.iodd_picker, &profile), Some((66, 2)));
     Ok(())
 }
 

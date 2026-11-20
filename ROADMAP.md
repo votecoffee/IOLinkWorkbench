@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Device → Writes can search imported IODD names, IDs and indexes for eligible ISDU parameters and subindexes. An explicit selection fills the numeric address, and changing the address clears the draft values.
+
 - Reviewed single `StringT` writes distinguish exact readback from the same IODD text returned with different zero padding. Expected bytes still require an exact match before dispatch. Receipts retain the returned bytes.
 
 - The GUI and CLI encode typed Boolean, 2- to 64-bit integer, Float32, time, duration, text and octet string ISDU drafts from the imported IODD. Integer drafts use standard wire containers, and a standalone Boolean true encodes as `FF`. Temporal entry uses millisecond precision and shows exact fixed-point ticks at review.

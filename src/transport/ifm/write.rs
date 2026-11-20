@@ -132,10 +132,7 @@ impl ReadPoint {
 
     fn validate(self, profile: &Profile) -> Result<Option<&Parameter>> {
         if let Self::Isdu { index, subindex } = self {
-            ensure!(
-                matches!(index, 4..=254 | 256..=0x41ff | 0x4300..=0x4fff),
-                "use a parameter index supported by this write path. Use device-command for SystemCommand"
-            );
+            check_isdu_index(index)?;
             return writable_parameter(profile, index, subindex);
         }
         Ok(None)
@@ -419,6 +416,10 @@ impl Plan {
         &self.review
     }
 
+    pub fn read_point(&self) -> Option<ReadPoint> {
+        self.point
+    }
+
     pub fn confirmation(&self) -> &str {
         &self.confirmation
     }
@@ -571,6 +572,22 @@ fn read_id(client: &mut Client, index: u16) -> Result<String> {
         .into())
 }
 
+fn check_isdu_index(index: u16) -> Result<()> {
+    ensure!(
+        matches!(index, 4..=254 | 256..=0x41ff | 0x4300..=0x4fff),
+        "use a parameter index supported by this write path. Use device-command for SystemCommand"
+    );
+    Ok(())
+}
+
+/// Check whether a known IODD parameter or member can be selected for write review.
+pub fn isdu_write_target(parameter: &Parameter, subindex: u8) -> Result<&Parameter> {
+    check_isdu_index(parameter.index)?;
+    let selected = read_write_subindex(parameter, subindex)?;
+    selected.check_write_layout()?;
+    Ok(selected)
+}
+
 fn writable_parameter(profile: &Profile, index: u16, subindex: u8) -> Result<Option<&Parameter>> {
     let Some(parameter) = profile.iodd.as_ref().and_then(|iodd| {
         iodd.parameters
@@ -579,6 +596,10 @@ fn writable_parameter(profile: &Profile, index: u16, subindex: u8) -> Result<Opt
     }) else {
         return Ok(None);
     };
+    read_write_subindex(parameter, subindex).map(Some)
+}
+
+fn read_write_subindex(parameter: &Parameter, subindex: u8) -> Result<&Parameter> {
     ensure!(
         subindex == 0 || parameter.subindex_access(),
         "IODD does not permit access to this subindex"
@@ -588,7 +609,7 @@ fn writable_parameter(profile: &Profile, index: u16, subindex: u8) -> Result<Opt
         parameter.access == Access::ReadWrite && selected.access == Access::ReadWrite,
         "IODD does not declare this parameter read/write"
     );
-    Ok(Some(selected))
+    Ok(selected)
 }
 
 fn review_isdu_value(

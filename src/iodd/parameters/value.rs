@@ -164,12 +164,36 @@ impl Parameter {
         }
     }
 
+    pub(crate) fn check_write_layout(&self) -> Result<()> {
+        if matches!(self.datatype.as_str(), "RecordT" | "ArrayT") {
+            ensure!(
+                self.record.is_some() || self.array.is_some(),
+                "IODD compound layout is unavailable"
+            );
+        }
+        if let Some(record) = &self.record {
+            for item in &record.items {
+                let subindex = item.subindex;
+                ensure!(
+                    item.parameter.access != Access::WriteOnly,
+                    "subindex {subindex} is write-only and cannot be verified by readback"
+                );
+                ensure!(
+                    item.width().is_some(),
+                    "IODD width is unavailable for subindex {subindex}"
+                );
+            }
+        }
+        Ok(())
+    }
+
     /// Review a write image offline. A compound image may change only declared writable bits.
     pub(crate) fn review_write(
         &self,
         expected: &[u8],
         proposed: &[u8],
     ) -> Result<WriteValueReview> {
+        self.check_write_layout()?;
         let decoded = self.decode(proposed);
         if !matches!(self.datatype.as_str(), "RecordT" | "ArrayT") {
             return Ok(WriteValueReview {
@@ -179,10 +203,6 @@ impl Parameter {
             });
         }
 
-        ensure!(
-            self.record.is_some() || self.array.is_some(),
-            "IODD compound layout is unavailable"
-        );
         let length = self.width().map(|bits| usize::from(bits).div_ceil(8));
         ensure!(
             length == Some(proposed.len()),
@@ -202,10 +222,6 @@ impl Parameter {
         for item in decoded.record_items.iter().chain(&decoded.array_items) {
             let member = self.target(item.subindex)?;
             let subindex = item.subindex;
-            ensure!(
-                member.access != Access::WriteOnly,
-                "subindex {subindex} is write-only and cannot be verified by readback"
-            );
             let width = member
                 .width()
                 .with_context(|| format!("IODD width is unavailable for subindex {subindex}"))?;

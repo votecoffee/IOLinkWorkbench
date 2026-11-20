@@ -1,3 +1,4 @@
+use super::parameters::Picker;
 use super::{ACCENT, App, Gateway, Profile, WARNING, Worker, background, completed};
 use anyhow::{Context, Result, ensure};
 use eframe::egui::{self, Ui};
@@ -34,6 +35,7 @@ struct Draft {
     empty_text: bool,
     index: u16,
     subindex: u8,
+    iodd_picker: Picker,
     code: u8,
     meaning: String,
 }
@@ -102,6 +104,13 @@ impl Draft {
         self.empty_text = false;
     }
 
+    fn set_parameter_address(&mut self, address: (u16, u8)) {
+        if (self.index, self.subindex) != address {
+            (self.index, self.subindex) = address;
+            self.reset_values();
+        }
+    }
+
     fn show(&mut self, ui: &mut Ui, profile: &Profile) {
         let before = self.kind;
         egui::ComboBox::from_id_salt("write-operation")
@@ -134,14 +143,25 @@ impl Draft {
     }
 
     fn show_parameter(&mut self, ui: &mut Ui, profile: &Profile) {
-        let address = (self.index, self.subindex);
-        ui.horizontal_wrapped(|ui| {
-            ui.add(egui::DragValue::new(&mut self.index).prefix("Index "));
-            ui.add(egui::DragValue::new(&mut self.subindex).prefix("Subindex "));
-        });
-        if address != (self.index, self.subindex) {
-            self.reset_values();
+        let mut address = (self.index, self.subindex);
+        if profile
+            .iodd
+            .as_ref()
+            .is_some_and(|iodd| !iodd.parameters.is_empty())
+        {
+            ui.collapsing("Choose from IODD", |ui| {
+                if let Some(selected) = self.iodd_picker.show_for_write(ui, profile)
+                    && ui.button("Use selected address").clicked()
+                {
+                    address = selected;
+                }
+            });
         }
+        ui.horizontal_wrapped(|ui| {
+            ui.add(egui::DragValue::new(&mut address.0).prefix("Index "));
+            ui.add(egui::DragValue::new(&mut address.1).prefix("Subindex "));
+        });
+        self.set_parameter_address(address);
         text_entry(ui, "Expected parameter hex", &mut self.expected);
         let point = ReadPoint::Isdu {
             index: self.index,
@@ -367,7 +387,11 @@ impl Panel {
                     profile.connection.endpoint, profile.connection.port
                 ));
                 text_entry(ui, "Expected master serial", &mut self.master_serial);
+                let previous_point = self.draft.read_point();
                 self.draft.show(ui, profile);
+                if self.draft.read_point() != previous_point {
+                    self.error = None;
+                }
                 if self.draft.read_point().is_some() {
                     if ui
                         .add_enabled(
@@ -475,6 +499,9 @@ fn show_review(ui: &mut Ui, plan: &Plan) {
     }
     if let Some(mode) = review.numeric_io_link_mode {
         ui.label(format!("Expected numeric IO-Link mode · {mode}"));
+    }
+    if let Some(ReadPoint::Isdu { index, subindex }) = plan.read_point() {
+        ui.label(format!("ISDU index {index} · subindex {subindex}"));
     }
     if let Some(expected) = &review.expected_value {
         ui.label(format!("Expected current value · {expected}"));
