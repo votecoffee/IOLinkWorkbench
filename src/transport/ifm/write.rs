@@ -2,7 +2,10 @@
 use super::{Client, InputTransport, label, number};
 use crate::{
     decode::{MAX_INPUT, hex, parse_hex_bounded},
-    iodd::{Access, DecodedParameter, Parameter, decode_text_parameter},
+    iodd::{
+        Access, DecodedOutput, DecodedParameter, Parameter, ProcessDataLayout,
+        decode_text_parameter,
+    },
     profile::{Connection, Gateway, Identity, Profile},
 };
 use anyhow::{Context, Result, ensure};
@@ -47,9 +50,7 @@ impl Operation {
         desired_value: &str,
     ) -> Result<Self> {
         let layout = profile
-            .iodd
-            .as_ref()
-            .and_then(|iodd| iodd.output.as_ref())
+            .output_layout()
             .context("typed process output requires an imported IODD output layout")?;
         let image = parse_hex_bounded(&expected, MAX_INPUT)?;
         let proposed = layout.edit_output_field(image, field, desired_value)?;
@@ -123,6 +124,7 @@ pub struct CurrentRead {
     target: Target,
     point: ReadPoint,
     parameter: Option<Parameter>,
+    output: Option<(ProcessDataLayout, bool)>,
 }
 
 enum ReadValue {
@@ -151,6 +153,8 @@ pub struct CurrentValue {
     pub value: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub iodd_value: Option<CurrentIoddValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iodd_output: Option<DecodedOutput>,
 }
 
 #[derive(Serialize)]
@@ -173,10 +177,17 @@ impl CurrentRead {
     pub fn new(profile: &Profile, master_serial: &str, point: ReadPoint) -> Result<Self> {
         let target = Target::new(profile, master_serial, point != ReadPoint::PortMode)?;
         let parameter = point.validate(profile)?.cloned();
+        let output = match point {
+            ReadPoint::ProcessOutput => profile
+                .output_layout()
+                .map(|layout| (layout.clone(), profile.confirm_iodd_condition)),
+            _ => None,
+        };
         Ok(Self {
             target,
             point,
             parameter,
+            output,
         })
     }
 
@@ -196,6 +207,12 @@ impl CurrentRead {
             }
             _ => None,
         };
+        let iodd_output = match (self.output, &value) {
+            (Some((layout, confirmed)), ReadValue::Bytes(bytes)) => {
+                Some(layout.decode_output(bytes, Some(confirmed)))
+            }
+            _ => None,
+        };
         Ok(CurrentValue {
             endpoint: self.target.endpoint,
             port: self.target.connection.port,
@@ -206,6 +223,7 @@ impl CurrentRead {
             observed_utc,
             value: value.into(),
             iodd_value,
+            iodd_output,
         })
     }
 }
@@ -510,9 +528,7 @@ impl Plan {
                         before.len() == after.len(),
                         "process output requires the same full byte width before and after"
                     );
-                    if let Some(layout) =
-                        profile.iodd.as_ref().and_then(|iodd| iodd.output.as_ref())
-                    {
+                    if let Some(layout) = profile.output_layout() {
                         ensure!(
                             layout.condition.is_none() || profile.confirm_iodd_condition,
                             "confirm the active IODD layout condition before preparing an output write"

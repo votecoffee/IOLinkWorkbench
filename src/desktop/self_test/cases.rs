@@ -154,6 +154,28 @@ fn text_shapes<'a>(shape: &'a egui::Shape, texts: &mut Vec<&'a str>) {
     }
 }
 
+fn apply_output_fixture(profile: &mut Profile) -> Result<()> {
+    use iolink_workbench::decode::{Field, Kind};
+    profile
+        .iodd
+        .as_mut()
+        .context("missing IODD fixture")?
+        .output = Some(iodd::ProcessDataLayout {
+        id: "OUT".into(),
+        bit_length: 13,
+        packed: true,
+        condition: None,
+        fields: vec![Field {
+            name: "Enable".into(),
+            kind: Kind::Bool,
+            bits: 1,
+            ..Field::default()
+        }],
+        needs_input: Vec::new(),
+    });
+    Ok(())
+}
+
 pub(super) fn render(
     ctx: &Context,
     mut paint: impl FnMut([u32; 2], &egui::FullOutput, &[egui::ClippedPrimitive]) -> Result<()>,
@@ -199,6 +221,7 @@ pub(super) fn render(
                 "offline-raw-signal",
                 "offline-exports",
                 "offline-process",
+                "offline-process-output",
                 "offline-parameter",
                 "offline-snapshot",
                 "offline-events",
@@ -329,24 +352,7 @@ pub(super) fn render(
                                 "OK",
                             )?),
                             "writes-output-review" => {
-                                use iolink_workbench::decode::{Field, Kind};
-                                app.profile
-                                    .iodd
-                                    .as_mut()
-                                    .context("missing IODD fixture")?
-                                    .output = Some(iodd::ProcessDataLayout {
-                                    id: "OUT".into(),
-                                    bit_length: 13,
-                                    packed: true,
-                                    condition: None,
-                                    fields: vec![Field {
-                                        name: "Enable".into(),
-                                        kind: Kind::Bool,
-                                        bits: 1,
-                                        ..Field::default()
-                                    }],
-                                    needs_input: Vec::new(),
-                                });
+                                apply_output_fixture(&mut app.profile)?;
                                 app.setup.sync(&app.profile);
                                 Some(Operation::process_output_field(
                                     &app.profile,
@@ -368,6 +374,14 @@ pub(super) fn render(
                     "offline-process" => {
                         app.tab = Tab::Offline;
                         app.workspace.offline = OfflinePage::Process;
+                    }
+                    "offline-process-output" => {
+                        apply_output_fixture(&mut app.profile)?;
+                        app.setup.sync(&app.profile);
+                        app.tab = Tab::Offline;
+                        app.workspace.offline = OfflinePage::Process;
+                        app.payload_inspector.page = super::super::payload_inspector::Page::Output;
+                        app.payload_inspector.output_pasted = "0001".into();
                     }
                     "offline-parameter" => {
                         app.tab = Tab::Offline;
@@ -521,6 +535,7 @@ pub(super) fn render(
             let review_note = match label {
                 "writes-review" => Some("Changed IODD members (1)"),
                 "writes-output-review" => Some("IODD output · OUT · 13 bits"),
+                "offline-process-output" => Some("true (raw true, bits 0x1)"),
                 "writes-text-review" => {
                     Some("Readback accepts the same IODD text with different zero padding.")
                 }
@@ -617,7 +632,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 103);
+        assert_eq!(cases.len(), 104);
         assert!(
             cases
                 .iter()

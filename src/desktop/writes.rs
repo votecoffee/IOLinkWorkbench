@@ -172,9 +172,8 @@ impl Draft {
     fn show_output(&mut self, ui: &mut Ui, profile: &Profile) {
         use iolink_workbench::decode::Kind as FieldKind;
         let fields: Vec<_> = profile
-            .iodd
-            .iter()
-            .filter_map(|iodd| iodd.output.as_ref())
+            .output_layout()
+            .into_iter()
             .flat_map(|layout| layout.editable_output_fields())
             .collect();
         let was_typed = self.typed_desired;
@@ -618,6 +617,9 @@ impl Panel {
                 );
             }
             ui.collapsing("Observed IODD details", |ui| ui.monospace(decoded.text()));
+        }
+        if let Some(output) = &current.iodd_output {
+            super::payload_inspector::show_output_fields(ui, output);
         }
         if use_value {
             self.draft.expected = value;

@@ -129,6 +129,8 @@ enum Command {
     },
     /// Decode a hexadecimal process input without a gateway.
     Decode { profile: PathBuf, payload: String },
+    /// Inspect a hexadecimal process output using the selected profile's IODD, offline.
+    DecodeOutput { profile: PathBuf, payload: String },
     /// List imported IODD parameters without contacting a gateway.
     Parameters { profile: PathBuf },
     /// Inspect declared defaults from a saved profile without gateway access or writes.
@@ -777,6 +779,23 @@ fn main() -> Result<()> {
             if report.stopped_by_request {
                 std::process::exit(130);
             }
+        }
+        Command::DecodeOutput { profile, payload } => {
+            #[derive(serde::Serialize)]
+            struct Inspection {
+                raw_hex: String,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                iodd_output: Option<iodd::DecodedOutput>,
+            }
+            let profile = Profile::load(&profile)?;
+            let payload = decode::parse_hex(&payload)?;
+            let inspection = Inspection {
+                raw_hex: decode::hex(&payload),
+                iodd_output: profile
+                    .output_layout()
+                    .map(|layout| layout.decode_output(&payload, None)),
+            };
+            println!("{}", serde_json::to_string_pretty(&inspection)?);
         }
         Command::Decode { profile, payload } => {
             let profile = Profile::load(&profile)?;

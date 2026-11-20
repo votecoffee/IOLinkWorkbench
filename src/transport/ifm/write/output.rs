@@ -25,12 +25,8 @@ pub struct OutputFieldReview {
 impl ProcessOutputReview {
     pub(super) fn new(layout: &ProcessDataLayout, before: &[u8], after: &[u8]) -> Result<Self> {
         let width = layout.bytes();
-        ensure!(
-            before.len() == width && after.len() == width,
-            "IODD output layout {} requires {width} bytes ({} bits)",
-            layout.id,
-            layout.bit_length
-        );
+        layout.check_output_width(before.len())?;
+        layout.check_output_width(after.len())?;
         let mut mapped = [false; MAX_INPUT * 8];
         let mut fields = Vec::with_capacity(layout.fields.len());
         for field in &layout.fields {

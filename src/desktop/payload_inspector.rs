@@ -1,8 +1,9 @@
-//! In-memory inspection of pasted bytes or a held Inputs observation.
+//! In-memory inspection of input and output bytes or a held Inputs observation.
 use super::{WARNING, decode, observation::Observation, payload_view};
 use eframe::egui::{self, Ui};
 use iolink_workbench::{
     capture::Live,
+    iodd::DecodedOutput,
     profile::Profile,
     transport::{Freshness, Input},
 };
@@ -12,6 +13,7 @@ pub(super) enum Page {
     #[default]
     Pasted,
     Observation,
+    Output,
 }
 
 struct Copied {
@@ -26,6 +28,7 @@ struct Copied {
 pub(super) struct Inspector {
     pub page: Page,
     pasted: String,
+    pub output_pasted: String,
     copied: Option<Copied>,
 }
 
@@ -34,6 +37,7 @@ impl Default for Inspector {
         Self {
             page: Page::Pasted,
             pasted: "FFF9".into(),
+            output_pasted: String::new(),
             copied: None,
         }
     }
@@ -54,12 +58,17 @@ impl Inspector {
 
     pub fn show(&mut self, ui: &mut Ui, applied: &Profile) {
         ui.heading("Offline payload decoder");
-        if self.copied.is_some() {
-            ui.horizontal_wrapped(|ui| {
-                ui.selectable_value(&mut self.page, Page::Pasted, "Pasted bytes");
+        ui.horizontal_wrapped(|ui| {
+            ui.selectable_value(&mut self.page, Page::Pasted, "Input bytes");
+            ui.selectable_value(&mut self.page, Page::Output, "Output bytes");
+            if self.copied.is_some() {
                 ui.selectable_value(&mut self.page, Page::Observation, "From Inputs");
-            });
-            ui.separator();
+            }
+        });
+        ui.separator();
+        if self.page == Page::Output {
+            self.show_output(ui, applied);
+            return;
         }
         if self.page == Page::Observation
             && let Some(copied) = &self.copied
@@ -83,6 +92,74 @@ impl Inspector {
                 ui.colored_label(WARNING, error.to_string());
             }
         }
+    }
+
+    fn show_output(&mut self, ui: &mut Ui, applied: &Profile) {
+        ui.label(format!("Selected mapping · {}", applied.name));
+        ui.add(
+            egui::TextEdit::multiline(&mut self.output_pasted)
+                .code_editor()
+                .desired_rows(2)
+                .desired_width(f32::INFINITY)
+                .hint_text("Paste the full output image in hex"),
+        );
+        if self.output_pasted.trim().is_empty() {
+            return;
+        }
+        match decode::parse_hex(&self.output_pasted) {
+            Ok(payload) => {
+                ui.label(format!("Raw output · {}", decode::hex(&payload)));
+                if let Some(layout) = applied.output_layout() {
+                    show_output_fields(ui, &layout.decode_output(&payload, None));
+                } else {
+                    ui.small("Import a paired IODD output layout to see typed fields.");
+                }
+            }
+            Err(error) => {
+                ui.colored_label(WARNING, error.to_string());
+            }
+        }
+    }
+}
+
+pub(super) fn show_output_fields(ui: &mut Ui, output: &DecodedOutput) {
+    ui.label(format!(
+        "IODD output · {} · {} bits",
+        output.layout_id, output.bit_length
+    ));
+    if let Some(condition) = &output.condition {
+        let basis = match output.recorded_condition_confirmation {
+            Some(true) => "Recorded condition confirmation",
+            Some(false) => "Unconfirmed layout condition",
+            None => "Selected layout condition",
+        };
+        ui.small(format!("{basis} · {condition}"));
+    }
+    if let Some(error) = &output.decode_error {
+        ui.colored_label(WARNING, error);
+    }
+    if !output.fields.is_empty() || !output.needs_input.is_empty() {
+        ui.collapsing("IODD output fields", |ui| {
+            for entry in &output.fields {
+                let field = &entry.field;
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(format!(
+                        "{} · bit {} · {} bits · {:?} · {:?}",
+                        field.name, field.bit_offset, field.bits, field.kind, field.byte_order
+                    ));
+                    let display = format!("{} {}", entry.value.value, field.unit);
+                    ui.monospace(format!(
+                        "{} (raw {}, bits 0x{})",
+                        display.trim_end(),
+                        entry.value.raw,
+                        entry.value.bits_hex
+                    ));
+                });
+            }
+            for note in &output.needs_input {
+                ui.colored_label(WARNING, note);
+            }
+        });
     }
 }
 

@@ -219,6 +219,10 @@ impl Default for Profile {
 }
 
 impl Profile {
+    pub fn output_layout(&self) -> Option<&crate::iodd::ProcessDataLayout> {
+        self.iodd.as_ref()?.output.as_ref()
+    }
+
     pub fn communication(&self) -> Option<&crate::iodd::Communication> {
         self.iodd
             .as_ref()

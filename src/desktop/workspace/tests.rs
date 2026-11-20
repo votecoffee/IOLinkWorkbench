@@ -134,7 +134,7 @@ fn copied_input_keeps_receipt_quality_bytes_and_mapping_when_the_profile_changes
     assert!(has(&mut app, "Copied mapping · Synthetic level sensor"));
     assert!(has(&mut app, "RAW  03E9"));
     assert!(has(&mut app, "50.0"));
-    click(&mut app, &ctx, size, "Pasted bytes");
+    click(&mut app, &ctx, size, "Input bytes");
     assert!(has(&mut app, "RAW  FFF9"));
     assert!(has(&mut app, "Different mapping"));
     click(&mut app, &ctx, size, "From Inputs");

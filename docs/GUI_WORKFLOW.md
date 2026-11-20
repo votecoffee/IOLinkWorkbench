@@ -32,7 +32,7 @@ The footer shows the latest session message; hover to read it in full. **Diagnos
 
 In **Inputs**, choose **Inspect bytes offline** beside the raw input. **Offline → Process bytes → From Inputs** shows one fixed copy of the bytes, receipt quality, and the mapping used at copy time. You can inspect held or invalid bytes and see their original Inputs state. For host polls, source age and update count remain unknown.
 
-Switch to **Pasted bytes** to keep working with your existing entry under the current mapping. A new copy replaces only the **From Inputs** sample. The copied sample stays in memory for this app session. Monitoring or CSV recording continues while you inspect it.
+Switch to **Input bytes** to keep working with your existing entry under the current mapping. A new copy replaces only the **From Inputs** sample. The copied sample stays in memory for this app session. **Output bytes** keeps its own hex entry and uses the applied profile’s paired output layout. Monitoring or CSV recording continues while you inspect it.
 
 ## Review the route before starting
 

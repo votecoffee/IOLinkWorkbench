@@ -95,7 +95,7 @@ Monitoring, capture and optional data feeds use read-only paths. The reviewed wr
 
 ## Review process outputs
 
-Use **Device → Writes → Process output** or the CLI to review two complete gateway images. Read the current image with **Read current value** or `read-current … process-output`, then use those exact bytes as the expected image. Prepare the desired image using the device's documentation.
+Use **Device → Writes → Process output** or the CLI to review two complete gateway images. Read the current image with **Read current value** or `read-current … process-output`, then use those exact bytes as the expected image. Expand **IODD output fields** to inspect the observed image before preparing a change. CLI output reads retain exact `value` hex and add `iodd_output` when the profile has a paired output layout. An unexpected width or an unconfirmed conditional layout shows the raw image and the reason decoding was skipped.
 
 When the selected input layout has `ProcessDataOut` in the same IODD `ProcessData` entry, Workbench saves that output declaration in the profile. In the preview, expand **IODD output fields** for names, offsets, widths, signedness, byte order, raw values and scaled displays. CLI preview and receipt JSON include `target_and_request.process_output_review`. Changes to bits without a typed mapping are listed for manual review. Both images must match the declared byte width, and padding outside the declared bit length must be preserved.
 
@@ -115,6 +115,14 @@ The confirmation binds the full expected and desired images and the available ty
 .\iolink-cli.exe write $profile --master-serial $serial process-output --expected 0102 --desired 0304
 ```
 
+## Inspect saved output bytes
+
+Use **Offline → Process bytes → Output bytes** and paste the full image, or run the offline decoder with a profile containing the matching IODD layout. The output entry is separate from pasted inputs and the copied Inputs observation. The CLI prints `raw_hex` and any `iodd_output` interpretation. A width mismatch remains visible alongside the raw bytes. For a conditional IODD, offline interpretation uses the selected layout and reports its condition.
+
+```powershell
+.\iolink-cli.exe decode-output $profile A7F1
+```
+
 ## Verification
 
-`python tools/verify_writes.py PATH_TO_CLI` uses an isolated loopback peer. It checks all three current-value reads, ISDU addresses by index and IODD ID, interpretation with raw-byte retention, all four write paths, offline typed and raw ISDU previews including temporal values, whole-image member edits, paired output import and review, typed field edits with exact preservation, output width and padding checks, identity and value mismatches, exact and padding-aware readback, and a lost write reply with one dispatch. `cargo test --locked --bin iolink-workbench desktop::writes::tests` exercises the filtered IODD picker, address changes, offline GUI drafts, an interpreted current read alongside a held acquisition owner, approval guards, and close behavior with a held loopback write reply. Real firmware, machine conditions and actuator effects await physical qualification.
+`python tools/verify_writes.py PATH_TO_CLI` uses an isolated loopback peer. It checks all three current-value reads, ISDU addresses by index and IODD ID, interpretation with raw-byte retention, all four write paths, offline typed and raw ISDU previews including temporal values, whole-image member edits, paired output import and review, checked and offline output decoding, typed field edits with exact preservation, output width and padding checks, identity and value mismatches, exact and padding-aware readback, and a lost write reply with one dispatch. `cargo test --locked --bin iolink-workbench desktop::writes::tests` exercises the filtered IODD picker, address changes, offline GUI drafts, an interpreted current read alongside a held acquisition owner, approval guards, and close behavior with a held loopback write reply. Real firmware, machine conditions and actuator effects await physical qualification.

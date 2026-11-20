@@ -155,7 +155,7 @@ def verify(cli, profile, server):
     output = ["process-output", "--expected", "01 02", "--desired", "03 04"]
     observed = run(["process-output"], command="read-current")
     assert observed["point"] == {"kind": "process_output"} and observed["value"] == "0102"
-    assert "iodd_value" not in observed
+    assert "iodd_value" not in observed and "iodd_output" not in observed
     assert len(server.writes) == 5
     server.next_write = "ignore"
     _, receipt = apply(output, "unconfirmed", status=1)
@@ -228,6 +228,43 @@ def verify(cli, profile, server):
     checked_text = paired.read_text(encoding="utf-8").replace(
         "confirm_iodd_condition = false", "confirm_iodd_condition = true", 1)
     checked.write_text(checked_text, encoding="utf-8", newline="\n")
+
+    before_writes = len(server.writes)
+    server.output = "A7F1"
+    live = run(["process-output"], command="read-current", target=checked)
+    assert live["value"] == "A7F1" and "iodd_value" not in live
+    typed_fields = live["iodd_output"]
+    assert typed_fields["layout_id"] == "OUT" and typed_fields["bit_length"] == 13
+    assert typed_fields["recorded_condition_confirmation"] is True
+    assert typed_fields["fields"][0]["field"]["name"] == "level [1]"
+    assert typed_fields["fields"][0]["value"] == {"bits_hex": "FE", "raw": "-2", "value": "0"}
+    assert typed_fields["fields"][1]["value"]["raw"] == "true"
+    assert "decode_error" not in typed_fields
+    unconfirmed = run(["process-output"], command="read-current", target=paired)
+    assert unconfirmed["value"] == "A7F1" and unconfirmed["iodd_output"]["fields"] == []
+    assert unconfirmed["iodd_output"]["recorded_condition_confirmation"] is False
+    assert "active IODD layout condition" in unconfirmed["iodd_output"]["decode_error"]
+    server.output = "7F"
+    short = run(["process-output"], command="read-current", target=checked)
+    assert short["value"] == "7F" and short["iodd_output"]["fields"] == []
+    assert "received 1" in short["iodd_output"]["decode_error"]
+    server.output = "0304"
+    assert len(server.writes) == before_writes
+
+    def decode_output(target, payload):
+        return json.loads(subprocess.check_output(
+            [cli, "decode-output", target, payload], env=env, timeout=15))
+
+    request_count = len(server.requests)
+    recalled = decode_output(paired, "a7 f1")
+    assert recalled["raw_hex"] == "A7F1"
+    expected = {key: value for key, value in typed_fields.items() if key != "recorded_condition_confirmation"}
+    assert recalled["iodd_output"] == expected
+    assert decode_output(profile, "01 02") == {"raw_hex": "0102"}
+    longer = decode_output(checked, "000001")
+    assert longer["raw_hex"] == "000001" and longer["iodd_output"]["fields"] == []
+    assert "received 3" in longer["iodd_output"]["decode_error"]
+
     assert "requires 2 bytes" in run(["process-output", "--expected", "01", "--desired", "02"],
                                      target=checked, status=1)
     assert "changes padding" in run([*paired_output[:-1], "8012"], target=checked, status=1)
@@ -675,7 +712,7 @@ def verify(cli, profile, server):
     request, receipt = apply(packed_record, "readback_matched", target=whole_record)
     assert request["request_data"]["subindex"] == 0
     assert receipt["readback"] == "FFEC810A41000000"
-    print("PASS: checked reads and ISDU writes by index or IODD ID, typed compound member edits, raw and typed process outputs, exact target checks, exact and StringT readback, and single dispatch on uncertain outcomes")
+    print("PASS: checked reads and ISDU writes by index or IODD ID, typed compound member edits, observed, offline, and staged process outputs, exact target checks, exact and StringT readback, and single dispatch on uncertain outcomes")
 
 
 def main():

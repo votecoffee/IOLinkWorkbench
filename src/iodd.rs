@@ -19,6 +19,8 @@ const XSI: &str = "http://www.w3.org/2001/XMLSchema-instance";
 mod array;
 mod communication;
 pub use communication::{Bitrate, Communication};
+mod output;
+pub use output::{DecodedOutput, DecodedOutputField};
 mod events;
 pub use events::{EventDefinition, EventType};
 mod parameters;
@@ -88,13 +90,7 @@ impl ProcessDataLayout {
         input: &str,
     ) -> Result<Vec<u8>> {
         self.validate()?;
-        ensure!(
-            image.len() == self.bytes(),
-            "IODD output layout {} requires {} bytes ({} bits)",
-            self.id,
-            self.bytes(),
-            self.bit_length
-        );
+        self.check_output_width(image.len())?;
         let field = self
             .editable_output_fields()
             .find(|field| field.name == name)
