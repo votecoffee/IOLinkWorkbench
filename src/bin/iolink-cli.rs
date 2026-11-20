@@ -733,6 +733,12 @@ fn main() -> Result<()> {
         Command::Validate { profile } => {
             let profile = Profile::load(&profile)?;
             println!("{} ({} bytes)", profile.name, profile.input_bytes);
+            if let Some(field) = profile.padded_input_field() {
+                println!(
+                    "IODD standalone integer input · {} value bits in {} wire bytes",
+                    field.bits, profile.input_bytes
+                );
+            }
             println!(
                 "CSV typed columns · {:?}",
                 profile
@@ -922,6 +928,9 @@ fn main() -> Result<()> {
         Command::Decode { profile, payload } => {
             let profile = Profile::load(&profile)?;
             let payload = decode::parse_hex(&payload)?;
+            if let Some(warning) = profile.input_encoding_warning(&payload) {
+                eprintln!("{warning}");
+            }
             for (field, origin, value) in profile.decode(&payload)? {
                 println!(
                     "{} [{origin}]: {} {} (raw {}, bits 0x{})",

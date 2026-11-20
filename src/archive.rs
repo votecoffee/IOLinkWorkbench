@@ -41,6 +41,9 @@ pub struct Summary {
     pub invalid_rows: u64,
     pub unknown_validity_rows: u64,
     pub stale_rows: u64,
+    /// Available when the saved input layout defines standalone integer padding.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub noncanonical_input_padding_rows: Option<u64>,
     pub row_kind: Option<String>,
     pub first_sample_index: Option<u64>,
     pub last_sample_index: Option<u64>,
@@ -327,7 +330,7 @@ fn check_values(
 }
 
 impl Summary {
-    fn new(manifest: &Manifest, joined_csv: Option<&Path>) -> Self {
+    fn new(manifest: &Manifest, joined_csv: Option<&Path>, inspect_padding: bool) -> Self {
         Self {
             profile: manifest.profile.clone(),
             utc_start: manifest.utc_start.clone(),
@@ -337,6 +340,7 @@ impl Summary {
             invalid_rows: 0,
             unknown_validity_rows: 0,
             stale_rows: 0,
+            noncanonical_input_padding_rows: inspect_padding.then_some(0),
             row_kind: manifest.row_kind.clone(),
             first_sample_index: None,
             last_sample_index: None,
@@ -349,10 +353,23 @@ impl Summary {
         }
     }
 
-    fn observe(&mut self, row: &Row<'_>, previous: Option<&Row<'_>>) {
+    fn observe(
+        &mut self,
+        row: &Row<'_>,
+        previous: Option<&Row<'_>>,
+        payload: &[u8],
+        padded_input: Option<&decode::Field>,
+    ) {
         self.rows_checked += 1;
         match row.validity {
-            Validity::Valid => self.valid_rows += 1,
+            Validity::Valid => {
+                self.valid_rows += 1;
+                if let (Some(field), Some(count)) =
+                    (padded_input, &mut self.noncanonical_input_padding_rows)
+                {
+                    *count += u64::from(!crate::iodd::integer_padding_matches(field, payload));
+                }
+            }
             Validity::Invalid => self.invalid_rows += 1,
             Validity::Unknown => self.unknown_validity_rows += 1,
         }
@@ -585,7 +602,8 @@ fn inspect(
     if let Some(writer) = &mut writer {
         writer.write_record(&header)?;
     }
-    let mut summary = Summary::new(&manifest, joined_csv);
+    let padded_input = profile.padded_input_field();
+    let mut summary = Summary::new(&manifest, joined_csv, padded_input.is_some());
     let mut previous_record = None::<csv::StringRecord>;
     let mut row_accounting = accounting::Rows::default();
     for part in parts {
@@ -620,7 +638,7 @@ fn inspect(
                 if let Some(writer) = &mut writer {
                     writer.write_record(&record)?;
                 }
-                summary.observe(&row, previous.as_ref());
+                summary.observe(&row, previous.as_ref(), &payload, padded_input);
                 Ok(record)
             };
             previous_record = Some(

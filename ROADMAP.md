@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Imported standalone integer inputs derive standard padded wire widths. Live and offline views flag noncanonical padding, and saved verification counts affected valid CSV rows.
+
 - Compare saved diagnostic snapshots in GUI and CLI. Full reviews and exact raw equality remain available, with Device Status and event-slot differences limited to compatible recorded context and valid replies.
 
 - Save explicit Device Status and Detailed Device Status reads as a JSON snapshot with per-query bytes, errors and connection context. GUI and CLI review use the embedded IODD event catalog and retain partial results and changed-master/device observations.

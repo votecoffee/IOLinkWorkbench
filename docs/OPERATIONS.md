@@ -48,6 +48,12 @@ Select the acyclic-only layout in **Device → IODD import**. The CLI uses the I
 
 The saved profile retains identity, parameter and event definitions with zero input bytes. Use **Parameters** for ISDU reads and snapshots, **Diagnostics → Device events** for diagnostic reads, and **Device → Writes** for reviewed ISDU operations. Process input acquisition and process output operations require corresponding cyclic data. Acyclic-only profiles require v0.83.0 or later.
 
+### Standalone integer input
+
+For a single IODD signed or unsigned integer, the import preview shows the wire byte count. When the input declaration specifies the logical width or its smallest fitting standard container, the saved profile records the declared length under `iodd.padded_input_bit_length`. For example, a 17-bit value uses a four-byte wire container and retains a 17-bit mapping. Sign-extended or zero-padded high bits do not enter the decoded value. [IO-Link Interface and System Specification, Annex F.2.3–F.2.4](https://io-link.com/fileadmin/user_upload/Downloads/Package_2024/IOL-Interface-Spec_10002_V114_Jun24.pdf)
+
+Inputs and Offline → Process bytes show a warning when the high bits disagree with the IODD encoding. The CLI `decode` reports the same warning on stderr and still prints the typed value. Width checks, raw bytes, validity and CSV column definitions follow the existing capture rules. `verify-capture` counts noncanonical padding among saved valid rows. Padding checks apply when the configured input width matches the saved IODD wire width. Older profiles keep their saved width and mapping. Re-import to select the new geometry. Profiles with the padding metadata require v0.90.0 or later.
+
 ## Prepare the first physical bench
 
 No master, sensor or signal has been chosen for this project yet. Before physical acceptance, record master model/firmware, supported host interface and license/SDK requirements, endpoint or USB connection, configured port/mode, sensor model, IODD revision/variant and desired signal/unit. The AL1350 HTTP(S) adapter targets documented IoT Core 3.1.x behavior. Its [bench reference](../README.md#al1350-bench-setup) records the API, Windows requirements and snapshot limitations; it is not a purchase recommendation or qualification of other firmware.

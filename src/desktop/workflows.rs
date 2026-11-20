@@ -86,6 +86,7 @@ impl App {
                     .clicked()
                 })
                 .inner;
+            show_input_wire_warning(ui, &self.profile, input.payload.bytes());
             if observation.show_typed() {
                 match self.profile.decode(input.payload.bytes()) {
                     Ok(rows) => {

@@ -165,6 +165,9 @@ pub struct Imported {
     pub acyclic_only: bool,
     pub condition: Option<String>,
     pub input_bytes: usize,
+    /// IODD ProcessDataIn bitLength for a standalone padded integer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub padded_input_bit_length: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output: Option<crate::iodd::ProcessDataLayout>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -257,6 +260,28 @@ impl Profile {
         self.iodd = Some(imported);
         self.confirm_iodd_condition = false;
         self.logging.fields.clear();
+    }
+
+    /// The original IODD field used to inspect padding at the selected input wire width.
+    pub fn padded_input_field(&self) -> Option<&Field> {
+        let imported = self.iodd.as_ref()?;
+        let bits = imported.padded_input_bit_length?;
+        let width = crate::iodd::padded_integer_wire_bytes(bits, &imported.fields)?;
+        (width == self.input_bytes && width == imported.input_bytes).then(|| &imported.fields[0])
+    }
+
+    /// Explain noncanonical high bits without changing the decoded value or transport validity.
+    pub fn input_encoding_warning(&self, payload: &[u8]) -> Option<&'static str> {
+        let field = self.padded_input_field()?;
+        if payload.len() == self.input_bytes
+            && !crate::iodd::integer_padding_matches(field, payload)
+        {
+            Some(
+                "Standalone integer input has noncanonical padding. The IODD value uses the declared low bits.",
+            )
+        } else {
+            None
+        }
     }
 
     pub fn output_layout(&self) -> Option<&crate::iodd::ProcessDataLayout> {
@@ -462,6 +487,13 @@ impl Profile {
         );
         let mut names = HashSet::new();
         if let Some(imported) = &self.iodd {
+            if let Some(bits) = imported.padded_input_bit_length {
+                ensure!(
+                    crate::iodd::padded_integer_wire_bytes(bits, &imported.fields)
+                        == Some(imported.input_bytes),
+                    "invalid IODD padded integer input geometry"
+                );
+            }
             if let Some(output) = &imported.output {
                 output.validate().context("invalid IODD output layout")?;
                 ensure!(

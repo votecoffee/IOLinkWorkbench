@@ -503,6 +503,14 @@ fn show_summary(ui: &mut Ui, summary: &archive::Summary) {
         "{} valid · {} invalid · {} with unknown validity · {} stale",
         summary.valid_rows, summary.invalid_rows, summary.unknown_validity_rows, summary.stale_rows
     ));
+    if let Some(count) = summary.noncanonical_input_padding_rows {
+        let text = format!("{count} saved valid rows with noncanonical standalone integer padding");
+        if count == 0 {
+            ui.label(text);
+        } else {
+            ui.colored_label(WARNING, text);
+        }
+    }
     ui.label(format!(
         "{} selected sample indexes absent from CSV",
         summary.missing_sample_indexes

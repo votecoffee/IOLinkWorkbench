@@ -435,6 +435,12 @@ fn optional_number(value: Option<impl ToString>) -> String {
         .unwrap_or_else(|| "unavailable".into())
 }
 
+fn show_input_wire_warning(ui: &mut Ui, profile: &Profile, payload: &[u8]) {
+    if let Some(warning) = profile.input_encoding_warning(payload) {
+        ui.colored_label(WARNING, warning);
+    }
+}
+
 fn payload_view(ui: &mut Ui, profile: &Profile, payload: &[u8], decode_values: bool) {
     if !payload.is_empty() {
         ui.monospace(format!("RAW  {}", decode::hex(payload)));

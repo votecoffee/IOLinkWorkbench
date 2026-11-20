@@ -225,6 +225,7 @@ pub(super) fn render(
                 "offline-exports",
                 "offline-process",
                 "offline-process-output",
+                "offline-padded-input",
                 "acyclic-profile",
                 "offline-parameter",
                 "offline-snapshot",
@@ -422,6 +423,18 @@ pub(super) fn render(
                         app.workspace.offline = OfflinePage::Process;
                         app.payload_inspector.output_pasted = "0001".into();
                     }
+                    "offline-padded-input" => {
+                        let xml = include_str!("../../../samples/sensor.xml").replace(
+                            r#"<ProcessDataIn id="IN" bitLength="16"><DatatypeRef datatypeId="PD"/></ProcessDataIn>"#,
+                            r#"<ProcessDataIn id="IN" bitLength="12"><Datatype xsi:type="UIntegerT" bitLength="12"/><Name textId="integer"/></ProcessDataIn>"#,
+                        );
+                        let catalog = iodd::parse(&xml, "synthetic padded input view".into())?;
+                        let (identity, imported) = catalog.select(Some("SIM-SENSOR"), None)?;
+                        app.profile.apply_iodd(identity, imported);
+                        app.setup.sync(&app.profile);
+                        app.tab = Tab::Offline;
+                        app.workspace.offline = OfflinePage::Process;
+                    }
                     "acyclic-profile" => {
                         let xml = include_str!("../../../samples/sensor.xml").replace(
                             "<ProcessDataIn id=\"IN\" bitLength=\"16\"><DatatypeRef datatypeId=\"PD\"/></ProcessDataIn>",
@@ -602,6 +615,9 @@ pub(super) fn render(
                     "Standalone Boolean byte 02 is noncanonical. Workbench interprets it as true.",
                 ),
                 "offline-process-output" => Some("true (raw true, bits 0x1)"),
+                "offline-padded-input" => Some(
+                    "Standalone integer input has noncanonical padding. The IODD value uses the declared low bits.",
+                ),
                 "acyclic-profile" => Some("Acyclic IODD layout"),
                 "offline-diagnostic-snapshot" => Some("37:0 · synthetic fixture reply unavailable"),
                 "offline-diagnostic-comparison" => Some("Slot 1 · E48DFE → 000000"),
@@ -703,7 +719,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 110);
+        assert_eq!(cases.len(), 111);
         assert!(
             cases
                 .iter()

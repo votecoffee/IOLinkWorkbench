@@ -1,5 +1,5 @@
 //! In-memory inspection of input and output bytes or a held Inputs observation.
-use super::{WARNING, decode, observation::Observation, payload_view};
+use super::{WARNING, decode, observation::Observation, payload_view, show_input_wire_warning};
 use eframe::egui::{self, Ui};
 use iolink_workbench::{
     capture::Live,
@@ -100,7 +100,10 @@ impl Inspector {
                 .desired_width(f32::INFINITY),
         );
         match decode::parse_hex(&self.pasted) {
-            Ok(payload) => payload_view(ui, applied, &payload, true),
+            Ok(payload) => {
+                show_input_wire_warning(ui, applied, &payload);
+                payload_view(ui, applied, &payload, true);
+            }
             Err(error) => {
                 ui.colored_label(WARNING, error.to_string());
             }
@@ -232,6 +235,7 @@ impl Copied {
             }
             None => {}
         }
+        show_input_wire_warning(ui, &self.profile, self.input.payload.bytes());
         payload_view(ui, &self.profile, self.input.payload.bytes(), true);
     }
 }

@@ -46,6 +46,9 @@ pub struct Variant {
 pub struct Layout {
     pub id: String,
     pub input_bytes: usize,
+    /// IODD ProcessDataIn bitLength when a standalone integer uses a padded wire container.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub padded_input_bit_length: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<ProcessDataLayout>,
     pub condition: Option<String>,
@@ -82,21 +85,10 @@ impl ProcessDataLayout {
     }
 
     fn integer_padding_width(&self) -> Option<usize> {
-        let [field] = self.fields.as_slice() else {
-            return None;
-        };
-        if self.packed
-            || self.standalone_boolean
-            || !matches!(field.kind, Kind::Signed | Kind::Unsigned)
-            || field.bit_offset != 0
-            || !(2..64).contains(&field.bits)
-        {
+        if self.packed || self.standalone_boolean {
             return None;
         }
-        let bits = usize::from(field.bits);
-        let width = parameters::integer_container_bytes(u16::from(field.bits));
-        (bits < width * 8 && (self.bit_length == bits || self.bit_length == width * 8))
-            .then_some(width)
+        padded_integer_wire_bytes(self.bit_length, &self.fields)
     }
 
     pub fn editable_output_fields(&self) -> impl Iterator<Item = &Field> {
@@ -199,8 +191,24 @@ impl ProcessDataLayout {
     }
 }
 
+pub(crate) fn padded_integer_wire_bytes(bit_length: usize, fields: &[Field]) -> Option<usize> {
+    let [field] = fields else {
+        return None;
+    };
+    if !matches!(field.kind, Kind::Signed | Kind::Unsigned)
+        || field.bit_offset != 0
+        || field.byte_order != ByteOrder::BigEndian
+        || !(2..64).contains(&field.bits)
+    {
+        return None;
+    }
+    let bits = usize::from(field.bits);
+    let width = parameters::integer_container_bytes(u16::from(field.bits));
+    (bits < width * 8 && (bit_length == bits || bit_length == width * 8)).then_some(width)
+}
+
 // Caller has validated the integer geometry and confirmed a wire-sized payload.
-fn integer_padding_matches(field: &Field, payload: &[u8]) -> bool {
+pub(crate) fn integer_padding_matches(field: &Field, payload: &[u8]) -> bool {
     let bits = usize::from(field.bits);
     let mut word = [0; 8];
     word[8 - payload.len()..].copy_from_slice(payload);
@@ -314,10 +322,11 @@ impl Catalog {
         let layout_id = layout.or_else(|| self.default_layout_id()).context(
             "select the process data layout and confirm any condition against the device",
         )?;
-        let (input_bytes, condition, fields, output, mut needs_input) =
+        let (input_bytes, padded_input_bit_length, condition, fields, output, mut needs_input) =
             if let Some(input) = self.layouts.iter().find(|input| input.id == layout_id) {
                 (
                     input.input_bytes,
+                    input.padded_input_bit_length,
                     &input.condition,
                     input.fields.as_slice(),
                     input.output.as_ref(),
@@ -330,6 +339,7 @@ impl Catalog {
             {
                 (
                     0,
+                    None,
                     &output.condition,
                     &[][..],
                     Some(output),
@@ -341,7 +351,7 @@ impl Catalog {
                     .iter()
                     .find(|layout| layout.id == layout_id)
                     .with_context(|| format!("unknown process data layout {layout_id}"))?;
-                (0, &acyclic.condition, &[][..], None, Vec::new())
+                (0, None, &acyclic.condition, &[][..], None, Vec::new())
             };
         let acyclic_only = input_bytes == 0 && output.is_none();
         if let Some(localization) = &self.localization {
@@ -373,6 +383,7 @@ impl Catalog {
                 acyclic_only,
                 condition: condition.clone(),
                 input_bytes,
+                padded_input_bit_length,
                 output: output.cloned(),
                 needs_input,
                 fields: fields.to_vec(),
@@ -942,6 +953,7 @@ fn parse_resources(
             layouts.push(Layout {
                 id: input.id,
                 input_bytes,
+                padded_input_bit_length: input.padded_integer.then_some(input.bit_length),
                 output,
                 condition: input.condition,
                 needs_input: input.needs_input,
@@ -1139,9 +1151,8 @@ fn parse_process_item<'a, 'input>(
         && node.has_tag_name((IODD_NAMESPACE, "ProcessDataOut"))
         && matches!(bits, 1 | 8)
         && layout.fields.len() == 1;
-    layout.padded_integer = matches!(kind, Some("IntegerT" | "UIntegerT"))
-        && node.has_tag_name((IODD_NAMESPACE, "ProcessDataOut"))
-        && layout.integer_padding_width().is_some();
+    layout.padded_integer =
+        matches!(kind, Some("IntegerT" | "UIntegerT")) && layout.integer_padding_width().is_some();
     if missing_unit {
         layout.needs_input.push(
             "Review engineering units and scaling where the IODD has no display metadata".into(),

@@ -177,6 +177,73 @@ fn standalone_integer_outputs_regenerate_canonical_high_bits() -> Result<()> {
 }
 
 #[test]
+fn standalone_integer_inputs_use_padded_wire_width_and_keep_original_value_bits() -> Result<()> {
+    use crate::profile::Profile;
+    let process_input =
+        r#"<ProcessDataIn id="IN" bitLength="16"><DatatypeRef datatypeId="PD"/></ProcessDataIn>"#;
+    for (declared, bits, datatype, canonical, raw) in [
+        (7usize, 7, "UIntegerT", "7F", "127"),
+        (16, 12, "IntegerT", "F800", "-2048"),
+        (17, 17, "UIntegerT", "00016E5A", "93786"),
+        (32, 17, "IntegerT", "FFFF0000", "-65536"),
+        (
+            63,
+            63,
+            "IntegerT",
+            "C000000000000000",
+            "-4611686018427387904",
+        ),
+    ] {
+        let xml = SENSOR.replace(process_input, &format!(
+            r#"<ProcessDataIn id="IN" bitLength="{declared}"><Datatype xsi:type="{datatype}" bitLength="{bits}"/><Name textId="integer"/></ProcessDataIn>"#,
+        ));
+        let catalog = parse(&xml, "synthetic standalone integer input".into())?;
+        assert_eq!(catalog.layouts[0].padded_input_bit_length, Some(declared));
+        let (identity, imported) = catalog.select(Some("SIM-SENSOR"), None)?;
+        let mut profile = Profile::default();
+        profile.apply_iodd(identity, imported);
+        let reloaded = Profile::parse(&toml::to_string(&profile)?)?;
+        let payload = crate::decode::parse_hex(canonical)?;
+        assert_eq!(reloaded.input_bytes, payload.len());
+        assert_eq!(reloaded.padded_input_field().unwrap().bits, bits);
+        assert_eq!(reloaded.decode(&payload)?[0].2.raw, raw);
+        assert!(reloaded.input_encoding_warning(&payload).is_none());
+
+        let mut changed = payload.clone();
+        changed[0] ^= 0x80;
+        assert!(reloaded.input_encoding_warning(&changed).is_some());
+        assert_eq!(reloaded.decode(&changed)?[0].2.raw, raw);
+
+        let mut legacy = reloaded.clone();
+        let legacy_bytes = declared.div_ceil(8);
+        legacy.input_bytes = legacy_bytes;
+        let saved = legacy.iodd.as_mut().unwrap();
+        saved.input_bytes = legacy_bytes;
+        saved.padded_input_bit_length = None;
+        let legacy = Profile::parse(&toml::to_string(&legacy)?)?;
+        let compact = &payload[payload.len() - legacy_bytes..];
+        assert!(legacy.input_encoding_warning(compact).is_none());
+        assert_eq!(legacy.decode(compact)?[0].2.raw, raw);
+
+        if declared == 17 {
+            assert!(reloaded.decode(compact).is_err());
+            let mut manual_width = reloaded.clone();
+            manual_width.input_bytes = 3;
+            manual_width.validate()?;
+            assert!(manual_width.padded_input_field().is_none());
+            assert_eq!(manual_width.decode(compact)?[0].2.raw, raw);
+        }
+
+        let mut contradictory = reloaded;
+        contradictory.iodd.as_mut().unwrap().fields[0].byte_order = ByteOrder::LittleEndian;
+        assert!(contradictory.validate().is_err());
+    }
+    let packed = parse(SENSOR, "normal packed input".into())?;
+    assert!(packed.layouts[0].padded_input_bit_length.is_none());
+    Ok(())
+}
+
+#[test]
 fn typed_output_field_edits_keep_wire_width_and_neighboring_bits() -> Result<()> {
     let mut layout = ProcessDataLayout {
         id: "OUT".into(),
