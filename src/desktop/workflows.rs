@@ -420,7 +420,7 @@ impl App {
             &self.profile,
             &mut self.parameter_picker,
             available,
-            self.worker.is_none(),
+            self.worker.is_none() && !self.writes.busy(),
             &mut self.parameter_snapshot_path,
         );
         if let Some(selection) = parameter_actions.display {

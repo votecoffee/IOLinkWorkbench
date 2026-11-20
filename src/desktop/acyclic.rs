@@ -106,6 +106,8 @@ impl App {
             Some("Application is closing")
         } else if self.acyclic.busy() {
             Some("An acyclic read is in progress")
+        } else if self.writes.busy() {
+            Some("Wait for the reviewed write before reading parameters")
         } else if self.setup.pending() || self.setup.busy() {
             Some("Finish IODD inspection and apply or discard profile edits before reading")
         } else {

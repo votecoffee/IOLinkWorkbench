@@ -4,7 +4,7 @@ The workspace follows EthernetIP Workbench's Device → Inputs → Logging patte
 
 | Tab | Use it for |
 |---|---|
-| Device | Setup overview, host connection, identity expectations, IODD import and advanced profile TOML, on separate pages |
+| Device | Setup overview, host connection, identity expectations, IODD import, reviewed AL1350 writes and advanced profile TOML, on separate pages |
 | Inputs | Current raw input, quality, advancing host ages and a compact field/value/unit table; expand bit layout and scaling when needed |
 | Logging | New capture folder, duration, update/on-change selection and CSV values; buffer sizing, rotation and the full plan expand on demand |
 | Mappings | Imported/manual fields and overrides; Edit mapping opens a focused editor instead of stacking it below the list |
@@ -45,6 +45,10 @@ These checks run locally. The read verifies reachability and observes master and
 The connection review lists the HTTP status URL, MQTT broker, exact topic and interval, and Windows mapping name and interval for enabled feeds. **Logging → Software feeds for this recording** shows the same destinations before capture. The settings apply to the next session.
 
 Invalid enabled settings block Start and offer a link to the relevant **Integration** page. The selected Integration page displays its validation error as you edit. You can still prepare CSV settings. The application checks port availability, broker connections and Windows object creation during startup or operation.
+
+## Reviewed hardware writes
+
+**Device → Writes** is the separate AL1350 workflow for a port mode, ISDU parameter, device command, or complete process output image. Enter the master serial and operation values, then choose **Preview write offline**. Review the target and request, check **I approve this exact write**, and choose **Apply reviewed write**. The last result follows the dispatched target and remains available if you navigate away. [Write guide](WRITES.md)
 
 ## Finding a recording
 
@@ -95,4 +99,4 @@ Selecting another IODD clears the previous inspection, variant/layout and ZIP-me
 
 In-process egui tests check page isolation and toolbar bounds at **790×530** and **1130×790**, review/profile navigation, starter selection and guarded replacement, failed-load and source-file preservation, overview routing, synthetic file-drop routing and explicit load/inspect/apply, Unicode paths, rejected multi-file/unsupported drops, hover geometry, hidden-draft recovery, and acyclic result attribution after selection and page changes. Simulator capture tests cover stopping from another tab, verification with a pending export path, signal review, combining CSV parts, re-decoding, and staging and comparing a baseline and latest recording across page changes. Synthetic pointer events stay inside an isolated egui context.
 
-The capability-checked native verifier paints 98 built-in profile/page/dialog and observation cases at **1130×790** into a hidden OpenGL framebuffer. It sends no input and reads no pixels. These checks establish layout geometry, workflow behavior and draw submission. Visible appearance, Explorer/OS drop delivery, window-manager interaction, DPI and physical-device acceptance remain separate. The preview case supplies synthetic hover metadata without desktop input or file access.
+The capability-checked native verifier paints 100 built-in profile/page/dialog and observation cases at **1130×790** into a hidden OpenGL framebuffer, including the write draft and preview. It sends no input and reads no pixels. These checks establish layout geometry, workflow behavior and draw submission. Visible appearance, Explorer/OS drop delivery, window-manager interaction, DPI and physical-device acceptance remain separate. The preview case supplies synthetic hover metadata without desktop input or file access.

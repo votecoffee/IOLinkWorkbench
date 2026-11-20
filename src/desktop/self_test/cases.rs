@@ -182,6 +182,8 @@ pub(super) fn render(
                 "device-connection",
                 "device-identity",
                 "device-iodd",
+                "writes-form",
+                "writes-review",
                 "device-advanced",
                 "mapping-editor",
                 "parameters-raw",
@@ -298,6 +300,24 @@ pub(super) fn render(
                             }
                             _ => Page::Exports,
                         };
+                    }
+                    "writes-form" | "writes-review" => {
+                        app.profile.connection.gateway = Gateway::IfmAl1350;
+                        app.profile.connection.endpoint = "https://127.0.0.1:9".into();
+                        app.profile.connection.ifm_firmware = "3.1.42".into();
+                        app.setup.sync(&app.profile);
+                        app.setup.page = Page::Writes;
+                        if label == "writes-review" {
+                            use iolink_workbench::transport::write::{Operation, Plan};
+                            app.writes.stage(Plan::new(
+                                &app.profile,
+                                "SYNTHETIC-MASTER",
+                                Operation::PortMode {
+                                    expected: 3,
+                                    desired: 0,
+                                },
+                            )?);
+                        }
                     }
                     "offline-process" => {
                         app.tab = Tab::Offline;
@@ -500,7 +520,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 98);
+        assert_eq!(cases.len(), 100);
         assert!(
             cases
                 .iter()

@@ -10,8 +10,12 @@ pub(super) enum CloseAction {
 }
 
 impl App {
-    pub(super) fn settle_close(&mut self, requested: bool, capture_failed: bool) -> CloseAction {
-        if capture_failed && (self.closing || requested) {
+    pub(super) fn settle_close(
+        &mut self,
+        requested: bool,
+        outcome_needs_review: bool,
+    ) -> CloseAction {
+        if outcome_needs_review && (self.closing || requested) {
             self.closing = false;
             self.stop.request();
             self.message = format!("Close canceled · {}", self.message);
@@ -23,6 +27,7 @@ impl App {
     pub(super) fn pending_jobs(&self) -> usize {
         usize::from(self.worker.is_some())
             + usize::from(self.acyclic.busy())
+            + usize::from(self.writes.busy())
             + usize::from(self.setup.busy())
             + self.saved_capture.pending_jobs()
             + usize::from(self.saved_parameter.busy())

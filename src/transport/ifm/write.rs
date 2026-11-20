@@ -36,21 +36,21 @@ pub enum Operation {
 }
 
 #[derive(Serialize)]
-struct Review {
+pub struct Review {
     format_version: u32,
-    model: &'static str,
-    endpoint: String,
-    firmware: String,
-    master_serial: String,
-    port: u8,
-    numeric_io_link_mode: Option<u8>,
-    expected_device: Option<Identity>,
-    operation: &'static str,
-    address: String,
-    request_data: Value,
-    expected_value: Option<Value>,
-    requested_value: Value,
-    command_meaning: Option<String>,
+    pub model: &'static str,
+    pub endpoint: String,
+    pub firmware: String,
+    pub master_serial: String,
+    pub port: u8,
+    pub numeric_io_link_mode: Option<u8>,
+    pub expected_device: Option<Identity>,
+    pub operation: &'static str,
+    pub address: String,
+    pub request_data: Value,
+    pub expected_value: Option<Value>,
+    pub requested_value: Value,
+    pub command_meaning: Option<String>,
 }
 
 pub struct Plan {
@@ -81,7 +81,7 @@ pub struct Receipt<'a> {
     dispatch_utc: String,
     gateway_code: Option<u64>,
     readback: Option<Value>,
-    detail: Option<String>,
+    pub detail: Option<String>,
 }
 
 impl Plan {
@@ -225,6 +225,14 @@ impl Plan {
             confirmation: &self.confirmation,
             target_and_request: &self.review,
         }
+    }
+
+    pub fn review(&self) -> &Review {
+        &self.review
+    }
+
+    pub fn confirmation(&self) -> &str {
+        &self.confirmation
     }
 
     /// Recheck the reviewed target and current value, then dispatch at most one write request.

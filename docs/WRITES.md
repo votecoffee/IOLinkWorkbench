@@ -1,6 +1,6 @@
 # Reviewed AL1350 writes
 
-The CLI supports four one-shot operations for the AL1350 IoT Core 3.1.x interface. The [ifm operating instructions](https://www.quicktimeonline.com/assets/images/pdf/IFM%20Electronic/operating-instruction-AL1350.pdf) document port `mode` in section 9.2.8, `pdout/setdata` in section 9.2.11, and `iolwriteacyclic` in section 9.2.13. The [IO-Link system specification](https://io-link.com/fileadmin/user_upload/Downloads/Package_2024/IOL-Interface-Spec_10002_V114_Jun24.pdf) defines the SystemCommand address and command classes in Annex B.2.2.
+The GUI and CLI support four one-shot operations for the AL1350 IoT Core 3.1.x interface. The [ifm operating instructions](https://www.quicktimeonline.com/assets/images/pdf/IFM%20Electronic/operating-instruction-AL1350.pdf) document port `mode` in section 9.2.8, `pdout/setdata` in section 9.2.11, and `iolwriteacyclic` in section 9.2.13. The [IO-Link system specification](https://io-link.com/fileadmin/user_upload/Downloads/Package_2024/IOL-Interface-Spec_10002_V114_Jun24.pdf) defines the SystemCommand address and command classes in Annex B.2.2.
 
 | CLI operation | Review inputs | Live check before dispatch |
 |---|---|---|
@@ -9,7 +9,13 @@ The CLI supports four one-shot operations for the AL1350 IoT Core 3.1.x interfac
 | `device-command` | Decimal `--code` and `--meaning` from the device's documentation | Master and device identity and IO-Link mode. Sends a single SystemCommand byte to index 2, subindex 0. The supported code classes are profile-defined, the four standard reset commands, and vendor-defined. |
 | `process-output` | `--expected` and `--desired` complete hex images of equal width, up to 32 bytes | Master and device identity, IO-Link mode, and the entire gateway `pdout` value. |
 
-## Preview and execute
+## GUI
+
+1. Apply an AL1350 profile for the approved bench endpoint and port. Under **Device → Writes**, enter the expected master serial and choose **Port mode**, **ISDU parameter**, **Device command**, or **Process output**.
+2. Enter the operation values and choose **Preview write offline**. Review the endpoint, firmware, port, identity pins, expected value, service address and payload. **Edit write** returns to the draft and clears approval. Applying another profile or editing the applied connection or identity also clears the draft and approval.
+3. Select **I approve this exact write** and choose **Apply reviewed write**. The write worker blocks new acquisition and acyclic reads until it finishes. **Last write result** shows the dispatched target, outcome and exact JSON receipt when available. If normal window close is pending when the outcome becomes unconfirmed, the app returns to Writes so the result can be reviewed.
+
+## CLI
 
 Use a profile for the approved bench endpoint and port with `ifm_firmware` pinned to its exact 3.1.x value. `--master-serial` pins the master. Device operations require nonzero Vendor ID and Device ID pins from the profile. Every optional configured identity pin must match. A Product ID pin is checked by ISDU and a missing gateway serial can be checked through the device Serial Number ISDU. If the gateway reports a numeric IO-Link mode, use the existing `ifm_mode` profile setting for its confirmed code. Authenticated requests use the existing HTTPS and `IOLINK_IFM_PASSWORD` setting.
 
@@ -28,8 +34,8 @@ The CLI dispatches at most one write for each invocation. It makes a fresh readb
 - `gateway_acknowledged` records the SystemCommand acknowledgement. Verify the command's effect according to the device documentation.
 - `unconfirmed` includes a gateway error, lost or malformed reply, or failed or different readback. The CLI returns exit 1 after printing the receipt. Inspect the current state before deciding on any further action.
 
-The GUI, poller, and optional data feeds remain read-only. This first write path covers mode changes, individual readable ISDU parameters, one-shot documented SystemCommands, and a single full output image. Cyclic output ownership, write-only vendor parameters, typed output encoding, and Data Storage workflows remain follow-on work.
+Monitoring, capture and optional data feeds use read-only paths. The reviewed write workflow covers mode changes, individual readable ISDU parameters, one-shot documented SystemCommands, and a single full output image. Cyclic output ownership, write-only vendor parameters, typed output encoding, and Data Storage workflows remain follow-on work.
 
 ## Verification
 
-`python tools/verify_writes.py PATH_TO_CLI` uses an isolated loopback peer. It checks all four request paths, offline confirmation, identity and value mismatches, readback, and a lost write reply with one dispatch. Real firmware, machine conditions and actuator effects await physical qualification.
+`python tools/verify_writes.py PATH_TO_CLI` uses an isolated loopback peer. It checks all four request paths, offline confirmation, identity and value mismatches, readback, and a lost write reply with one dispatch. `cargo test --locked --bin iolink-workbench desktop::writes::tests` exercises offline GUI drafts, approval guards, and close behavior with a held loopback write reply. Real firmware, machine conditions and actuator effects await physical qualification.

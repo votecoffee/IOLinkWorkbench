@@ -30,6 +30,7 @@ mod setup;
 mod shutdown;
 mod workflows;
 mod workspace;
+mod writes;
 
 #[cfg(test)]
 static WORKER_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -135,6 +136,7 @@ struct App {
     shared_memory_interval_ms: u64,
     worker: Option<Worker<Report>>,
     acyclic: acyclic::Reads,
+    writes: writes::Panel,
     isdu_index: u16,
     isdu_subindex: u8,
     queue: LiveQueue,
@@ -187,6 +189,7 @@ impl App {
             shared_memory_interval_ms: 10,
             worker: None,
             acyclic: acyclic::Reads::default(),
+            writes: writes::Panel::default(),
             isdu_index: 19,
             isdu_subindex: 0,
             queue: Arc::new(crossbeam_queue::ArrayQueue::new(1)),
@@ -212,6 +215,8 @@ impl App {
             Some(
                 "An acquisition session is already active; wait for its completion before starting another",
             )
+        } else if self.writes.busy() {
+            Some("A reviewed write is in progress")
         } else if self.setup.pending() {
             Some("Apply or discard pending profile edits before starting a session")
         } else if self.setup.busy() {
@@ -322,10 +327,15 @@ impl App {
             }
         }
         self.acyclic.update();
-        match self.settle_close(
-            ctx.input(|input| input.viewport().close_requested()),
-            capture_failed,
-        ) {
+        let write_unconfirmed = self.writes.update(&mut self.message);
+        let close_requested = ctx.input(|input| input.viewport().close_requested());
+        if write_unconfirmed && (close_requested || self.closing) {
+            self.tab = Tab::Device;
+            self.setup.page = setup::Page::Writes;
+            self.workspace.connect_dialog = false;
+            self.workspace.profile_dialog = false;
+        }
+        match self.settle_close(close_requested, capture_failed || write_unconfirmed) {
             shutdown::CloseAction::Wait | shutdown::CloseAction::Cancel => {
                 ctx.send_viewport_cmd(ViewportCommand::CancelClose);
             }

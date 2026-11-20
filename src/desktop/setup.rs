@@ -18,14 +18,16 @@ pub(super) enum Page {
     Connection,
     Identity,
     Iodd,
+    Writes,
     Advanced,
 }
 impl Page {
-    pub(super) const ALL: [Self; 5] = [
+    pub(super) const ALL: [Self; 6] = [
         Self::Overview,
         Self::Connection,
         Self::Identity,
         Self::Iodd,
+        Self::Writes,
         Self::Advanced,
     ];
     pub(super) fn label(self) -> &'static str {
@@ -34,6 +36,7 @@ impl Page {
             Self::Connection => "Connection",
             Self::Identity => "Identity expectations",
             Self::Iodd => "IODD import",
+            Self::Writes => "Writes",
             Self::Advanced => "Advanced TOML",
         }
     }
@@ -215,6 +218,7 @@ impl Editor {
         let mut changed = false;
         ui.add_enabled_ui(editable, |ui| match self.page {
             Page::Overview => unreachable!("overview is rendered before editing controls"),
+            Page::Writes => unreachable!("writes are rendered by the workspace"),
             Page::Connection => {
             if ui.add_enabled_ui(!self.pending && !self.identity.pending() && !self.mapping.pending(), |ui| self.connection.show(ui, profile, message)).inner {
                 self.sync(profile);

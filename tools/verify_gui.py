@@ -62,13 +62,13 @@ def verify(gui, output):
     expected = {(profile, tab) for profile in PROFILES for tab in
                 ("Device", "Inputs", "Logging", "Mappings", "Parameters", "Integration", "Diagnostics", "Offline")}
     expected.update(("formats", page) for page in (
-        "device-connection", "device-identity", "device-iodd", "device-advanced", "mapping-editor", "parameters-raw", "parameters-selected-record",
+        "device-connection", "device-identity", "device-iodd", "writes-form", "writes-review", "device-advanced", "mapping-editor", "parameters-raw", "parameters-selected-record",
         "integration-mqtt", "integration-shared-memory", "diagnostics-timing", "diagnostics-events",
         "offline-compare", "offline-signal", "offline-raw-signal", "offline-exports", "offline-process", "offline-parameter", "offline-snapshot", "offline-events",
         "profiles-dialog", "profiles-files", "drop-preview", "drop-saved-preview", "latest-recording", "connection-dialog", "connection-needs-endpoint", "connection-feed-settings"))
     expected.update((name, "Inputs") for name in OBSERVATIONS)
     expected.add(("observation-copied-snapshot", "Process bytes"))
-    assert len(cases) == len(expected) == 98 and {(case["profile"], case["tab"]) for case in cases} == expected
+    assert len(cases) == len(expected) == 100 and {(case["profile"], case["tab"]) for case in cases} == expected
     for case in cases:
         assert case["passes"] == 2 and case["shapes"] > 0 and case["meshes"] > 0 and case["triangles"] > 0
         assert (case["width"], case["height"]) == (1130, 790)

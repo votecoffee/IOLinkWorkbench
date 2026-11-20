@@ -91,9 +91,13 @@ impl App {
             ui.add_space(4.0);
             ui.horizontal_wrapped(|ui| {
                 ui.label(RichText::new("IO-Link Workbench").size(22.0).strong());
-                ui.colored_label(ACCENT, "READ ONLY");
+                if self.worker.is_some() || self.profile.connection.gateway == Gateway::Simulator {
+                    ui.colored_label(ACCENT, "READ ONLY");
+                }
                 ui.label(if self.closing {
                     "CLOSING"
+                } else if self.writes.busy() {
+                    "WRITE IN PROGRESS"
                 } else if self.worker.is_some() && self.stop.requested() {
                     "STOPPING / FLUSHING"
                 } else if self.worker.is_some() && !self.live.connected {
@@ -206,11 +210,13 @@ impl App {
             self.page_navigation(ui);
             egui::ScrollArea::vertical().id_salt(self.scroll_id()).auto_shrink([false, false]).show(ui, |ui| {
                 ui.set_max_width(1000.0);
-                let editable = self.worker.is_none() && !self.acyclic.busy() && !self.setup.busy();
-                if matches!(self.tab, Tab::Device | Tab::Mappings) && !editable {
-                    ui.colored_label(WARNING, "Wait for active acquisition and parameter reads to finish before editing setup.");
+                let editable = self.worker.is_none() && !self.acyclic.busy() && !self.setup.busy() && !self.writes.busy();
+                let on_setup = self.tab == Tab::Mappings || (self.tab == Tab::Device && self.setup.page != setup::Page::Writes);
+                if on_setup && !editable {
+                    ui.colored_label(WARNING, "Wait for active acquisition, reads, writes or IODD inspection before editing setup.");
                 }
                 let changed = match self.tab {
+                    Tab::Device if self.setup.page == setup::Page::Writes => { self.write_page(ui); false }
                     Tab::Device => self.setup.show(ui, &mut self.profile, &mut self.message, editable, &mut self.tab),
                     Tab::Mappings => self.setup.show_mappings(ui, &mut self.profile, &mut self.message, editable),
                     Tab::Inputs => { self.inputs(ui); false }
@@ -326,6 +332,7 @@ impl App {
         self.offline_parameter = parameters::Offline::default();
         self.offline_diagnostics = diagnostics::Offline::default();
         self.acyclic.clear_results();
+        self.writes.clear_draft();
     }
 
     fn parameter_page(&mut self, ui: &mut Ui) {
@@ -373,6 +380,7 @@ impl App {
                     &self.profile,
                     self.worker.is_none()
                         && !self.acyclic.busy()
+                        && !self.writes.busy()
                         && !self.setup.pending()
                         && !self.setup.busy(),
                 ) {
@@ -431,6 +439,7 @@ impl App {
                     let editable = !self.closing
                         && self.worker.is_none()
                         && !self.acyclic.busy()
+                        && !self.writes.busy()
                         && !self.setup.busy();
                     if self
                         .setup
