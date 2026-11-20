@@ -26,6 +26,10 @@ Preview runs offline and prints JSON with the destination, wire address, payload
 .\iolink-cli.exe write $profile --master-serial $serial isdu --index 65 --expected 01 --desired 02
 ```
 
+The ISDU preview includes `isdu_value_review`. In the GUI, the parameter name, datatype and decoded value appear beneath the wire request. Expand **IODD value details** for named choices, range assessment and any engineering displays. For supported scalar, text, octet and time datatypes, preview rejects bytes that the declared datatype cannot decode. For supported numeric choices and ranges, it also rejects values outside well-formed definitions and values that cannot be compared with them. The check applies to the proposed bytes so an out-of-definition current value can still be corrected. Dispatch compares the exact expected bytes with a fresh read.
+
+Whole records and arrays get a width check and explicit manual review of their members. Unsupported datatypes and ambiguous choices or ranges also call for manual review. A missing IODD parameter is identified as `no_iodd_parameter`, with raw-byte review available. Selected record and array members use their own declarations when the IODD allows subindex access. The ISDU confirmation code includes this review.
+
 `read-current` uses the same target checks as write preflight. It returns JSON with the master, port, point, UTC observation time and `value`. The value is a number for a port mode and uppercase hex for ISDU or process output. Use the observed value as `--expected` when preparing the separate write. Execution checks the value again.
 
 ```powershell
@@ -46,4 +50,4 @@ Monitoring, capture and optional data feeds use read-only paths. The reviewed wr
 
 ## Verification
 
-`python tools/verify_writes.py PATH_TO_CLI` uses an isolated loopback peer. It checks all three current-value reads, all four write paths, offline confirmation, identity and value mismatches, readback, and a lost write reply with one dispatch. `cargo test --locked --bin iolink-workbench desktop::writes::tests` exercises offline GUI drafts, a current read alongside a held acquisition owner, approval guards, and close behavior with a held loopback write reply. Real firmware, machine conditions and actuator effects await physical qualification.
+`python tools/verify_writes.py PATH_TO_CLI` uses an isolated loopback peer. It checks all three current-value reads, all four write paths, offline confirmation and IODD value review, identity and value mismatches, readback, and a lost write reply with one dispatch. `cargo test --locked --bin iolink-workbench desktop::writes::tests` exercises offline GUI drafts, a current read alongside a held acquisition owner, approval guards, and close behavior with a held loopback write reply. Real firmware, machine conditions and actuator effects await physical qualification.

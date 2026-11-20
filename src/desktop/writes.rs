@@ -2,7 +2,7 @@ use super::{ACCENT, App, Gateway, Profile, WARNING, Worker, background, complete
 use anyhow::{Context, Result, ensure};
 use eframe::egui::{self, Ui};
 use iolink_workbench::transport::write::{
-    CurrentRead, CurrentValue, Operation, Outcome, Plan, ReadPoint,
+    CurrentRead, CurrentValue, IsduValueReview, Operation, Outcome, Plan, ReadPoint,
 };
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -399,6 +399,36 @@ fn show_review(ui: &mut Ui, plan: &Plan) {
     ui.strong("Proposed request");
     ui.monospace(&review.address);
     ui.monospace(review.request_data.to_string());
+    match &review.isdu_value_review {
+        Some(IsduValueReview::NoIoddParameter) => {
+            ui.colored_label(
+                WARNING,
+                "No IODD definition for this address. Review the raw bytes manually.",
+            );
+        }
+        Some(IsduValueReview::Iodd {
+            name,
+            datatype,
+            interpretation,
+            manual_review,
+            ..
+        }) => {
+            let value = interpretation
+                .as_ref()
+                .and_then(|decoded| decoded.raw_value.as_deref());
+            ui.label(match value {
+                Some(value) => format!("IODD · {name} · {datatype} · {value}"),
+                None => format!("IODD · {name} · {datatype}"),
+            });
+            if let Some(note) = manual_review {
+                ui.colored_label(WARNING, *note);
+            }
+            if let Some(decoded) = interpretation {
+                ui.collapsing("IODD value details", |ui| ui.monospace(decoded.text()));
+            }
+        }
+        None => {}
+    }
     ui.small("Apply checks the target and sends one write. A lost response leaves the outcome unconfirmed.");
 }
 

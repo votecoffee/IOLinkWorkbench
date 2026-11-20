@@ -79,17 +79,17 @@ def verify(cli, profile, server):
         assert process.returncode == status, (args, process.stdout, process.stderr)
         return json.loads(process.stdout) if process.stdout else process.stderr
 
-    def preview(operation, *, serial=SERIAL):
+    def preview(operation, *, serial=SERIAL, target=profile):
         before = len(server.requests)
-        planned = run(operation, serial=serial)
+        planned = run(operation, serial=serial, target=target)
         assert len(server.requests) == before, "preview accessed the network"
         assert len(planned["confirmation"]) == 64
         return planned
 
-    def apply(operation, outcome, *, status=0):
-        planned = preview(operation)
+    def apply(operation, outcome, *, status=0, target=profile):
+        planned = preview(operation, target=target)
         before = len(server.writes)
-        receipt = run(operation, confirm=planned["confirmation"], status=status)
+        receipt = run(operation, confirm=planned["confirmation"], status=status, target=target)
         assert receipt["outcome"] == outcome, receipt
         assert receipt["preview"] == planned
         request = planned["target_and_request"]
@@ -132,6 +132,7 @@ def verify(cli, profile, server):
     server.parameters[65, 1] = "0001"
     request, receipt = apply(parameter, "readback_matched")
     assert request["request_data"] == {"index": 65, "subindex": 1, "value": "0002"}
+    assert request["isdu_value_review"] == {"basis": "no_iodd_parameter"}
     assert receipt["readback"] == "0002"
     assert "SystemCommand" in run([*parameter[:2], "2", *parameter[3:]], status=1)
 
@@ -158,19 +159,49 @@ def verify(cli, profile, server):
     assert receipt["readback"] == server.output == "0304"
     assert "same full byte width" in run([*output[:-1], "03"], status=1)
 
-    imported = profile.parent / "imported.toml"
-    configured = profile.parent / "iodd-fixture.toml"
-    subprocess.run([cli, "import", ROOT / "samples/sensor.xml", imported, "--variant", "SIM-SENSOR"],
-                   env=env, check=True, capture_output=True, timeout=15)
-    subprocess.run([cli, "set-connection", imported, configured, "--gateway", "ifm-al1350",
-                    "--endpoint", f"http://127.0.0.1:{server.server_port}", "--port", "2",
-                    "--firmware", "3.1.42", "--expected-mode", "3"],
-                   env=env, check=True, capture_output=True, timeout=15)
+    def import_for_write(name):
+        imported = profile.parent / f"{name}-imported.toml"
+        configured = profile.parent / f"{name}-configured.toml"
+        subprocess.run([cli, "import", ROOT / f"samples/{name}.xml", imported, "--variant", "SIM-SENSOR"],
+                       env=env, check=True, capture_output=True, timeout=15)
+        subprocess.run([cli, "set-connection", imported, configured, "--gateway", "ifm-al1350",
+                        "--endpoint", f"http://127.0.0.1:{server.server_port}", "--port", "2",
+                        "--firmware", "3.1.42", "--expected-mode", "3"],
+                       env=env, check=True, capture_output=True, timeout=15)
+        return configured
+
+    configured = import_for_write("sensor")
+    formats = import_for_write("sensor-formats")
+    member = ["isdu", "--index", "66", "--subindex", "3", "--expected", "FF", "--desired", "0A"]
+    signed = ["isdu", "--index", "64", "--expected", "0001", "--desired", "FFFE"]
+    compound = ["isdu", "--index", "66", "--expected", "0000000000000000", "--desired", "0000000A41000000"]
     before = len(server.requests)
     assert "does not declare this parameter read/write" in run(
         ["isdu", "--index", "65", "--expected", "01", "--desired", "02"], status=1, target=configured)
+    assert "does not declare this parameter read/write" in run(
+        [*member[:4], "1", *member[5:]], status=1, target=formats)
+    assert "outside the IODD choices or ranges" in run([*member[:-1], "0B"], status=1, target=formats)
+    assert "width differs from the IODD" in run([*signed[:-1], "FE"], status=1, target=formats)
+    assert "width differs from the IODD" in run([*compound[:-1], "00"], status=1, target=formats)
+    compound_review = preview(compound, target=formats)["target_and_request"]["isdu_value_review"]
+    assert compound_review["datatype"] == "RecordT" and "manual_review" in compound_review
+    assert "interpretation" not in compound_review
+    signed_review = preview(signed, target=formats)["target_and_request"]["isdu_value_review"]
+    assert signed_review["datatype"] == "IntegerT" and signed_review["interpretation"]["raw_value"] == "-2"
+    assert "manual_review" not in signed_review
+    overlap = preview([*signed[:-1], "01F4"], target=configured)["target_and_request"]["isdu_value_review"]
+    assert overlap["interpretation"]["value_assessment"]["status"] == "definition_needs_review"
+    assert "manual_review" in overlap
     assert len(server.requests) == before
-    print("PASS: checked current-value reads, offline plans, exact target checks, four write paths, readback, and single dispatch on uncertain outcomes")
+
+    server.parameters[66, 3] = "FF"
+    request, receipt = apply(member, "readback_matched", target=formats)
+    value_review = request["isdu_value_review"]
+    assert value_review["basis"] == "iodd" and value_review["datatype"] == "UIntegerT"
+    assert value_review["interpretation"]["raw_value"] == "10"
+    assert value_review["interpretation"]["value_assessment"]["status"] == "allowed"
+    assert receipt["readback"] == server.parameters[66, 3] == "0A"
+    print("PASS: checked reads, offline plans and IODD value review, exact target checks, four write paths, readback, and single dispatch on uncertain outcomes")
 
 
 def main():

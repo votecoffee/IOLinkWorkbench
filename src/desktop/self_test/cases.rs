@@ -312,9 +312,11 @@ pub(super) fn render(
                             app.writes.stage(Plan::new(
                                 &app.profile,
                                 "SYNTHETIC-MASTER",
-                                Operation::PortMode {
-                                    expected: 3,
-                                    desired: 0,
+                                Operation::Isdu {
+                                    index: 66,
+                                    subindex: 3,
+                                    expected: "FF".into(),
+                                    desired: "0A".into(),
                                 },
                             )?);
                         }

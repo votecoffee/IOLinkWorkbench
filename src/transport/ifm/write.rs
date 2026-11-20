@@ -2,7 +2,7 @@
 use super::{Client, InputTransport, label, number};
 use crate::{
     decode::{MAX_INPUT, hex, parse_hex_bounded},
-    iodd::Access,
+    iodd::{Access, AssessmentStatus, DecodedParameter, Parameter},
     profile::{Connection, Gateway, Identity, Profile},
 };
 use anyhow::{Context, Result, ensure};
@@ -100,15 +100,15 @@ impl CurrentRead {
 }
 
 impl ReadPoint {
-    fn validate(self, profile: &Profile) -> Result<()> {
+    fn validate(self, profile: &Profile) -> Result<Option<&Parameter>> {
         if let Self::Isdu { index, subindex } = self {
             ensure!(
                 matches!(index, 4..=254 | 256..=0x41ff | 0x4300..=0x4fff),
                 "use a parameter index supported by this write path. Use device-command for SystemCommand"
             );
-            check_iodd_access(profile, index, subindex)?;
+            return writable_parameter(profile, index, subindex);
         }
-        Ok(())
+        Ok(None)
     }
 }
 
@@ -128,6 +128,23 @@ pub struct Review {
     pub expected_value: Option<Value>,
     pub requested_value: Value,
     pub command_meaning: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub isdu_value_review: Option<IsduValueReview>,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "basis", rename_all = "snake_case")]
+pub enum IsduValueReview {
+    NoIoddParameter,
+    Iodd {
+        parameter_id: String,
+        name: String,
+        datatype: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        interpretation: Option<Box<DecodedParameter>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        manual_review: Option<&'static str>,
+    },
 }
 
 pub struct Plan {
@@ -218,11 +235,13 @@ impl Plan {
             Operation::DeviceCommand { .. } => None,
         };
         let target = Target::new(profile, master_serial, point != Some(ReadPoint::PortMode))?;
-        if let Some(point) = point {
-            point.validate(profile)?;
-        }
+        let iodd_parameter = match point {
+            Some(point) => point.validate(profile)?,
+            None => None,
+        };
         let port = format!("/iolinkmaster/port[{}]", target.connection.port);
         let device = format!("{port}/iolinkdevice");
+        let mut isdu_value_review = None;
         let (kind, address, request_data, expected_value, requested_value, command_meaning) =
             match &operation {
                 Operation::PortMode { expected, desired } => (
@@ -240,7 +259,9 @@ impl Plan {
                     desired,
                 } => {
                     let before = hex(&parse_hex_bounded(expected, MAX_ISDU_BYTES)?);
-                    let after = hex(&parse_hex_bounded(desired, MAX_ISDU_BYTES)?);
+                    let proposed = parse_hex_bounded(desired, MAX_ISDU_BYTES)?;
+                    isdu_value_review = Some(review_isdu_value(iodd_parameter, &proposed)?);
+                    let after = hex(&proposed);
                     (
                         "isdu",
                         format!("{device}/iolwriteacyclic"),
@@ -308,6 +329,7 @@ impl Plan {
             expected_value,
             requested_value,
             command_meaning,
+            isdu_value_review,
         };
         let confirmation = format!("{:x}", Sha256::digest(serde_json::to_vec(&review)?));
         Ok(Self {
@@ -474,21 +496,79 @@ fn read_id(client: &mut Client, index: u16) -> Result<String> {
         .into())
 }
 
-fn check_iodd_access(profile: &Profile, index: u16, subindex: u8) -> Result<()> {
-    if let Some(parameter) = profile.iodd.as_ref().and_then(|iodd| {
+fn writable_parameter(profile: &Profile, index: u16, subindex: u8) -> Result<Option<&Parameter>> {
+    let Some(parameter) = profile.iodd.as_ref().and_then(|iodd| {
         iodd.parameters
             .iter()
             .find(|parameter| parameter.index == index)
-    }) {
+    }) else {
+        return Ok(None);
+    };
+    ensure!(
+        subindex == 0 || parameter.subindex_access(),
+        "IODD does not permit access to this subindex"
+    );
+    let selected = parameter.target(subindex)?;
+    ensure!(
+        parameter.access == Access::ReadWrite && selected.access == Access::ReadWrite,
+        "IODD does not declare this parameter read/write"
+    );
+    Ok(Some(selected))
+}
+
+fn review_isdu_value(parameter: Option<&Parameter>, proposed: &[u8]) -> Result<IsduValueReview> {
+    let Some(parameter) = parameter else {
+        return Ok(IsduValueReview::NoIoddParameter);
+    };
+    let (interpretation, manual_review) = if parameter.record.is_some() || parameter.array.is_some()
+    {
         ensure!(
-            subindex == 0 || parameter.subindex_access(),
-            "IODD does not permit access to this subindex"
+            parameter.width().map(|bits| usize::from(bits).div_ceil(8)) == Some(proposed.len()),
+            "proposed ISDU payload width differs from the IODD for {}",
+            parameter.name
+        );
+        (
+            None,
+            Some("Review the complete record or array and its member values manually."),
+        )
+    } else {
+        let decoded = parameter.decode(proposed);
+        ensure!(
+            decoded.raw_value.is_some() || decoded.decode_error.is_none(),
+            "proposed ISDU payload for {}: {}",
+            parameter.name,
+            decoded.decode_error.as_deref().unwrap_or_default()
+        );
+        let assessment = decoded.value_assessment.as_ref().map(|value| value.status);
+        ensure!(
+            assessment != Some(AssessmentStatus::OutsideDefinition),
+            "proposed ISDU value for {} is outside the IODD choices or ranges",
+            parameter.name
         );
         ensure!(
-            parameter.access == Access::ReadWrite
-                && parameter.target(subindex)?.access == Access::ReadWrite,
-            "IODD does not declare this parameter read/write"
+            assessment != Some(AssessmentStatus::NotComparable),
+            "proposed ISDU value for {} cannot be compared with the IODD choices or ranges",
+            parameter.name
         );
-    }
-    Ok(())
+        let manual_review = if decoded.raw_value.is_none() {
+            Some("Review the raw bytes against the device documentation for this datatype.")
+        } else if matches!(
+            assessment,
+            Some(AssessmentStatus::DefinitionNeedsReview | AssessmentStatus::NotEvaluated)
+        ) {
+            Some("Review the declared choices or ranges manually.")
+        } else if decoded.decode_error.is_some() {
+            Some("Review the IODD display interpretation manually.")
+        } else {
+            None
+        };
+        (Some(Box::new(decoded)), manual_review)
+    };
+    Ok(IsduValueReview::Iodd {
+        parameter_id: parameter.id.clone(),
+        name: parameter.name.clone(),
+        datatype: parameter.datatype.clone(),
+        interpretation,
+        manual_review,
+    })
 }

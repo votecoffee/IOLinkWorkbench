@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- ISDU write previews show the IODD interpretation of proposed bytes. They reject supported datatype and value-domain failures offline and flag manual review for unsupported, ambiguous, compound and raw addresses. Bench qualification remains open.
+
 - Inputs can copy the displayed raw bytes into the offline decoder together with receipt quality and the original mapping. The copied sample and pasted draft have separate views.
 
 - Logging can check a proposed output folder and show its resolved path before recording. Start checks it again and rejects an unavailable destination before dispatch.
