@@ -97,7 +97,12 @@ impl App {
                             ui.end_row();
                             for (field, _, value) in rows {
                                 ui.label(&field.name);
-                                ui.colored_label(ACCENT, value.value);
+                                let color = if value.encoding_error.is_some() {
+                                    WARNING
+                                } else {
+                                    ACCENT
+                                };
+                                ui.colored_label(color, value.value);
                                 ui.label(&field.unit);
                                 ui.end_row();
                             }

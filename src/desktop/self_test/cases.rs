@@ -228,6 +228,7 @@ pub(super) fn render(
                 "offline-padded-input",
                 "offline-boolean-input",
                 "offline-octet-input",
+                "offline-text-input",
                 "acyclic-profile",
                 "offline-parameter",
                 "offline-snapshot",
@@ -425,7 +426,10 @@ pub(super) fn render(
                         app.workspace.offline = OfflinePage::Process;
                         app.payload_inspector.output_pasted = "0001".into();
                     }
-                    "offline-padded-input" | "offline-boolean-input" | "offline-octet-input" => {
+                    "offline-padded-input"
+                    | "offline-boolean-input"
+                    | "offline-octet-input"
+                    | "offline-text-input" => {
                         let input = match label {
                             "offline-boolean-input" => {
                                 app.payload_inspector.pasted = "02".into();
@@ -434,6 +438,10 @@ pub(super) fn render(
                             "offline-octet-input" => {
                                 app.payload_inspector.pasted = "0080FF00".into();
                                 r#"<ProcessDataIn id="IN" bitLength="32"><Datatype xsi:type="OctetStringT" fixedLength="4"/><Name textId="octets"/></ProcessDataIn>"#
+                            }
+                            "offline-text-input" => {
+                                app.payload_inspector.pasted = "41004200".into();
+                                r#"<ProcessDataIn id="IN" bitLength="32"><Datatype xsi:type="StringT" fixedLength="4" encoding="US-ASCII"/><Name textId="text"/></ProcessDataIn>"#
                             }
                             _ => {
                                 r#"<ProcessDataIn id="IN" bitLength="12"><Datatype xsi:type="UIntegerT" bitLength="12"/><Name textId="integer"/></ProcessDataIn>"#
@@ -637,6 +645,9 @@ pub(super) fn render(
                     "Standalone Boolean input has a noncanonical byte. The IODD interprets any nonzero byte as true.",
                 ),
                 "offline-octet-input" => Some("0x00,0x80,0xFF,0x00"),
+                "offline-text-input" => {
+                    Some("Invalid StringT (nonzero string padding follows the first NUL)")
+                }
                 "acyclic-profile" => Some("Acyclic IODD layout"),
                 "offline-diagnostic-snapshot" => Some("37:0 · synthetic fixture reply unavailable"),
                 "offline-diagnostic-comparison" => Some("Slot 1 · E48DFE → 000000"),
@@ -738,7 +749,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 113);
+        assert_eq!(cases.len(), 114);
         assert!(
             cases
                 .iter()

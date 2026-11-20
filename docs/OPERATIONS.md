@@ -48,6 +48,14 @@ Select the acyclic-only layout in **Device → IODD import**. The CLI uses the I
 
 The saved profile retains identity, parameter and event definitions with zero input bytes. Use **Parameters** for ISDU reads and snapshots, **Diagnostics → Device events** for diagnostic reads, and **Device → Writes** for reviewed ISDU operations. Process input acquisition and process output operations require corresponding cyclic data. Acyclic-only profiles require v0.83.0 or later.
 
+### Cyclic text
+
+Fixed-length `StringT` input and output fields use the IODD encoding and byte-aligned layout. The supported encodings are UTF-8 and US-ASCII, including within records and arrays. Workbench strips trailing NUL padding from the typed text and retains all original bytes. A nonzero byte after the first NUL or a sequence outside the specified encoding produces an error for that field. [IO-Link Interface and System Specification, Annex F.2.6](https://io-link.com/fileadmin/user_upload/Downloads/Package_2024/IOL-Interface-Spec_10002_V114_Jun24.pdf)
+
+Typed views use JSON-quoted text. For example, spare bytes after a short `"Café"` do not enter the rendered text. An all-zero field displays `""` and control characters use escape sequences. A malformed field displays `Invalid StringT` with the reason. Neighboring values and gateway validity remain available. See [text CSV columns](CAPTURE_REVIEW.md#text-columns) for their recorded representation.
+
+For manual input, choose **UTF-8 string** or **US-ASCII string**, or use `set-field --kind utf8-string` or `--kind ascii-string`. Offset and width are in bits and must use whole bytes within the 32-byte process image. Reviewed output edits use full expected and desired hex images. Reimport an IODD to add text mappings to a prior profile. Profiles with these fields require v0.93.0 or later.
+
 ### Cyclic octet strings
 
 The importer maps fixed-length `OctetStringT` input and output values, including byte-aligned record members and array elements. Each value preserves wire order and leading, embedded, and trailing zeros. The typed view and each selected CSV column show an ordered list such as `0x00,0x80,0xFF,0x00`. The raw view retains the complete payload. [IO-Link Interface and System Specification, Table A.4 and Annex F.2.7](https://io-link.com/fileadmin/user_upload/Downloads/Package_2024/IOL-Interface-Spec_10002_V114_Jun24.pdf)

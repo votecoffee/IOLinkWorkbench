@@ -84,20 +84,7 @@ pub(crate) fn decode(
         matches!(encoding, "UTF-8" | "US-ASCII"),
         "unsupported parameter text encoding {encoding}"
     );
-    let end = payload
-        .iter()
-        .position(|byte| *byte == 0)
-        .unwrap_or(payload.len());
-    ensure!(
-        payload[end..].iter().all(|byte| *byte == 0),
-        "nonzero string padding follows the first NUL"
-    );
-    let text = &payload[..end];
-    ensure!(
-        encoding != "US-ASCII" || text.is_ascii(),
-        "parameter response is not US-ASCII"
-    );
-    Ok(std::str::from_utf8(text)?.to_owned())
+    Ok(crate::decode::decode_padded_text(payload, encoding == "US-ASCII")?.to_owned())
 }
 
 #[cfg(test)]

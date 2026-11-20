@@ -163,8 +163,15 @@ def review_capture(cli, path, rows, report):
     if field["kind"] == "octet_string":
         assert signal["octet_values"] == len(nonblank)
         numbers = []
+    elif field["kind"] in {"utf8_string", "ascii_string"}:
+        valid = [cell for cell in nonblank if cell.startswith('"')]
+        assert all(isinstance(json.loads(cell), str) for cell in valid)
+        assert all(cell.startswith("Invalid StringT (") for cell in nonblank if not cell.startswith('"'))
+        assert signal["strings"] == {"valid_values": len(valid), "malformed_values": len(nonblank) - len(valid)}
+        numbers = []
     else:
         assert "octet_values" not in signal
+        assert "strings" not in signal
         numbers = [float({"false": "0", "true": "1"}.get(cell, cell)) for cell in nonblank]
     finite = [value for value in numbers if math.isfinite(value)]
     numeric = signal["numeric"]
@@ -543,6 +550,77 @@ def verify_process_octet_capture(cli, fixture, endpoint, output):
         _, short = capture(cli, live, output / "short", "--seconds", ".3")
         assert short and all(row["raw_hex"] == Gateway.payload and row["validity"] == "invalid"
                              and not row["value.octets"] for row in short)
+    finally:
+        Gateway.payload, Gateway.inject_faults = old_payload, old_faults
+
+
+def verify_process_text(cli, output):
+    output.mkdir()
+    original = (ROOT / "samples/sensor.xml").read_text(encoding="utf-8")
+    old = '<ProcessDataIn id="IN" bitLength="16"><DatatypeRef datatypeId="PD"/></ProcessDataIn>'
+    layout = (
+        '<ProcessDataIn id="IN" bitLength="56"><Datatype xsi:type="RecordT" bitLength="56">'
+        '<RecordItem subindex="1" bitOffset="8"><SimpleDatatype xsi:type="StringT" fixedLength="6" encoding="UTF-8"/>'
+        '<Name textId="label"/></RecordItem><RecordItem subindex="2" bitOffset="0"><SimpleDatatype xsi:type="BooleanT"/>'
+        '<Name textId="flag"/></RecordItem></Datatype><Name textId="record"/></ProcessDataIn>'
+        '<ProcessDataOut id="OUT" bitLength="32"><Datatype xsi:type="StringT" fixedLength="4" encoding="US-ASCII"/>'
+        '<Name textId="output"/></ProcessDataOut>'
+    )
+    assert original.count(old) == 1
+    source = output / "process-text.xml"
+    source.write_text(original.replace(old, layout), encoding="utf-8")
+    profile = output / "text.toml"
+    run(cli, "import", source, profile, "--variant", "SIM-SENSOR")
+    assert '"Café"' in run(cli, "decode", profile, "436166C3A90001")
+    decoded = run(cli, "decode", profile, "41004200000001")
+    assert "Invalid StringT (nonzero string padding follows the first NUL)" in decoded
+    assert "flag [2]" in decoded and "raw true" in decoded
+    def output_value(payload):
+        inspection = json.loads(run(cli, "decode-output", profile, payload))
+        return inspection["iodd_output"]["fields"][0]["value"]
+
+    assert output_value("41424300")["value"] == '"ABC"'
+    assert output_value("C3A90000")["encoding_error"] == "text is not US-ASCII"
+    override = output / "ascii.toml"
+    run(cli, "set-field", profile, override, "label [1]", "--kind", "ascii-string")
+    assert "text is not US-ASCII" in run(cli, "decode", override, "436166C3A90001")
+    return profile
+
+
+def verify_process_text_capture(cli, profile, endpoint, output):
+    output.mkdir()
+    fixture = output / "loopback.toml"
+    run(cli, "set-connection", profile, fixture, "--gateway", "ifm-al1350", "--endpoint", endpoint,
+        "--expected-mode", "3", "--firmware", "3.1.42", "--poll-us", "20000")
+    old_payload, old_faults = Gateway.payload, Gateway.inject_faults
+    Gateway.inject_faults = False
+    invalid = "Invalid StringT (nonzero string padding follows the first NUL)"
+    try:
+        for name, payload, validity, text, flag in [
+            ("utf8", "436166C3A90001", "valid", '"Café"', "true"),
+            ("empty", "00000000000001", "valid", '""', "true"),
+            ("malformed", "41004200000001", "valid", invalid, "true"),
+            ("bad-utf8", "C3000000000001", "valid", "Invalid StringT (invalid UTF-8 at byte 0)", "true"),
+            ("short", "436166C3A900", "invalid", "", ""),
+        ]:
+            Gateway.payload = payload
+            report, rows = capture(cli, fixture, output / name, "--seconds", ".3")
+            assert report["row_kind"] == "host_poll" and report["source_update_loss"] == "unknown"
+            assert rows and all(row["raw_hex"] == payload and row["validity"] == validity
+                                and row["value.label [1]"] == text and row["value.flag [2]"] == flag for row in rows)
+
+        Gateway.payload = "41004200000001"
+        raw = output / "raw"
+        _, rows = capture(cli, fixture, raw, "--seconds", ".3", "--raw-only")
+        before = Gateway.requests
+        export = output / "export"
+        receipt = tomllib.loads(run(cli, "redecode-capture", raw, profile, export))
+        verification = tomllib.loads(run(cli, "verify-export", export, "--source", raw))
+        assert verification["original_source_reverified"] and receipt["typed_rows"] == len(rows)
+        with (export / "data.csv").open(encoding="utf-8", newline="") as stream:
+            assert all(row["raw_hex"] == Gateway.payload and row["value.label [1]"] == invalid
+                       and row["value.flag [2]"] == "true" for row in csv.DictReader(stream))
+        assert Gateway.requests == before
     finally:
         Gateway.payload, Gateway.inject_faults = old_payload, old_faults
 
@@ -1856,6 +1934,7 @@ def main():
     padded_input_profile = verify_padded_integer_input(cli, scratch / "padded-integer")
     boolean_input_profile = verify_standalone_boolean_input(cli, scratch / "standalone-boolean")
     octet_fixture = verify_process_octets(cli, scratch / "process-octets")
+    text_profile = verify_process_text(cli, scratch / "process-text")
     verify_identity_settings(cli, scratch / "identity-settings")
     verify_mapping_settings(cli, scratch / "mapping-settings")
     verify_logging_settings(cli, scratch / "logging-settings")
@@ -2167,6 +2246,7 @@ kind = "bool"
                 manual_bits=1,
             )
             verify_process_octet_capture(cli, octet_fixture, endpoint, scratch / "ifm-process-octets")
+            verify_process_text_capture(cli, text_profile, endpoint, scratch / "ifm-process-text")
             range_fixture = scratch / "range-fixture.toml"
             range_text = standard_range_profile.read_text(encoding="utf-8").replace('gateway = "simulator"', 'gateway = "ifm_al1350"')
             range_text = range_text.replace('endpoint = ""', f'endpoint = "http://127.0.0.1:{server.server_port}"')
@@ -2269,7 +2349,7 @@ kind = "bool"
 
     print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
-          "cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
+          "cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 
 

@@ -35,6 +35,14 @@ pub fn show(ui: &mut Ui, review: &Review) {
             "{count} byte lists · {} blank cells · {} recorded logger overruns",
             signal.numeric.blank_values, signal.recorded_logger_overruns
         ));
+    } else if let Some(strings) = &signal.strings {
+        ui.label(format!(
+            "{} text values · {} encoding errors · {} blank cells · {} recorded logger overruns",
+            strings.valid_values,
+            strings.malformed_values,
+            signal.numeric.blank_values,
+            signal.recorded_logger_overruns
+        ));
     } else {
         ui.label(format!(
             "{} finite values · {} blank cells · {} non-finite cells · {} recorded logger overruns",
@@ -68,7 +76,7 @@ pub fn show(ui: &mut Ui, review: &Review) {
         ui.label(signal.cycle_context.text());
         ui.small("Comparisons use the saved declaration and last accepted connection status. Recorded spacing distributions are shown separately below.");
     });
-    if signal.octet_values.is_none() {
+    if !signal.field.kind.is_byte_sequence() {
         plot(ui, review);
         ui.small("Each independent time bin shows finite minimum–maximum and the last finite value. Amber marks bins containing blank/non-finite cells or multiple generations. No lines join bins; gaps and event ordering inside a bin require the original CSV. Hover for bin details.");
     }

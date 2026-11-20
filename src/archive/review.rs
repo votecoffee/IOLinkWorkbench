@@ -19,6 +19,12 @@ pub struct NumericSummary {
     pub last_csv_value: Option<String>,
 }
 
+#[derive(Debug, Default, Serialize)]
+pub struct StringSummary {
+    pub valid_values: u64,
+    pub malformed_values: u64,
+}
+
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Bucket {
     pub bin: usize,
@@ -99,6 +105,8 @@ pub struct SignalReview {
     pub numeric: NumericSummary,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub octet_values: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strings: Option<StringSummary>,
     pub buckets_requested: usize,
     pub buckets: Vec<Bucket>,
 }
@@ -163,13 +171,18 @@ impl Collector {
                 recorded_timing: RecordedTiming::from_manifest(manifest),
                 available_fields: fields.iter().map(|field| (*field).clone()).collect(),
                 field: (*field).clone(),
-                numeric_basis: if octets {
-                    "Ordered byte lists from nonblank CSV cells"
-                } else {
-                    "approximate f64 statistics of saved typed CSV cells; Boolean false/true = 0/1; blank and non-finite cells excluded; first/last retain nonblank CSV text; original CSV unchanged"
+                numeric_basis: match field.kind {
+                    Kind::OctetString => "Ordered byte lists from nonblank CSV cells",
+                    Kind::Utf8String | Kind::AsciiString => {
+                        "Quoted text and encoding errors from nonblank CSV cells"
+                    }
+                    _ => {
+                        "approximate f64 statistics of saved typed CSV cells; Boolean false/true = 0/1; blank and non-finite cells excluded; first/last retain nonblank CSV text; original CSV unchanged"
+                    }
                 },
                 numeric: NumericSummary::default(),
                 octet_values: octets.then_some(0),
+                strings: field.kind.is_text().then(StringSummary::default),
                 buckets_requested: buckets,
                 buckets: (0..buckets)
                     .map(|bin| Bucket {
@@ -204,6 +217,15 @@ impl Collector {
         review.numeric.last_csv_value = Some(cell.to_owned());
         if let Some(count) = &mut review.octet_values {
             *count += 1;
+            return;
+        }
+        if let Some(strings) = &mut review.strings {
+            // The verifier already checked this cell against the decoder.
+            if cell.starts_with('"') {
+                strings.valid_values += 1;
+            } else {
+                strings.malformed_values += 1;
+            }
             return;
         }
         let value = match cell {

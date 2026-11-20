@@ -83,6 +83,7 @@ impl ProcessDataLayout {
             bits_hex: format!("{byte:02X}"),
             raw: value.clone(),
             value,
+            encoding_error: None,
         })
     }
 

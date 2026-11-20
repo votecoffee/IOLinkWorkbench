@@ -365,6 +365,51 @@ fn octet_string_process_data_retains_fixed_widths_offsets_and_member_order() -> 
 }
 
 #[test]
+fn string_process_data_uses_declared_encoding_and_isolates_bad_members() -> Result<()> {
+    use crate::profile::Profile;
+    let original =
+        r#"<ProcessDataIn id="IN" bitLength="16"><DatatypeRef datatypeId="PD"/></ProcessDataIn>"#;
+    let record = r#"<ProcessDataIn id="IN" bitLength="40"><Datatype xsi:type="RecordT" bitLength="40"><RecordItem subindex="1" bitOffset="8"><SimpleDatatype xsi:type="StringT" fixedLength="4" encoding="UTF-8"/><Name textId="label"/></RecordItem><RecordItem subindex="2" bitOffset="0"><SimpleDatatype xsi:type="BooleanT"/><Name textId="flag"/></RecordItem></Datatype><Name textId="record"/></ProcessDataIn>"#;
+    let import = |layout: &str| -> Result<Profile> {
+        let catalog = parse(
+            &SENSOR.replace(original, layout),
+            "synthetic process text".into(),
+        )?;
+        let (identity, imported) = catalog.select(Some("SIM-SENSOR"), None)?;
+        let mut profile = Profile::default();
+        profile.apply_iodd(identity, imported);
+        Profile::parse(&toml::to_string(&profile)?)
+    };
+    let profile = import(record)?;
+    let values = profile.decode(&[0xC3, 0xA9, 0, 0, 1])?;
+    assert_eq!(values[0].0.kind, Kind::Utf8String);
+    assert_eq!(values[0].2.value, "\"é\"");
+    assert_eq!(values[1].2.value, "true");
+    let values = profile.decode(b"A\0B\0\x01")?;
+    assert!(values[0].2.encoding_error.is_some());
+    assert_eq!(values[1].2.value, "true");
+    let unsupported = import(&record.replace("UTF-8", "UTF-16"))?;
+    assert_eq!(unsupported.effective_fields().len(), 1);
+    assert!(
+        unsupported
+            .iodd
+            .as_ref()
+            .unwrap()
+            .needs_input
+            .iter()
+            .any(|note| note.contains("encoding declaration"))
+    );
+
+    let array = r#"<ProcessDataIn id="IN" bitLength="32"><Datatype xsi:type="ArrayT" count="2"><SimpleDatatype xsi:type="StringT" fixedLength="2" encoding="US-ASCII"/></Datatype><Name textId="array"/></ProcessDataIn>"#;
+    let profile = import(array)?;
+    let values = profile.decode(b"AB\0\0")?;
+    assert_eq!(values[0].0.kind, Kind::AsciiString);
+    assert_eq!(values[0].2.value, "\"AB\"");
+    assert_eq!(values[1].2.value, "\"\"");
+    Ok(())
+}
+
+#[test]
 fn typed_output_field_edits_keep_wire_width_and_neighboring_bits() -> Result<()> {
     let mut layout = ProcessDataLayout {
         id: "OUT".into(),

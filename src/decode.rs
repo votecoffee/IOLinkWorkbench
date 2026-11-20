@@ -1,4 +1,4 @@
-use anyhow::{Result, bail, ensure};
+use anyhow::{Result, anyhow, bail, ensure};
 use serde::{Deserialize, Serialize};
 use std::fmt::Write;
 
@@ -21,11 +21,21 @@ pub enum Kind {
     Bool,
     Float32,
     OctetString,
+    Utf8String,
+    AsciiString,
 }
 
 impl Kind {
     pub(crate) fn is_numeric(self) -> bool {
         matches!(self, Self::Unsigned | Self::Signed | Self::Float32)
+    }
+
+    pub(crate) fn is_text(self) -> bool {
+        matches!(self, Self::Utf8String | Self::AsciiString)
+    }
+
+    pub fn is_byte_sequence(self) -> bool {
+        self.is_text() || self == Self::OctetString
     }
 }
 
@@ -64,6 +74,8 @@ pub struct Value {
     pub bits_hex: String,
     pub raw: String,
     pub value: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encoding_error: Option<String>,
 }
 
 impl Field {
@@ -74,7 +86,7 @@ impl Field {
             "field name contains a line break"
         );
         let bits = usize::from(self.bits);
-        let max_bits = if self.kind == Kind::OctetString {
+        let max_bits = if self.kind.is_byte_sequence() {
             MAX_INPUT * 8
         } else {
             64
@@ -89,15 +101,15 @@ impl Field {
             "{}: field extends outside the payload",
             self.name
         );
-        if self.kind == Kind::OctetString {
+        if self.kind.is_byte_sequence() {
             ensure!(
                 self.bit_offset.is_multiple_of(8) && self.bits.is_multiple_of(8),
-                "{}: octet string fields require byte-aligned offsets and whole bytes",
+                "{}: string fields require byte-aligned offsets and whole bytes",
                 self.name
             );
             ensure!(
                 self.byte_order == ByteOrder::BigEndian,
-                "{}: octet string fields use big-endian offsets and preserve wire byte order",
+                "{}: string fields use big-endian offsets and preserve wire byte order",
                 self.name
             );
         }
@@ -134,8 +146,8 @@ impl Field {
     pub fn read_bits(&self, payload: &[u8]) -> Result<u64> {
         self.validate(payload.len())?;
         ensure!(
-            self.kind != Kind::OctetString,
-            "octet strings have no integer bit value"
+            !self.kind.is_byte_sequence(),
+            "string fields have no integer bit value"
         );
         let mut value = 0;
         for relative in 0..usize::from(self.bits) {
@@ -150,15 +162,27 @@ impl Field {
     }
 
     pub fn decode(&self, payload: &[u8]) -> Result<Value> {
-        if self.kind == Kind::OctetString {
+        if self.kind.is_byte_sequence() {
             self.validate(payload.len())?;
             let end = payload.len() - usize::from(self.bit_offset / 8);
             let bytes = &payload[end - usize::from(self.bits / 8)..end];
             let bits_hex = hex(bytes);
+            let (value, encoding_error) = if self.kind == Kind::OctetString {
+                (octet_sequence(bytes), None)
+            } else {
+                match decode_padded_text(bytes, self.kind == Kind::AsciiString) {
+                    Ok(text) => (serde_json::to_string(text)?, None),
+                    Err(error) => {
+                        let error = error.to_string();
+                        (format!("Invalid StringT ({error})"), Some(error))
+                    }
+                }
+            };
             return Ok(Value {
                 raw: bits_hex.clone(),
                 bits_hex,
-                value: octet_sequence(bytes),
+                value,
+                encoding_error,
             });
         }
         let bits = self.read_bits(payload)?;
@@ -174,7 +198,9 @@ impl Field {
                 let number = f32::from_bits(bits as u32);
                 (number.to_string(), f64::from(number))
             }
-            Kind::OctetString => bail!("octet strings have no numeric value"),
+            Kind::OctetString | Kind::Utf8String | Kind::AsciiString => {
+                bail!("string fields have no numeric value")
+            }
         };
         let unscaled = self.scale == 1.0 && self.offset == 0.0;
         let value = match self.decimals.map(usize::from) {
@@ -193,6 +219,7 @@ impl Field {
             bits_hex: format!("{bits:X}"),
             raw,
             value,
+            encoding_error: None,
         })
     }
 }
@@ -237,6 +264,21 @@ pub(crate) fn octet_sequence(bytes: &[u8]) -> String {
         let _ = write!(output, "0x{byte:02X}");
     }
     output
+}
+
+pub(crate) fn decode_padded_text(payload: &[u8], ascii: bool) -> Result<&str> {
+    let end = payload
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(payload.len());
+    ensure!(
+        payload[end..].iter().all(|byte| *byte == 0),
+        "nonzero string padding follows the first NUL"
+    );
+    let text = &payload[..end];
+    ensure!(!ascii || text.is_ascii(), "text is not US-ASCII");
+    std::str::from_utf8(text)
+        .map_err(|error| anyhow!("invalid UTF-8 at byte {}", error.valid_up_to()))
 }
 
 pub(crate) fn extract_bits(payload: &[u8], bit_offset: u16, width: u16) -> Result<Vec<u8>> {
@@ -287,6 +329,47 @@ pub(crate) fn insert_bits(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fixed_text_keeps_raw_bytes_and_distinguishes_empty_and_malformed_values() -> Result<()> {
+        let mut field = Field {
+            name: "Label".into(),
+            kind: Kind::Utf8String,
+            bits: 48,
+            ..Field::default()
+        };
+        let payload = [0xC3, 0xA9, b'\n', b'"', 0, 0];
+        let decoded = field.decode(&payload)?;
+        assert_eq!(decoded.raw, "C3A90A220000");
+        assert!(decoded.encoding_error.is_none() && !decoded.value.contains('\n'));
+        assert_eq!(serde_json::from_str::<String>(&decoded.value)?, "é\n\"");
+        let empty = field.decode(&[0; 6])?;
+        assert_eq!(empty.value, "\"\"");
+        assert!(empty.encoding_error.is_none());
+
+        let malformed = field.decode(&[b'A', 0, b'B', 0, 0, 0])?;
+        assert_eq!(malformed.raw, "410042000000");
+        assert_eq!(
+            malformed.encoding_error.as_deref(),
+            Some("nonzero string padding follows the first NUL")
+        );
+        assert!(malformed.value.starts_with("Invalid StringT"));
+        assert!(
+            field
+                .decode(&[0xC3, 0, 0, 0, 0, 0])?
+                .encoding_error
+                .is_some()
+        );
+
+        field.kind = Kind::AsciiString;
+        assert_eq!(field.decode(b"ABC\0\0\0")?.value, "\"ABC\"");
+        assert_eq!(
+            field.decode(&payload)?.encoding_error.as_deref(),
+            Some("text is not US-ASCII")
+        );
+        assert!(field.decode(&[0; 5]).is_err());
+        Ok(())
+    }
 
     #[test]
     fn octet_fields_preserve_wire_order_and_require_whole_bytes() -> Result<()> {

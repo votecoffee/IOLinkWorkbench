@@ -11,6 +11,8 @@ enum KindChoice {
     Bool,
     Float32,
     OctetString,
+    Utf8String,
+    AsciiString,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -78,6 +80,8 @@ impl Arguments {
                 KindChoice::Bool => Kind::Bool,
                 KindChoice::Float32 => Kind::Float32,
                 KindChoice::OctetString => Kind::OctetString,
+                KindChoice::Utf8String => Kind::Utf8String,
+                KindChoice::AsciiString => Kind::AsciiString,
             };
         }
         if let Some(order) = self.byte_order {

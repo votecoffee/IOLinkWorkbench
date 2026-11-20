@@ -51,6 +51,12 @@ The [HTTP](LOCAL_API.md), [MQTT](MQTT.md) and [shared-memory](SHARED_MEMORY.md) 
 
 `tools/verify_interface_review.py` copies explicitly supplied saved fixtures into a new ignored directory and verifies original-file preservation, exact counters/hashes, raw-only/legacy cases, unreachable endpoint and absent mapping metadata, corrupted CSV and balanced-but-wrong offer counts. It opens no live service for this review. Use a fixture with all three interface sections to exercise the complete report. Existing native/loopback suites remain separate from this offline evidence and from physical or visible GUI acceptance.
 
+## Text columns
+
+Each valid `StringT` cell contains a JSON string literal inside the ordinary CSV quoting. After parsing CSV, parse the cell as JSON to recover the text. An empty decoded string is `""`. Truly blank cells follow the capture's validity and staleness rules. Malformed text cells contain `Invalid StringT` with the reason. This is a field decoding result, so other fields, raw payload bytes, and recorded source quality remain available.
+
+Capture verification and raw-capture re-decode use the same text decoder. Signal review reports `strings.valid_values` and `strings.malformed_values` and shows the exact first and last nonblank cells. In the shared telemetry representation, `decoded.encoding_error` is included for malformed text fields and `decoded.raw` carries the full field hex.
+
 ## Octet string columns
 
 Each typed `OctetStringT` column contains one ordered byte list. The CSV writer quotes the list as a single cell, and verification compares it with the bytes selected by the saved mapping. Re-decode can add octet columns to a raw-only recording. Signal review reports `octet_values` and shows the first and last nonblank byte lists. The raw payload and source-quality columns carry the original observations.

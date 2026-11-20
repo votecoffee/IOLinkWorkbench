@@ -77,7 +77,7 @@ impl Form {
                 );
                 ui.end_row();
                 ui.label("Bit width");
-                let max_bits = if field.kind == Kind::OctetString {
+                let max_bits = if field.kind.is_byte_sequence() {
                     profile.input_bytes * 8
                 } else {
                     64
@@ -97,6 +97,8 @@ impl Form {
                             Kind::OctetString,
                             "Octet string (whole bytes)",
                         );
+                        ui.selectable_value(&mut field.kind, Kind::Utf8String, "UTF-8 string");
+                        ui.selectable_value(&mut field.kind, Kind::AsciiString, "US-ASCII string");
                     });
                 ui.end_row();
                 ui.label("Byte order");

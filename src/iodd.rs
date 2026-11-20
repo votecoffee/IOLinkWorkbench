@@ -95,7 +95,7 @@ impl ProcessDataLayout {
         self.fields.iter().filter(|field| {
             // Packed values occupy their assigned bits. A standalone numeric value
             // covering a full wire container has no separate padding to regenerate.
-            field.kind != Kind::OctetString
+            !field.kind.is_byte_sequence()
                 && (self.packed
                     || self.standalone_boolean
                     || self.padded_integer
@@ -259,7 +259,9 @@ fn output_value(field: &Field, input: &str) -> Result<u64> {
             ensure!(value.is_finite(), "expected a finite Float32 value");
             u64::from(value.to_bits())
         }
-        Kind::OctetString => bail!("edit octet strings with a complete output image"),
+        Kind::OctetString | Kind::Utf8String | Kind::AsciiString => {
+            bail!("edit string fields with a complete output image")
+        }
     })
 }
 
@@ -762,16 +764,25 @@ fn field(
         ),
         "BooleanT" => (Kind::Bool, 1),
         "Float32T" => (Kind::Float32, 32),
-        "OctetStringT" => {
+        string @ ("OctetStringT" | "StringT") => {
             let bytes: u16 = dt
                 .attribute("fixedLength")
-                .context("missing octet string length")?
+                .context("missing fixed string length")?
                 .parse()?;
             ensure!(
                 (1..=MAX_INPUT).contains(&usize::from(bytes)),
-                "octet string length must be 1–{MAX_INPUT} bytes"
+                "string length must be 1–{MAX_INPUT} bytes"
             );
-            (Kind::OctetString, bytes * 8)
+            let kind = if string == "OctetStringT" {
+                Kind::OctetString
+            } else {
+                match dt.attribute("encoding") {
+                    Some("UTF-8") => Kind::Utf8String,
+                    Some("US-ASCII") => Kind::AsciiString,
+                    _ => bail!("StringT requires a UTF-8 or US-ASCII encoding declaration"),
+                }
+            };
+            (kind, bytes * 8)
         }
         other => bail!("unsupported datatype {other}"),
     };
@@ -1070,8 +1081,8 @@ fn parse_process_item<'a, 'input>(
                 "extends beyond declared process data width"
             );
             ensure!(
-                field.kind != Kind::OctetString || layout.packed || usize::from(field.bits) == bits,
-                "standalone octet string length differs from the declared process data width"
+                !field.kind.is_byte_sequence() || layout.packed || usize::from(field.bits) == bits,
+                "standalone string length differs from the declared process data width"
             );
             Ok((field, unit_defined))
         });

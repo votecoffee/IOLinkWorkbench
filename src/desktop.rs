@@ -476,12 +476,17 @@ fn payload_view(ui: &mut Ui, profile: &Profile, payload: &[u8], decode_values: b
                             decode::ByteOrder::LittleEndian => "LE",
                         });
                         ui.monospace(format!("×{} + {}", field.scale, field.offset));
-                        if field.kind == decode::Kind::OctetString {
+                        if field.kind.is_byte_sequence() {
                             ui.monospace(value.raw);
                         } else {
                             ui.monospace(format!("{} · 0x{}", value.raw, value.bits_hex));
                         }
-                        ui.colored_label(ACCENT, value.value);
+                        let color = if value.encoding_error.is_some() {
+                            WARNING
+                        } else {
+                            ACCENT
+                        };
+                        ui.colored_label(color, value.value);
                         ui.label(&field.unit);
                         ui.end_row();
                     }
