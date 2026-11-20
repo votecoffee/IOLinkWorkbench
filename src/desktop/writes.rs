@@ -147,7 +147,9 @@ impl Draft {
             .selected_text(self.kind.label())
             .show_ui(ui, |ui| {
                 for kind in [Kind::Mode, Kind::Parameter, Kind::Command, Kind::Output] {
-                    ui.selectable_value(&mut self.kind, kind, kind.label());
+                    if kind != Kind::Output || !profile.acyclic_only() {
+                        ui.selectable_value(&mut self.kind, kind, kind.label());
+                    }
                 }
             });
         if self.kind != before {

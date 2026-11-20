@@ -161,6 +161,8 @@ pub struct Imported {
     pub source: String,
     pub variant: String,
     pub layout: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub acyclic_only: bool,
     pub condition: Option<String>,
     pub input_bytes: usize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -223,10 +225,27 @@ impl Profile {
         self.input_bytes > 0
     }
 
+    pub fn acyclic_only(&self) -> bool {
+        self.iodd.as_ref().is_some_and(|import| import.acyclic_only)
+    }
+
     pub fn require_process_input(&self) -> Result<()> {
+        let selection = if self.acyclic_only() {
+            "acyclic-only"
+        } else {
+            "output-only"
+        };
         ensure!(
             self.has_process_input(),
-            "This profile has an output-only layout. Input monitoring and capture require a process input layout."
+            "This profile has an {selection} layout. Input monitoring and capture require a process input layout."
+        );
+        Ok(())
+    }
+
+    pub fn require_process_output(&self) -> Result<()> {
+        ensure!(
+            !self.acyclic_only(),
+            "This profile has an acyclic-only layout. Process output operations require an output layout."
         );
         Ok(())
     }
@@ -391,16 +410,25 @@ impl Profile {
         ensure!(!self.name.trim().is_empty(), "profile name is empty");
         ensure!(
             self.input_bytes <= MAX_INPUT,
-            "input_bytes must be 1–{MAX_INPUT}, or zero for an imported output-only layout"
+            "input_bytes must be 1–{MAX_INPUT}, or zero for an imported output-only or acyclic-only layout"
         );
-        let output_only = self
+        let no_input_layout = self
             .iodd
             .as_ref()
             .is_some_and(|import| import.input_bytes == 0);
-        if output_only || !self.has_process_input() {
+        if let Some(import) = self.iodd.as_ref().filter(|import| import.acyclic_only) {
             ensure!(
                 !self.has_process_input()
-                    && output_only
+                    && no_input_layout
+                    && import.output.is_none()
+                    && import.fields.is_empty()
+                    && !import.layout.trim().is_empty(),
+                "an acyclic-only layout requires its IODD layout ID, zero input bytes and no process fields"
+            );
+        } else if no_input_layout || !self.has_process_input() {
+            ensure!(
+                !self.has_process_input()
+                    && no_input_layout
                     && self.iodd.as_ref().is_some_and(|import| {
                         import.fields.is_empty()
                             && import
@@ -486,7 +514,7 @@ impl Profile {
         }
         for field in &self.fields {
             ensure!(names.insert(&field.name), "duplicate field {}", field.name);
-            if output_only {
+            if no_input_layout {
                 field.validate(MAX_INPUT)?;
             }
         }

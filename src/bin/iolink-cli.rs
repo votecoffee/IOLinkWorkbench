@@ -61,7 +61,7 @@ enum Command {
         options: IoddOptions,
         #[arg(long)]
         variant: Option<String>,
-        /// Exact input layout ID or output-only layout ID.
+        /// Exact input, output-only or acyclic-only layout ID.
         #[arg(long)]
         layout: Option<String>,
     },
@@ -788,6 +788,7 @@ fn main() -> Result<()> {
                 iodd_output: Option<iodd::DecodedOutput>,
             }
             let profile = Profile::load(&profile)?;
+            profile.require_process_output()?;
             let payload = decode::parse_hex(&payload)?;
             let inspection = Inspection {
                 raw_hex: decode::hex(&payload),

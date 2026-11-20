@@ -58,6 +58,14 @@ impl Inspector {
 
     pub fn show(&mut self, ui: &mut Ui, applied: &Profile) {
         ui.heading("Offline payload decoder");
+        if applied.acyclic_only() {
+            if let Some(copied) = &self.copied {
+                copied.show(ui);
+            } else {
+                ui.label("Acyclic IODD · inspect Parameter bytes or Event codes.");
+            }
+            return;
+        }
         if !applied.has_process_input() && self.page == Page::Pasted {
             self.page = Page::Output;
         }
@@ -117,7 +125,7 @@ impl Inspector {
                 if let Some(layout) = applied.output_layout() {
                     show_output_fields(ui, &layout.decode_output(&payload, None));
                 } else {
-                    ui.small("Import a paired IODD output layout to see typed fields.");
+                    ui.small("Import an IODD output layout to see typed fields.");
                 }
             }
             Err(error) => {

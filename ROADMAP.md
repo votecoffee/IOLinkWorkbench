@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- An explicit empty IODD process data layout can be imported for status, ISDU, parameter snapshots and diagnostics. Acyclic-only profiles block cyclic input and output paths and keep the applicable device workflows available.
+
 - Import an output-only IODD layout into a profile for offline output inspection, status, ISDU reads and reviewed outputs. Workbench rejects input monitoring and capture before opening a cyclic session. Manual input mappings are retained for later review.
 
 - Checked process-output reads retain the raw gateway image and show the paired IODD field values when the image width and recorded layout confirmation permit interpretation. The GUI and CLI can also decode pasted output images offline under the selected layout.

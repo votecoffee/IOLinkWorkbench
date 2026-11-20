@@ -271,7 +271,11 @@ impl Editor {
             ui.heading("Process input mappings");
             ui.label("Review imported fields or edit a host decoding override. Values to log are selected in Logging.");
         } else {
-            ui.heading("IODD output layout");
+            ui.heading(if profile.acyclic_only() {
+                "Acyclic IODD layout"
+            } else {
+                "IODD output layout"
+            });
             if let Some(output) = profile.output_layout() {
                 ui.label(format!(
                     "{} · {} bits · {} mapped fields",
@@ -308,7 +312,9 @@ impl Editor {
                     ui.small(format!("{} imported input bytes", import.input_bytes));
                 }
                 for item in &import.needs_input { ui.colored_label(WARNING, item); }
-                if let Some(condition) = &import.condition {
+                if let Some(condition) = &import.condition && profile.acyclic_only() {
+                    ui.small(format!("Selected layout condition · {condition}"));
+                } else if let Some(condition) = &import.condition {
                     let checkbox = egui::Checkbox::new(&mut profile.confirm_iodd_condition,
                         format!("Confirmed active condition on the device · {condition}"));
                     if ui.add_enabled(!self.pending(), checkbox).changed() {
@@ -318,7 +324,11 @@ impl Editor {
                 }
             }
             if !has_input {
-                ui.small("Inspect a gateway output in Device → Writes or paste saved hex in Offline → Process bytes.");
+                if profile.acyclic_only() {
+                    ui.small("Open Parameters for ISDU reads or Diagnostics for device events.");
+                } else {
+                    ui.small("Inspect a gateway output in Device → Writes or paste saved hex in Offline → Process bytes.");
+                }
                 if !profile.fields.is_empty() {
                     ui.small(format!("Retained manual input mappings · {}", profile.fields.len()));
                 }
@@ -522,6 +532,13 @@ impl Editor {
                                 format!("{} · output only", output.id),
                             );
                         }
+                        for acyclic in &catalog.acyclic_layouts {
+                            ui.selectable_value(
+                                &mut self.layout,
+                                Some(acyclic.id.clone()),
+                                format!("{} · acyclic only", acyclic.id),
+                            );
+                        }
                     });
                 if ui
                     .add_enabled(can_apply, egui::Button::new("Apply IODD layout"))
@@ -533,6 +550,8 @@ impl Editor {
                             changed = true;
                             *message = if profile.has_process_input() {
                                 "IODD applied. Review retained manual fields and overrides.".into()
+                            } else if profile.acyclic_only() {
+                                "Acyclic layout applied. Open Parameters for ISDU reads or Diagnostics for device events.".into()
                             } else {
                                 "Output-only layout applied. Open Writes to review outputs or Parameters for ISDU reads.".into()
                             };
@@ -559,6 +578,16 @@ impl Editor {
                         "Paired output · {} · {} bits",
                         output.id, output.bit_length
                     ));
+                }
+            }
+            if let Some(acyclic) = catalog
+                .acyclic_layouts
+                .iter()
+                .find(|layout| Some(&layout.id) == self.layout.as_ref())
+            {
+                ui.small("Acyclic only · parameters and diagnostics");
+                if let Some(condition) = &acyclic.condition {
+                    ui.small(condition);
                 }
             }
             if let Some(output) = catalog

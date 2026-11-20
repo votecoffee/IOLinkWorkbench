@@ -180,6 +180,12 @@ fn output_value(field: &Field, input: &str) -> Result<u64> {
 }
 
 #[derive(Debug, Serialize)]
+pub struct AcyclicLayout {
+    pub id: String,
+    pub condition: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct Catalog {
     pub source: String,
     pub vendor_id: u16,
@@ -189,6 +195,8 @@ pub struct Catalog {
     pub layouts: Vec<Layout>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub output_only_layouts: Vec<ProcessDataLayout>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub acyclic_layouts: Vec<AcyclicLayout>,
     pub parameters: Vec<Parameter>,
     pub standard_parameter_refs: Vec<String>,
     pub schema_validation: Option<schema::Report>,
@@ -207,9 +215,14 @@ pub(super) struct Definitions {
 
 impl Catalog {
     pub fn default_layout_id(&self) -> Option<&str> {
-        match (self.layouts.as_slice(), self.output_only_layouts.as_slice()) {
-            ([input], []) if input.condition.is_none() => Some(&input.id),
-            ([], [output]) if output.condition.is_none() => Some(&output.id),
+        match (
+            self.layouts.as_slice(),
+            self.output_only_layouts.as_slice(),
+            self.acyclic_layouts.as_slice(),
+        ) {
+            ([input], [], []) if input.condition.is_none() => Some(&input.id),
+            ([], [output], []) if output.condition.is_none() => Some(&output.id),
+            ([], [], [acyclic]) if acyclic.condition.is_none() => Some(&acyclic.id),
             _ => None,
         }
     }
@@ -240,12 +253,11 @@ impl Catalog {
                     input.output.as_ref(),
                     input.needs_input.clone(),
                 )
-            } else {
-                let output = self
-                    .output_only_layouts
-                    .iter()
-                    .find(|output| output.id == layout_id)
-                    .with_context(|| format!("unknown process data layout {layout_id}"))?;
+            } else if let Some(output) = self
+                .output_only_layouts
+                .iter()
+                .find(|output| output.id == layout_id)
+            {
                 (
                     0,
                     &output.condition,
@@ -253,11 +265,21 @@ impl Catalog {
                     Some(output),
                     output.needs_input.clone(),
                 )
+            } else {
+                let acyclic = self
+                    .acyclic_layouts
+                    .iter()
+                    .find(|layout| layout.id == layout_id)
+                    .with_context(|| format!("unknown process data layout {layout_id}"))?;
+                (0, &acyclic.condition, &[][..], None, Vec::new())
             };
+        let acyclic_only = input_bytes == 0 && output.is_none();
         if let Some(localization) = &self.localization {
             needs_input.extend(localization.review.iter().cloned());
         }
-        if let Some(condition) = condition {
+        if let Some(condition) = condition
+            && !acyclic_only
+        {
             let workflow = if input_bytes == 0 {
                 "reviewing live output"
             } else {
@@ -278,6 +300,7 @@ impl Catalog {
                 source: self.source.clone(),
                 variant: variant.product_id.clone(),
                 layout: layout_id.into(),
+                acyclic_only,
                 condition: condition.clone(),
                 input_bytes,
                 output: output.cloned(),
@@ -805,6 +828,7 @@ fn parse_resources(
     let (events, standard_event_refs) = events::parse(function, &texts)?;
     let mut layouts = Vec::new();
     let mut output_only_layouts = Vec::new();
+    let mut acyclic_layouts = Vec::new();
     let mut process_ids = HashSet::new();
     for process in child(function, "ProcessDataCollection")
         .into_iter()
@@ -855,6 +879,23 @@ fn parse_resources(
             });
         } else if let Some(output) = output {
             output_only_layouts.push(output);
+        } else if process
+            .children()
+            .filter(Node::is_element)
+            .all(|node| node.has_tag_name((IODD_NAMESPACE, "Condition")))
+        {
+            let id = process
+                .attribute("id")
+                .filter(|id| !id.trim().is_empty())
+                .context("acyclic layout has no ID")?;
+            ensure!(
+                process_ids.insert(id.into()),
+                "duplicate process layout ID {id}"
+            );
+            acyclic_layouts.push(AcyclicLayout {
+                id: id.into(),
+                condition,
+            });
         }
     }
     Ok(Catalog {
@@ -865,6 +906,7 @@ fn parse_resources(
         variants,
         layouts,
         output_only_layouts,
+        acyclic_layouts,
         parameters,
         standard_parameter_refs,
         schema_validation: None,

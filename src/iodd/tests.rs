@@ -3,6 +3,43 @@ use super::*;
 const SENSOR: &str = include_str!("../../samples/sensor.xml");
 
 #[test]
+fn explicit_acyclic_layout_imports_and_qualifies_only_its_own_selection() -> Result<()> {
+    let xml = SENSOR.replace(
+        "<ProcessDataIn id=\"IN\" bitLength=\"16\"><DatatypeRef datatypeId=\"PD\"/></ProcessDataIn>",
+        "",
+    );
+    let catalog = parse(&xml, "synthetic acyclic".into())?;
+    assert_eq!(catalog.default_layout_id(), Some("PD"));
+    let (identity, imported) = catalog.select(Some("SIM-SENSOR"), None)?;
+    let mut profile = crate::profile::Profile::default();
+    profile.apply_iodd(identity, imported);
+    let encoded = toml::to_string(&profile)?;
+    let reloaded = crate::profile::Profile::parse(&encoded)?;
+    assert!(reloaded.acyclic_only() && !reloaded.has_process_input());
+    assert!(reloaded.output_layout().is_none() && reloaded.require_process_output().is_err());
+    assert!(reloaded.parameter("V_SIM_Threshold").is_ok());
+    let mut contradictory = reloaded;
+    contradictory.input_bytes = 2;
+    assert!(contradictory.validate().is_err());
+
+    let unavailable = xml.replace(
+        "<ProcessData id=\"PD\">",
+        "<ProcessData id=\"PD\"><Extension/>",
+    );
+    let unavailable = parse(&unavailable, "unknown process item".into())?;
+    assert!(unavailable.acyclic_layouts.is_empty());
+    assert!(unavailable.select(Some("SIM-SENSOR"), None).is_err());
+    let mixed = SENSOR.replace("</ProcessDataCollection>",
+        "<ProcessData id=\"QUIET\"><Condition variableId=\"V_SIM_Threshold\" value=\"1\"/></ProcessData></ProcessDataCollection>");
+    let mixed = parse(&mixed, "mixed layouts".into())?;
+    assert!(mixed.default_layout_id().is_none());
+    assert!(!mixed.select(Some("SIM-SENSOR"), Some("IN"))?.1.acyclic_only);
+    let quiet = mixed.select(Some("SIM-SENSOR"), Some("QUIET"))?.1;
+    assert!(quiet.acyclic_only && quiet.condition.as_deref() == Some("V_SIM_Threshold = 1"));
+    Ok(())
+}
+
+#[test]
 fn output_only_import_preserves_identity_output_and_dormant_input_mappings() -> Result<()> {
     use crate::profile::Profile;
     let xml = SENSOR

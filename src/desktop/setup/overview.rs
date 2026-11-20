@@ -12,13 +12,19 @@ impl Editor {
         let has_input = profile.has_process_input();
         if has_input {
             ui.label("Review these host settings, then use Connect… to review and start monitoring. This overview performs no device reads.");
+        } else if profile.acyclic_only() {
+            ui.label("Acyclic IODD · review host settings for status, parameter and event reads.");
         } else {
             ui.label("Output-only IODD · review the host settings for output and parameter reads.");
         }
         section(ui, "1. Host connection", |ui| {
             match profile.connection.gateway {
                 Gateway::Simulator => {
-                    ui.label("Offline simulator · synthetic input, no hardware");
+                    ui.label(if has_input {
+                        "Offline simulator · synthetic input, no hardware"
+                    } else {
+                        "Offline simulator"
+                    });
                 }
                 Gateway::IfmAl1350 => {
                     if profile.connection.endpoint.trim().is_empty() {
@@ -58,7 +64,10 @@ impl Editor {
                         ),
                     );
                 }
-                if import.condition.is_some() && !profile.confirm_iodd_condition {
+                if import.condition.is_some()
+                    && !profile.acyclic_only()
+                    && !profile.confirm_iodd_condition
+                {
                     ui.colored_label(
                         WARNING,
                         "Needs review · confirm the active IODD condition in Mappings",
@@ -68,7 +77,12 @@ impl Editor {
                 ui.label("No IODD imported · manual mapping and raw capture are available");
             }
             if !has_input {
-                if ui.small_button("Review output layout").clicked() {
+                let review = if profile.acyclic_only() {
+                    "Review IODD layout"
+                } else {
+                    "Review output layout"
+                };
+                if ui.small_button(review).clicked() {
                     *tab = Tab::Mappings;
                 }
                 if ui.small_button("Import IODD").clicked() {

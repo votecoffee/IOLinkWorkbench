@@ -49,6 +49,7 @@ impl Operation {
         field: &str,
         desired_value: &str,
     ) -> Result<Self> {
+        profile.require_process_output()?;
         let layout = profile
             .output_layout()
             .context("typed process output requires an imported IODD output layout")?;
@@ -250,11 +251,17 @@ impl ReadPoint {
     }
 
     fn validate(self, profile: &Profile) -> Result<Option<&Parameter>> {
-        if let Self::Isdu { index, subindex } = self {
-            check_isdu_index(index)?;
-            return writable_parameter(profile, index, subindex);
+        match self {
+            Self::Isdu { index, subindex } => {
+                check_isdu_index(index)?;
+                writable_parameter(profile, index, subindex)
+            }
+            Self::ProcessOutput => {
+                profile.require_process_output()?;
+                Ok(None)
+            }
+            Self::PortMode => Ok(None),
         }
-        Ok(None)
     }
 }
 

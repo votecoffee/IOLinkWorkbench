@@ -222,6 +222,7 @@ pub(super) fn render(
                 "offline-exports",
                 "offline-process",
                 "offline-process-output",
+                "acyclic-profile",
                 "offline-parameter",
                 "offline-snapshot",
                 "offline-events",
@@ -392,6 +393,18 @@ pub(super) fn render(
                         app.workspace.offline = OfflinePage::Process;
                         app.payload_inspector.output_pasted = "0001".into();
                     }
+                    "acyclic-profile" => {
+                        let xml = include_str!("../../../samples/sensor.xml").replace(
+                            "<ProcessDataIn id=\"IN\" bitLength=\"16\"><DatatypeRef datatypeId=\"PD\"/></ProcessDataIn>",
+                            "",
+                        );
+                        let catalog = iodd::parse(&xml, "synthetic acyclic".into())?;
+                        let (identity, imported) = catalog.select(Some("SIM-SENSOR"), None)?;
+                        app.profile.apply_iodd(identity, imported);
+                        app.profile.validate()?;
+                        app.setup.sync(&app.profile);
+                        app.tab = Tab::Mappings;
+                    }
                     "offline-parameter" => {
                         app.tab = Tab::Offline;
                         app.workspace.offline = OfflinePage::Parameter;
@@ -545,6 +558,7 @@ pub(super) fn render(
                 "writes-review" => Some("Changed IODD members (1)"),
                 "writes-output-review" => Some("IODD output · OUT · 13 bits"),
                 "offline-process-output" => Some("true (raw true, bits 0x1)"),
+                "acyclic-profile" => Some("Acyclic IODD layout"),
                 "writes-text-review" => {
                     Some("Readback accepts the same IODD text with different zero padding.")
                 }
@@ -641,7 +655,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 104);
+        assert_eq!(cases.len(), 105);
         assert!(
             cases
                 .iter()

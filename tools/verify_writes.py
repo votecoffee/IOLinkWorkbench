@@ -373,6 +373,51 @@ def verify(cli, profile, server):
                         "level", "--desired-value", "2"], "readback_matched", target=confirm_layout)
     assert receipt["readback"] == server.output == "02"
 
+    acyclic_source = profile.parent / "acyclic.xml"
+    acyclic_source.write_text(input_xml.replace(
+        '<ProcessDataIn id="IN" bitLength="16"><DatatypeRef datatypeId="PD"/></ProcessDataIn>', "", 1),
+        encoding="utf-8", newline="\n")
+    acyclic = import_for_write(acyclic_source)
+    saved = acyclic.read_bytes()
+    config = tomllib.loads(saved.decode("utf-8"))
+    assert config["input_bytes"] == config["iodd"]["input_bytes"] == 0
+    assert config["iodd"]["layout"] == "PD" and config["iodd"]["acyclic_only"]
+    assert "output" not in config["iodd"]
+    before_requests = len(server.requests)
+    denied_capture = profile.parent / "acyclic-capture"
+    denied_operations = [
+        ["capture", acyclic, denied_capture, "--seconds", "0.01"],
+        ["read-current", acyclic, "--master-serial", SERIAL, "process-output"],
+        ["write", acyclic, "--master-serial", SERIAL, "process-output", "--expected", "01", "--desired", "02"],
+        ["decode-output", acyclic, "01"],
+    ]
+    for operation in denied_operations:
+        denied = subprocess.run([cli, *operation], env=env, capture_output=True, text=True, timeout=15)
+        assert denied.returncode == 1 and "acyclic-only layout" in denied.stderr, (operation, denied.stderr)
+    assert len(server.requests) == before_requests and not denied_capture.exists()
+
+    server.parameters.update({(36, 0): "02", (37, 0): "E48DFE000000", (64, 0): "000A"})
+    snapshot = profile.parent / "acyclic-parameter.json"
+    reading = subprocess.run([cli, "read-parameter", acyclic, "V_SIM_Threshold", "--snapshot", snapshot],
+                             capture_output=True, env=env, check=True, timeout=15)
+    assert tomllib.loads(reading.stdout.decode("utf-8"))["raw_hex"] == "000A"
+    snapshot_contents = snapshot.read_bytes()
+    before_review = len(server.requests)
+    review = subprocess.check_output([cli, "review-parameter", snapshot], env=env, timeout=15)
+    assert tomllib.loads(review.decode("utf-8"))["decoded"]["raw_hex"] == "000A"
+    assert len(server.requests) == before_review and snapshot.read_bytes() == snapshot_contents
+    status = subprocess.check_output([cli, "status", acyclic, "--verify-product-id"], env=env, timeout=15)
+    assert tomllib.loads(status.decode("utf-8"))["identity"]["product_id"] == "SIM-SENSOR"
+    events = subprocess.check_output([cli, "read-diagnostics", acyclic], env=env, timeout=15)
+    diagnostics = tomllib.loads(events.decode("utf-8"))
+    assert diagnostics["device_status"]["value"] == 2
+    assert diagnostics["detailed_status"]["events"][0]["code"] == 36350
+    assert diagnostics["detailed_status"]["events"][0]["definition"]["name"] == "Synthetic range warning"
+    _, receipt = apply(["isdu", "--parameter-id", "V_SIM_Threshold", "--expected",
+                        "000A", "--desired-value", "11"], "readback_matched", target=acyclic)
+    assert receipt["readback"] == "000B" and acyclic.read_bytes() == saved
+    assert all("/pdin" not in address and "/pdout" not in address for address in server.requests[before_requests:])
+
     configured = import_for_write(ROOT / "samples/sensor.xml")
     formats = import_for_write(ROOT / "samples/sensor-formats.xml")
     relocated_source = profile.parent / "relocated-index.xml"
@@ -753,7 +798,7 @@ def verify(cli, profile, server):
     request, receipt = apply(packed_record, "readback_matched", target=whole_record)
     assert request["request_data"]["subindex"] == 0
     assert receipt["readback"] == "FFEC810A41000000"
-    print("PASS: checked reads and ISDU writes by index or IODD ID, typed compound member edits, observed, offline, and staged process outputs including output-only profiles, exact target checks, exact and StringT readback, and single dispatch on uncertain outcomes")
+    print("PASS: checked reads and ISDU writes by index or IODD ID, typed compound member edits, observed, offline, and staged process outputs including output-only profiles, acyclic-only profiles and diagnostic reads, exact target checks, exact and StringT readback, and single dispatch on uncertain outcomes")
 
 
 def main():

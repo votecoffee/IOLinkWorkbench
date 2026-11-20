@@ -464,6 +464,7 @@ impl App {
                 ui.heading(&self.profile.name);
                 let route = self.check_session_route();
                 ui.label(match self.profile.connection.gateway {
+                    Gateway::Simulator if !self.profile.has_process_input() => "Offline simulator".into(),
                     Gateway::Simulator => "Offline simulator · synthetic input".into(),
                     Gateway::IfmAl1350 if matches!(&route, Err(session_review::RouteIssue::Connection(_))) => "ifm AL1350 · review the configured endpoint".into(),
                     Gateway::IfmAl1350 => format!("ifm AL1350 · {}", self.profile.connection.endpoint),

@@ -42,6 +42,12 @@ In Device → IODD import, select the IODD variant/layout and apply it. Effectiv
 
 Editing an imported name creates an override; removing it restores the imported definition. Removing a standalone field selected explicitly for CSV is rejected until the saved selection is reset. Do not guess scaling or units from an unfamiliar payload. Save unresolved fields for input and keep raw logging available.
 
+### Acyclic-only IODDs
+
+Select the acyclic-only layout in **Device → IODD import**. The CLI uses the ID of the empty `ProcessData` item with `import --layout ID`. The sole unconditional layout is selected automatically.
+
+The saved profile retains identity, parameter and event definitions with zero input bytes. Use **Parameters** for ISDU reads and snapshots, **Diagnostics → Device events** for diagnostic reads, and **Device → Writes** for reviewed ISDU operations. Process input acquisition and process output operations require corresponding cyclic data. Acyclic-only profiles require v0.83.0 or later.
+
 ## Prepare the first physical bench
 
 No master, sensor or signal has been chosen for this project yet. Before physical acceptance, record master model/firmware, supported host interface and license/SDK requirements, endpoint or USB connection, configured port/mode, sensor model, IODD revision/variant and desired signal/unit. The AL1350 HTTP(S) adapter targets documented IoT Core 3.1.x behavior. Its [bench reference](../README.md#al1350-bench-setup) records the API, Windows requirements and snapshot limitations; it is not a purchase recommendation or qualification of other firmware.
