@@ -9,6 +9,8 @@ use std::time::Instant;
 mod ifm;
 mod simulator;
 
+pub use ifm::write;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Freshness {

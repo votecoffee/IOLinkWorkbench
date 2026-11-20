@@ -112,4 +112,4 @@
 - Expand IODD handling for profile snippets and remaining IODD Checker semantic rules. Checksum consistency is implemented; official Checker execution and vendor authenticity remain separate. Add representative sanitized fixtures for supported device families.
 - Add event-history acquisition only when a selected transport documents event delivery, ordering, and loss semantics. Current explicit diagnostics are snapshots with unknown source event loss.
 - Expand remaining datatype-specific displays and profile-specific decoding. IODD RecordT/ArrayT elements are simple datatypes; unsupported complex elements stay on the raw/manual path.
-- Consider any configuration or output features only after explicit authorization for the specific operation and bench setup.
+- Qualify the CLI's reviewed, one-shot AL1350 writes on an approved bench. Add a focused GUI review and execution workflow after qualifying the request and readback behavior. Keep cyclic output ownership and Data Storage as separate follow-on work.

@@ -48,7 +48,7 @@ No master, sensor or signal has been chosen for this project yet. Before physica
 
 Use an existing configured IO-Link port. Host connection settings edit the local profile only. `set-connection` saves a new host profile; `set-identity` saves expected pins. Use each command's `--help` for explicit values and clears. `set-connection --expected-mode` saves the `connection.ifm_mode` expectation; it checks the observed mode and never sets it. Confirm device identity where exposed with `status PROFILE`; expected pins and selected IODD identity remain separate from observed matches. A Product ID difference requires review. Exact text pins distinguish unset, empty and spaces.
 
-Changing port mode/configuration, device commands, ISDU writes or process outputs requires explicit approval for that operation. The application implements no such write path. An explicit parameter/diagnostic read uses its own client and is not part of the cyclic loop; gateway-side contention must still be measured on hardware.
+An explicit parameter or diagnostic read uses its own client, apart from the cyclic loop. Measure gateway-side contention on hardware. For authorized one-shot AL1350 mode, parameter, SystemCommand and process output writes, use the separate [CLI preview and confirmation workflow](WRITES.md).
 
 ## Choose logging and inspect its plan
 

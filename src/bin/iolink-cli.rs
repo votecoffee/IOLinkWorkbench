@@ -23,6 +23,8 @@ mod mapping;
 mod mqtt;
 #[path = "iolink-cli/shared_memory.rs"]
 mod shared_memory;
+#[path = "iolink-cli/write.rs"]
+mod write;
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -33,6 +35,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Preview an AL1350 write offline, or execute the exact reviewed operation with --confirm.
+    Write(write::Arguments),
     /// Read one consistent Windows shared-memory snapshot; no profile/gateway access.
     ReadSharedMemory {
         name: String,
@@ -291,6 +295,7 @@ impl IoddOptions {
 
 fn main() -> Result<()> {
     match Cli::parse().command {
+        Command::Write(args) => write::run(args)?,
         Command::CompareCaptures { left, right } => {
             print!(
                 "{}",

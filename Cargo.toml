@@ -1,8 +1,8 @@
 [package]
 name = "iolink-workbench"
-version = "0.63.0"
+version = "0.64.0"
 edition = "2024"
-description = "Read-only IO-Link input inspection and capture workbench"
+description = "IO-Link input inspection, capture, and reviewed AL1350 writes"
 license = "MIT"
 repository = "https://github.com/votecoffee/IOLinkWorkbench"
 default-run = "iolink-workbench"

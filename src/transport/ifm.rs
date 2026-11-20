@@ -15,6 +15,8 @@ use std::{
 
 const RESPONSE_LIMIT: u64 = 64 * 1024;
 
+pub mod write;
+
 pub struct Client {
     http: Http,
     url: Url,
@@ -65,8 +67,18 @@ impl Client {
         })
     }
 
-    // Private helper. The only callers send /getdatamulti or the explicit ISDU read.
     fn request(&mut self, address: &str, data: Value) -> Result<(Instant, Value)> {
+        let (received, response) = self.exchange(address, data)?;
+        ensure!(
+            response["code"].as_u64() == Some(200),
+            "AL1350 service code {}",
+            response["code"]
+        );
+        Ok((received, response))
+    }
+
+    // Address and payload come from the fixed adapter operations.
+    fn exchange(&mut self, address: &str, data: Value) -> Result<(Instant, Value)> {
         self.cid = self.cid % i64::from(i32::MAX) + 1;
         let mut request = json!({"code":"request", "cid":self.cid, "adr":address, "data":data});
         if let Some(auth) = &self.auth {
@@ -94,11 +106,6 @@ impl Client {
         ensure!(
             response["cid"].as_i64() == Some(self.cid),
             "AL1350 response correlation ID mismatch"
-        );
-        ensure!(
-            response["code"].as_u64() == Some(200),
-            "AL1350 service code {}",
-            response["code"]
         );
         Ok((received, response))
     }

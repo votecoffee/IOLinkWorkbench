@@ -76,6 +76,7 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo check --locked --no-default-features --bin iolink-cli
 cargo build --locked --release --target x86_64-pc-windows-msvc --bins
 python tools/verify_headless.py target/x86_64-pc-windows-msvc/release/iolink-cli.exe
+python tools/verify_writes.py target/x86_64-pc-windows-msvc/release/iolink-cli.exe
 python tools/verify_local_api.py target/x86_64-pc-windows-msvc/release/iolink-cli.exe
 python tools/verify_mqtt.py target/x86_64-pc-windows-msvc/release/iolink-cli.exe
 python tools/verify_shared_memory.py target/x86_64-pc-windows-msvc/release/iolink-cli.exe

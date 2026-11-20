@@ -8,6 +8,7 @@ This is the compact index for the research behind Windows preview **0.45.0**, bu
 |---|---|---|
 | Bench hardware | Master, firmware, configured port, sensor, IODD and signal remain unselected. | [First bench](../ROADMAP.md#first-physical-bench) |
 | Initial adapter | ifm AL1350 IoT Core 3.1.x HTTP(S) is a documented target and loopback fixture, with no vendor USB SDK added. It is not selected or physically qualified bench hardware. | [AL1350 reference](../README.md#al1350-bench-setup), `src/transport/ifm.rs` |
+| Writes | CLI supports offline review and one-shot mode, readable ISDU, SystemCommand and process image writes. Physical behavior awaits bench qualification. | [AL1350 writes](WRITES.md) |
 | Freshness | The supported AL1350 path returns host snapshots. Source update loss, cadence and age remain unknown without source metadata; value changes cannot supply it. | [Operations](OPERATIONS.md#timing-loss-and-saved-evidence) |
 | Architecture | Transport, pure decoding, cyclic sampling, bounded CSV writer and independent acyclic clients remain separate. | [Development](DEVELOPMENT.md#ownership-and-flow) |
 | Descriptions | IODD XML/ZIP selection, local standard/language/unit resources, CRC receipts and optional local XSD checks are supported. Full IODD Checker/profile-snippet conformance remains separate. | [Description workflows](OPERATIONS.md#descriptions-identity-and-manual-mapping), [roadmap](../ROADMAP.md#follow-on-work) |

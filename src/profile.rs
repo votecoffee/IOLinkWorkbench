@@ -22,6 +22,25 @@ pub struct Identity {
 
 impl Identity {
     pub fn verify(&self, actual: &Self) -> Result<&'static str> {
+        let (compared, expected) = self.compare(actual)?;
+        Ok(match compared {
+            0 if expected == 0 => "no identity pin configured",
+            0 => "identity unavailable",
+            n if n == expected => "matched all configured identity fields",
+            _ => "partial identity match",
+        })
+    }
+
+    pub(crate) fn verify_all(&self, actual: &Self) -> Result<()> {
+        let (compared, expected) = self.compare(actual)?;
+        ensure!(
+            compared == expected,
+            "one or more required device identity pins are unavailable"
+        );
+        Ok(())
+    }
+
+    fn compare(&self, actual: &Self) -> Result<(usize, usize)> {
         let mut compared = 0;
         let mut expected = 0;
         macro_rules! compare {
@@ -46,12 +65,7 @@ impl Identity {
         compare!(product_id);
         compare!(product_name);
         compare!(serial);
-        Ok(match compared {
-            0 if expected == 0 => "no identity pin configured",
-            0 => "identity unavailable",
-            n if n == expected => "matched all configured identity fields",
-            _ => "partial identity match",
-        })
+        Ok((compared, expected))
     }
 }
 

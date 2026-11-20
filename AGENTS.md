@@ -9,7 +9,7 @@ Keep GUI workflow conventions aligned with the read-only EthernetIPWorkbench ref
 - Keep transport acquisition separate from IODD/manual decoding and CSV writing. Explicit acyclic reads use an independent client/worker; they must not hold the cyclic sampler's locks.
 - The initial scope is one master, one configured port and one sensor. The ifm AL1350 adapter is a documented target, not evidence that bench hardware has been selected or accepted.
 - Preserve existing profiles, recorded bytes, sample indexes and schema compatibility. Imported fields remain beneath manual overrides. Host profile edits do not configure a device.
-- Do not change port mode/configuration, issue device commands, write ISDU parameters or send process outputs without the user's explicit approval for the proposed operation. Current implementation is read-only. Routine offline editing, tests and packaging need no extra approval.
+- Physical writes require the user's explicit approval for the proposed target and operation. Use the [CLI preview and confirmation workflow](docs/WRITES.md) for AL1350 mode, parameter, SystemCommand and process output writes. Keep acquisition and feed paths read-only. Routine offline editing, loopback write tests and packaging need no extra approval.
 - Do not interpret code changes or simulator tests as authorization to connect to physical hardware. Use the current session's hardware scope.
 - Desktop input and desktop/window screenshots or recording require an explicit request in the current chat. The hidden native self-test operates only on its own process and performs no input injection or pixel readback.
 

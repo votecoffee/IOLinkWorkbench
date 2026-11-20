@@ -2,6 +2,8 @@
 
 Read and log one IO-Link sensor on one configured port from a portable Windows x64 desktop application or headless CLI. The application opens offline with a synthetic sensor. Its first hardware adapter targets the ifm AL1350 IoT Core HTTP(S) snapshot API.
 
+The CLI also supports previewed, explicitly confirmed AL1350 writes. [Reviewed write operations](docs/WRITES.md)
+
 ## Table of Contents
 
 - [Install](#install)
@@ -304,7 +306,7 @@ The adapter follows ifm's AL1350 IoT Core contract for the 3.1.x firmware docume
 4. Use **status** before capture. If the profile pins an IODD Product ID, **status --verify-product-id** or **Verify Product ID** in the GUI reads ISDU index 19:0 and compares it explicitly. During capture, the gateway's cyclic snapshot endpoints supply Vendor ID, Device ID, product name, and serial where present. Product ID verification and other explicit ISDU reads use a separate client and worker. The gateway or port can still have shared service time.
 5. Confirm the sensor's byte order and values against a known observation before relying on typed data. The gateway's reported cycle is preserved raw. Set **ifm_cycle_unit** to **microseconds** or **milliseconds** after confirming the unit for the installed firmware. The cited manual gives conflicting units in its setup and API sections.
 
-The app sends only documented data reads and explicitly requested ISDU reads. Port configuration, device commands, ISDU writes, and process outputs are outside this build.
+Monitoring and capture use documented data reads and explicitly requested ISDU reads. The CLI exposes a separate preview and confirmation workflow for one-shot mode, parameter, SystemCommand, and process output writes. [Reviewed AL1350 writes](docs/WRITES.md)
 
 ~~~powershell
 .\iolink-cli.exe status .\.local\bench.toml --verify-product-id
