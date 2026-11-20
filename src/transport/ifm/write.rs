@@ -35,6 +35,30 @@ pub enum Operation {
     },
 }
 
+impl Operation {
+    /// Encode a desired IODD value locally for the same byte-for-byte review as a raw write.
+    pub fn isdu_typed(
+        profile: &Profile,
+        index: u16,
+        subindex: u8,
+        expected: String,
+        desired_value: &str,
+    ) -> Result<Self> {
+        let parameter = ReadPoint::Isdu { index, subindex }
+            .validate(profile)?
+            .context("typed ISDU entry requires an IODD declaration for this parameter")?;
+        let bytes = parameter
+            .encode_typed_write(desired_value)
+            .with_context(|| format!("desired value for {}", parameter.name))?;
+        Ok(Self::Isdu {
+            index,
+            subindex,
+            expected,
+            desired: hex(&bytes),
+        })
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ReadPoint {
@@ -100,6 +124,12 @@ impl CurrentRead {
 }
 
 impl ReadPoint {
+    pub fn typed_isdu_parameter(self, profile: &Profile) -> Option<&Parameter> {
+        self.validate(profile)
+            .ok()?
+            .filter(|parameter| parameter.supports_typed_write())
+    }
+
     fn validate(self, profile: &Profile) -> Result<Option<&Parameter>> {
         if let Self::Isdu { index, subindex } = self {
             ensure!(

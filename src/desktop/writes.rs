@@ -30,6 +30,7 @@ struct Draft {
     kind: Kind,
     expected: String,
     desired: String,
+    typed_desired: bool,
     index: u16,
     subindex: u8,
     code: u8,
@@ -49,7 +50,7 @@ impl Draft {
         }
     }
 
-    fn operation(&self) -> Result<Operation> {
+    fn operation(&self, profile: &Profile) -> Result<Operation> {
         Ok(match self.kind {
             Kind::Mode => Operation::PortMode {
                 expected: self
@@ -63,6 +64,13 @@ impl Draft {
                     .parse()
                     .context("Enter the desired numeric mode in decimal")?,
             },
+            Kind::Parameter if self.typed_desired => Operation::isdu_typed(
+                profile,
+                self.index,
+                self.subindex,
+                self.expected.clone(),
+                &self.desired,
+            )?,
             Kind::Parameter => Operation::Isdu {
                 index: self.index,
                 subindex: self.subindex,
@@ -80,7 +88,13 @@ impl Draft {
         })
     }
 
-    fn show(&mut self, ui: &mut Ui) {
+    fn reset_values(&mut self) {
+        self.expected.clear();
+        self.desired.clear();
+        self.typed_desired = false;
+    }
+
+    fn show(&mut self, ui: &mut Ui, profile: &Profile) {
         let before = self.kind;
         egui::ComboBox::from_id_salt("write-operation")
             .selected_text(self.kind.label())
@@ -90,21 +104,14 @@ impl Draft {
                 }
             });
         if self.kind != before {
-            self.expected.clear();
-            self.desired.clear();
+            self.reset_values();
         }
         match self.kind {
             Kind::Mode => {
                 ui.small("Use the numeric mode codes confirmed for this firmware.");
                 self.values(ui, "Expected mode", "Desired mode");
             }
-            Kind::Parameter => {
-                ui.horizontal_wrapped(|ui| {
-                    ui.add(egui::DragValue::new(&mut self.index).prefix("Index "));
-                    ui.add(egui::DragValue::new(&mut self.subindex).prefix("Subindex "));
-                });
-                self.values(ui, "Expected parameter hex", "Desired parameter hex");
-            }
+            Kind::Parameter => self.show_parameter(ui, profile),
             Kind::Command => {
                 ui.add(
                     egui::DragValue::new(&mut self.code).prefix("SystemCommand code (decimal) "),
@@ -116,6 +123,50 @@ impl Draft {
                 self.values(ui, "Expected output hex", "Desired output hex");
             }
         }
+    }
+
+    fn show_parameter(&mut self, ui: &mut Ui, profile: &Profile) {
+        let address = (self.index, self.subindex);
+        ui.horizontal_wrapped(|ui| {
+            ui.add(egui::DragValue::new(&mut self.index).prefix("Index "));
+            ui.add(egui::DragValue::new(&mut self.subindex).prefix("Subindex "));
+        });
+        if address != (self.index, self.subindex) {
+            self.reset_values();
+        }
+        text_entry(ui, "Expected parameter hex", &mut self.expected);
+        let point = ReadPoint::Isdu {
+            index: self.index,
+            subindex: self.subindex,
+        };
+        let previous = self.typed_desired;
+        let typed_label = if let Some(parameter) = point.typed_isdu_parameter(profile) {
+            ui.small(format!("{} · {}", parameter.name, parameter.datatype));
+            ui.horizontal_wrapped(|ui| {
+                ui.selectable_value(&mut self.typed_desired, false, "Raw hex");
+                ui.selectable_value(&mut self.typed_desired, true, "IODD value");
+            });
+            if parameter.datatype == "BooleanT" {
+                "Desired Boolean (true or false)"
+            } else {
+                "Desired integer (unscaled decimal)"
+            }
+        } else {
+            self.typed_desired = false;
+            "Desired parameter hex"
+        };
+        if previous != self.typed_desired {
+            self.desired.clear();
+        }
+        text_entry(
+            ui,
+            if self.typed_desired {
+                typed_label
+            } else {
+                "Desired parameter hex"
+            },
+            &mut self.desired,
+        );
     }
 
     fn values(&mut self, ui: &mut Ui, before: &str, after: &str) {
@@ -281,7 +332,7 @@ impl Panel {
                     profile.connection.endpoint, profile.connection.port
                 ));
                 text_entry(ui, "Expected master serial", &mut self.master_serial);
-                self.draft.show(ui);
+                self.draft.show(ui, profile);
                 if self.draft.read_point().is_some() {
                     if ui
                         .add_enabled(
@@ -304,7 +355,7 @@ impl Panel {
                 {
                     match self
                         .draft
-                        .operation()
+                        .operation(profile)
                         .and_then(|operation| Plan::new(profile, &self.master_serial, operation))
                     {
                         Ok(plan) => self.stage(plan),

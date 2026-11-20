@@ -133,6 +133,21 @@ impl DecodedParameter {
 }
 
 impl Parameter {
+    pub(crate) fn supports_typed_write(&self) -> bool {
+        matches!(
+            (self.datatype.as_str(), self.bits),
+            ("BooleanT", Some(1)) | ("IntegerT" | "UIntegerT", Some(8 | 16 | 32 | 64))
+        )
+    }
+
+    pub(crate) fn encode_typed_write(&self, input: &str) -> Result<Vec<u8>> {
+        ensure!(
+            self.supports_typed_write(),
+            "typed ISDU entry supports Boolean and 8-, 16-, 32- or 64-bit integer parameters"
+        );
+        super::assessment::numeric_bytes(self, input)
+    }
+
     /// Review a write image offline. A compound image may change only declared writable bits.
     pub(crate) fn review_write(
         &self,

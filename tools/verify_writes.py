@@ -190,8 +190,16 @@ def verify(cli, profile, server):
                                                        'encoding="US-ASCII"'),
                                     encoding="utf-8", newline="\n")
     unknown_width_record = import_for_write(unknown_width_source)
+    values_source = profile.parent / "writable-values.xml"
+    values_text = (ROOT / "samples/sensor-values.xml").read_text(encoding="utf-8")
+    values_source.write_text(values_text.replace('accessRights="ro"', 'accessRights="rw"'),
+                             encoding="utf-8", newline="\n")
+    values = import_for_write(values_source)
     member = ["isdu", "--index", "66", "--subindex", "3", "--expected", "FF", "--desired", "0A"]
     signed = ["isdu", "--index", "64", "--expected", "0001", "--desired", "FFFE"]
+    typed_signed = [*signed[:-2], "--desired-value", "-2"]
+    typed_bool = ["isdu", "--index", "66", "--subindex", "2", "--expected", "01", "--desired-value", "false"]
+    typed_wide = ["isdu", "--index", "82", "--expected", "0000000000000000", "--desired-value", "18446744073709551615"]
     compound = ["isdu", "--index", "66", "--expected", "FFEC010A41000000", "--desired", "FFEC000A42000000"]
     array = ["isdu", "--index", "67", "--expected", "A2C49570", "--desired", "A2C495F0"]
     before = len(server.requests)
@@ -199,6 +207,19 @@ def verify(cli, profile, server):
         ["isdu", "--index", "65", "--expected", "01", "--desired", "02"], status=1, target=configured)
     assert "does not declare this parameter read/write" in run(
         [*member[:4], "1", *member[5:]], status=1, target=formats)
+    assert "--desired" in run(signed[:-2], status=2, target=formats)
+    assert "cannot be used with" in run([*signed, "--desired-value", "-2"], status=2, target=formats)
+    assert "requires an IODD declaration" in run(typed_signed, status=1)
+    assert "does not declare this parameter read/write" in run(
+        [*typed_signed[:2], "65", *typed_signed[3:]], status=1, target=configured)
+    assert "supports Boolean and 8-" in run(
+        [*compound[:-2], "--desired-value", "10"], status=1, target=formats)
+    assert "supports Boolean and 8-" in run(
+        ["isdu", "--index", "85", "--subindex", "1", "--expected", "00", "--desired-value", "-1"],
+        status=1, target=values)
+    assert "expected true, false, 1 or 0" in run([*typed_bool[:-1], "2"], status=1, target=formats)
+    assert "exceeds the declared signed width" in run([*typed_signed[:-1], "-32769"], status=1, target=formats)
+    assert "outside the IODD choices or ranges" in run([*member[:-2], "--desired-value", "11"], status=1, target=formats)
     assert "outside the IODD choices or ranges" in run([*member[:-1], "0B"], status=1, target=formats)
     assert "width differs from the IODD" in run([*signed[:-1], "FE"], status=1, target=formats)
     assert "width differs from the IODD" in run([*compound[:-1], "00"], status=1, target=formats)
@@ -228,6 +249,11 @@ def verify(cli, profile, server):
     signed_review = preview(signed, target=formats)["target_and_request"]["isdu_value_review"]
     assert signed_review["datatype"] == "IntegerT" and signed_review["interpretation"]["raw_value"] == "-2"
     assert "manual_review" not in signed_review
+    assert preview(typed_signed, target=formats) == preview(signed, target=formats)
+    assert preview(typed_bool, target=formats) == preview([*typed_bool[:-2], "--desired", "00"], target=formats)
+    wide_plan = preview(typed_wide, target=values)["target_and_request"]
+    assert wide_plan["request_data"]["value"] == "FFFFFFFFFFFFFFFF"
+    assert wide_plan["isdu_value_review"]["interpretation"]["raw_value"] == typed_wide[-1]
     overlap = preview([*signed[:-1], "01F4"], target=configured)["target_and_request"]["isdu_value_review"]
     assert overlap["interpretation"]["value_assessment"]["status"] == "definition_needs_review"
     assert "manual_review" in overlap
@@ -241,6 +267,10 @@ def verify(cli, profile, server):
     assert value_review["interpretation"]["value_assessment"]["status"] == "allowed"
     assert receipt["readback"] == server.parameters[66, 3] == "0A"
 
+    server.parameters[66, 2] = "01"
+    _, receipt = apply(typed_bool, "readback_matched", target=formats)
+    assert receipt["readback"] == server.parameters[66, 2] == "00"
+
     compound_plan = preview(compound, target=formats)
     server.parameters[66, 0] = "FFED010A41000000"
     writes = len(server.writes)
@@ -253,7 +283,7 @@ def verify(cli, profile, server):
     server.parameters[67, 0] = array[4]
     _, receipt = apply(array, "readback_matched", target=arrays)
     assert receipt["readback"] == server.parameters[67, 0] == array[-1]
-    print("PASS: checked reads, offline IODD value and compound member review, exact target checks, four write paths, readback, and single dispatch on uncertain outcomes")
+    print("PASS: checked reads, typed ISDU entry and compound member review, exact target checks, four write paths, readback, and single dispatch on uncertain outcomes")
 
 
 def main():

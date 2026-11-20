@@ -75,7 +75,7 @@ fn representation(
                 .map(|(bytes, conversion)| (bytes, Some(conversion)));
         }
         "IntegerT" | "UIntegerT" | "BooleanT" | "Float32T" => {
-            assessment::default_numeric_bytes(parameter, declared)
+            assessment::numeric_bytes(parameter, declared)
         }
         "StringT" | "OctetStringT" => {
             let length = usize::from(

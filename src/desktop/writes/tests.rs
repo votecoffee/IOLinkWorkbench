@@ -65,7 +65,11 @@ fn draft_forms_stage_the_shared_wire_preview_offline() -> Result<()> {
         ),
     ] {
         panel.approved = true;
-        panel.stage(Plan::new(&profile, "BENCH-MASTER", draft.operation()?)?);
+        panel.stage(Plan::new(
+            &profile,
+            "BENCH-MASTER",
+            draft.operation(&profile)?,
+        )?);
         assert!(!panel.approved && !panel.busy());
         let review = panel.review.as_ref().unwrap().review();
         assert_eq!(review.request_data, payload);
@@ -74,6 +78,35 @@ fn draft_forms_stage_the_shared_wire_preview_offline() -> Result<()> {
     panel.approved = true;
     panel.clear_draft();
     assert!(panel.review.is_none() && !panel.approved);
+    Ok(())
+}
+
+#[test]
+fn typed_isdu_draft_stages_exact_bytes_and_keeps_expected_hex() -> Result<()> {
+    let mut profile = fixture_profile("https://127.0.0.1:9".into())?;
+    let catalog = iolink_workbench::iodd::parse(
+        include_str!("../../../samples/sensor-formats.xml"),
+        "synthetic write form".into(),
+    )?;
+    let (_, imported) = catalog.select(None, None)?;
+    profile.input_bytes = imported.input_bytes;
+    profile.iodd = Some(imported);
+    let mut draft = Draft {
+        kind: Kind::Parameter,
+        index: 64,
+        expected: "0001".into(),
+        desired: "-2".into(),
+        typed_desired: true,
+        ..Default::default()
+    };
+    let plan = Plan::new(&profile, "SYNTHETIC-MASTER", draft.operation(&profile)?)?;
+    let review = plan.review();
+    assert_eq!(review.expected_value, Some(json!("0001")));
+    assert_eq!(review.request_data["value"], "FFFE");
+    draft.index = 65;
+    assert!(draft.operation(&profile).is_err());
+    draft.reset_values();
+    assert!(draft.expected.is_empty() && draft.desired.is_empty() && !draft.typed_desired);
     Ok(())
 }
 

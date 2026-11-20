@@ -1,4 +1,4 @@
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use clap::{Args, Subcommand};
 use iolink_workbench::{
     profile::Profile,
@@ -65,16 +65,25 @@ enum WriteOperation {
         #[arg(long)]
         desired: u8,
     },
-    /// Write one readable ISDU parameter using reviewed raw bytes.
+    /// Write one readable ISDU parameter using reviewed raw or IODD-typed input.
     Isdu {
         #[arg(long)]
         index: u16,
         #[arg(long, default_value_t = 0)]
         subindex: u8,
+        /// Exact current bytes in hexadecimal.
         #[arg(long)]
         expected: String,
-        #[arg(long)]
-        desired: String,
+        /// Proposed raw bytes in hexadecimal.
+        #[arg(
+            long,
+            required_unless_present = "desired_value",
+            conflicts_with = "desired_value"
+        )]
+        desired: Option<String>,
+        /// Proposed IODD integer (unscaled decimal) or Boolean (true or false).
+        #[arg(long, allow_negative_numbers = true)]
+        desired_value: Option<String>,
     },
     /// Send a single documented IO-Link SystemCommand byte.
     DeviceCommand {
@@ -93,34 +102,43 @@ enum WriteOperation {
     },
 }
 
-impl From<WriteOperation> for Operation {
-    fn from(value: WriteOperation) -> Self {
-        match value {
-            WriteOperation::PortMode { expected, desired } => Self::PortMode { expected, desired },
-            WriteOperation::Isdu {
+impl WriteOperation {
+    fn into_operation(self, profile: &Profile) -> Result<Operation> {
+        Ok(match self {
+            Self::PortMode { expected, desired } => Operation::PortMode { expected, desired },
+            Self::Isdu {
                 index,
                 subindex,
                 expected,
                 desired,
-            } => Self::Isdu {
-                index,
-                subindex,
-                expected,
-                desired,
-            },
-            WriteOperation::DeviceCommand { code, meaning } => {
-                Self::DeviceCommand { code, meaning }
+                desired_value,
+            } => {
+                if let Some(value) = desired_value {
+                    Operation::isdu_typed(profile, index, subindex, expected, &value)?
+                } else {
+                    Operation::Isdu {
+                        index,
+                        subindex,
+                        expected,
+                        desired: desired.context("specify --desired or --desired-value")?,
+                    }
+                }
             }
-            WriteOperation::ProcessOutput { expected, desired } => {
-                Self::ProcessOutput { expected, desired }
+            Self::DeviceCommand { code, meaning } => Operation::DeviceCommand { code, meaning },
+            Self::ProcessOutput { expected, desired } => {
+                Operation::ProcessOutput { expected, desired }
             }
-        }
+        })
     }
 }
 
 pub(super) fn run(args: Arguments) -> Result<()> {
     let profile = Profile::load(&args.profile)?;
-    let plan = Plan::new(&profile, &args.master_serial, args.operation.into())?;
+    let plan = Plan::new(
+        &profile,
+        &args.master_serial,
+        args.operation.into_operation(&profile)?,
+    )?;
     if let Some(confirmation) = args.confirm {
         let receipt = plan.apply(&confirmation)?;
         println!("{}", serde_json::to_string_pretty(&receipt)?);

@@ -156,8 +156,8 @@ fn lexical(parameter: &Parameter, text: &str) -> Result<Atom> {
     })
 }
 
-/// A local singular representation for declared defaults, never a transport write.
-pub(super) fn default_numeric_bytes(parameter: &Parameter, value: &str) -> Result<Vec<u8>> {
+/// A singular numeric representation rounded up to the nearest byte.
+pub(super) fn numeric_bytes(parameter: &Parameter, value: &str) -> Result<Vec<u8>> {
     let atom = lexical(parameter, value)?;
     Ok(match atom {
         Atom::Boolean(value) => vec![u8::from(value)],
