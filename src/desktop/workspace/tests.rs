@@ -635,6 +635,15 @@ fn saved_marker_drops_stage_paths_and_respect_the_review_owner() -> Result<()> {
     assert_eq!(app.saved_capture.page, saved_capture::Page::Verify);
     assert!(app.message.contains("active capture review or export"));
     assert_eq!(app.pending_jobs(), 3);
+    app.saved_capture.page = saved_capture::Page::Compare;
+    drop_paths(&mut app, &ctx, size, &[&marker]);
+    assert_eq!(app.saved_capture.page, saved_capture::Page::Compare);
+    assert!(app.message.contains("active comparison"));
+    assert!(
+        !draw(&mut app, &ctx, size)
+            .iter()
+            .any(|(text, _)| text == "Assign dropped capture")
+    );
     for release in releases {
         release();
     }
@@ -1366,6 +1375,8 @@ fn compare_shortcuts_stage_two_recordings_and_invalidate_previous_results() -> R
     };
     let baseline = record("Review 基準", "Baseline sensor run")?;
     let latest = record("Latest run", "Latest sensor run")?;
+    let baseline_file = baseline.directory.join("capture.toml");
+    let latest_file = latest.directory.join("capture.toml");
     let mut app = App::new();
     app.tab = Tab::Offline;
     app.latest_recording = Some(latest);
@@ -1393,12 +1404,8 @@ fn compare_shortcuts_stage_two_recordings_and_invalidate_previous_results() -> R
         "Comparison capture folder",
         baseline.directory.to_str().unwrap(),
     );
-    drop_paths(
-        &mut app,
-        &ctx,
-        size,
-        &[&baseline.directory.join("capture.toml")],
-    );
+    click(&mut app, &ctx, size, "Verify");
+    drop_paths(&mut app, &ctx, size, &[&baseline_file]);
     click(&mut app, &ctx, size, "Verify capture");
     finish(&mut app);
     click(&mut app, &ctx, size, "Compare as baseline");
@@ -1419,6 +1426,27 @@ fn compare_shortcuts_stage_two_recordings_and_invalidate_previous_results() -> R
     click(&mut app, &ctx, size, "Compare captures");
     assert!(shows(&mut app, "Left · Baseline sensor run"));
     assert!(shows(&mut app, "Right · Latest sensor run"));
+
+    drop_paths(&mut app, &ctx, size, &[&baseline_file]);
+    assert_eq!(app.saved_capture.page, saved_capture::Page::Compare);
+    assert!(shows(&mut app, "Assign dropped capture"));
+    assert!(shows(&mut app, "Right · Latest sensor run"));
+    click(&mut app, &ctx, size, "Verify and compare");
+    assert_eq!(app.pending_jobs(), 0);
+    click(&mut app, &ctx, size, "Cancel drop");
+    assert!(!shows(&mut app, "Assign dropped capture"));
+    assert!(shows(&mut app, "Right · Latest sensor run"));
+
+    drop_paths(&mut app, &ctx, size, &[&baseline_file]);
+    click(&mut app, &ctx, size, "Use on the right");
+    assert!(!shows(&mut app, "Right ·"));
+    drop_paths(&mut app, &ctx, size, &[&latest_file]);
+    click(&mut app, &ctx, size, "Use as baseline");
+    assert_eq!(app.pending_jobs(), 0);
+    click(&mut app, &ctx, size, "Verify and compare");
+    finish(&mut app);
+    assert!(shows(&mut app, "Left · Latest sensor run"));
+    assert!(shows(&mut app, "Right · Baseline sensor run"));
     Ok(())
 }
 

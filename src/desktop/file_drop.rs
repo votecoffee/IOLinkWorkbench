@@ -1,5 +1,5 @@
 //! File drops select host paths only. Reading and applying remain explicit actions.
-use super::{App, Tab, WARNING, workspace::OfflinePage};
+use super::{App, Tab, WARNING, saved_capture::Page, workspace::OfflinePage};
 use eframe::egui::{self, Context};
 use std::path::Path;
 
@@ -45,10 +45,18 @@ impl App {
         }
     }
 
+    fn is_comparison_drop(&self, target: DropTarget) -> bool {
+        matches!(target, DropTarget::Capture) && self.saved_capture.page == Page::Compare
+    }
+
     fn file_drop_block_reason(&self, target: DropTarget) -> Option<&'static str> {
         if target.saved() {
             if self.closing {
                 return Some("Application is closing");
+            }
+            if self.is_comparison_drop(target) {
+                return (!self.saved_capture.can_stage_comparison_drop())
+                    .then_some("Wait for the active comparison before selecting a folder");
             }
             return (!self.saved_capture.can_select_directory()).then_some(
                 "Wait for the active capture review or export before selecting a folder",
@@ -99,7 +107,9 @@ impl App {
                         "Drop the file from its saved folder. File selection unchanged.".into();
                     return;
                 };
-                let (selected, message) = if matches!(target, DropTarget::Capture) {
+                let (selected, message) = if self.is_comparison_drop(target) {
+                    (self.saved_capture.stage_comparison_drop(folder), "")
+                } else if matches!(target, DropTarget::Capture) {
                     (
                         self.saved_capture.select_directory(folder),
                         "Capture folder selected. Choose Verify capture when ready.",
@@ -150,7 +160,10 @@ impl App {
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style()).inner_margin(16.0).show(ui, |ui| {
                     ui.set_max_width(440.0);
-                    if target.saved() {
+                    if self.is_comparison_drop(target) {
+                        ui.heading("Drop a capture for comparison");
+                        ui.label("One capture.toml file");
+                    } else if target.saved() {
                         ui.heading("Drop a saved capture or bundle");
                         ui.label("One capture.toml or receipt.toml file");
                     } else {
@@ -159,6 +172,8 @@ impl App {
                     }
                     if let Some(reason) = self.file_drop_block_reason(target) {
                         ui.colored_label(WARNING, reason);
+                    } else if self.is_comparison_drop(target) {
+                        ui.small("Choose a comparison side after dropping the file.");
                     } else if target.saved() {
                         ui.small("Selects the containing folder. Verify it when ready.");
                     } else {

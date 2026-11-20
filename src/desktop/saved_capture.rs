@@ -96,6 +96,21 @@ impl Verifier {
         !self.verify.busy() && !self.signal.busy() && !self.exports.busy()
     }
 
+    pub(super) fn can_stage_comparison_drop(&self) -> bool {
+        !self.comparer.busy()
+    }
+
+    pub(super) fn stage_comparison_drop(&mut self, directory: &Path) -> bool {
+        let Some(path) = directory
+            .to_str()
+            .filter(|_| self.can_stage_comparison_drop())
+        else {
+            return false;
+        };
+        self.comparer.stage_drop(path.into());
+        true
+    }
+
     fn set_directory(&mut self, directory: String) {
         if self.directory == directory {
             return;

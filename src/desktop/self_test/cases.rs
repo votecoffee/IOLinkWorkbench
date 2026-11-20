@@ -278,7 +278,14 @@ pub(super) fn render(
                         app.tab = Tab::Offline;
                         use super::super::saved_capture::Page;
                         app.saved_capture.page = match label {
-                            "offline-compare" => Page::Compare,
+                            "offline-compare" => {
+                                ensure!(app.saved_capture.stage_comparison_drop(
+                                    std::path::Path::new(
+                                        ".local/synthetic-recordings/Archived baseline 録画"
+                                    )
+                                ));
+                                Page::Compare
+                            }
                             "offline-signal" => {
                                 app.saved_capture.set_logged_fields(
                                     app.profile.log_fields().into_iter().cloned().collect(),

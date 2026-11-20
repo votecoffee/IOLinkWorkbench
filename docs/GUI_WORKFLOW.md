@@ -81,7 +81,9 @@ To compare a new recording against a baseline, verify the baseline folder and ch
 
 ## Selecting files from Explorer
 
-On **Offline → Saved captures**, drop the capture's **capture.toml** to select its folder on **Verify**, or a re-decoded bundle's **receipt.toml** to select its folder on **Exports**. Choose **Verify capture** or **Verify bundle** explicitly. Bundle selection starts with local checks. Select **Also reverify the original Capture folder above** when you intend to include the original source.
+On **Compare captures**, drop one **capture.toml** and choose **Use as baseline** or **Use on the right**. **Cancel drop** keeps the current pair and result. Assign or cancel the drop to continue editing or checking the pair. Choose **Verify and compare** once both folders are set.
+
+On the other **Offline → Saved captures** pages, drop **capture.toml** to select its folder on **Verify**. Dropping a re-decoded bundle's **receipt.toml** selects its folder on **Exports**. Choose **Verify capture** or **Verify bundle** explicitly. Bundle verification starts with local checks. Select **Also reverify the original Capture folder above** when you intend to include the original source.
 
 Saved file drops work during acquisition and profile editing. Wait for an active review or export before replacing its folder selection. The comparison folders are independent. You can still enter any folder path manually.
 

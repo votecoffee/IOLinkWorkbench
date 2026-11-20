@@ -10,6 +10,7 @@ use std::{
 pub(super) struct Comparer {
     left: String,
     right: String,
+    dropped_folder: Option<String>,
     worker: Option<Worker<CaptureComparison>>,
     result: Option<CaptureComparison>,
     message: String,
@@ -37,6 +38,39 @@ impl Comparer {
         }
     }
 
+    pub(super) fn stage_drop(&mut self, directory: String) {
+        self.dropped_folder = Some(directory);
+    }
+
+    fn show_dropped_folder(&mut self, ui: &mut Ui) {
+        let Some(folder) = self.dropped_folder.take() else {
+            ui.small("Drop capture.toml to choose a comparison side.");
+            return;
+        };
+        let (baseline, right, cancel) = ui
+            .group(|ui| {
+                ui.strong("Assign dropped capture");
+                ui.add(egui::Label::new(&folder).truncate())
+                    .on_hover_text(&folder);
+                ui.horizontal_wrapped(|ui| {
+                    (
+                        ui.button("Use as baseline").clicked(),
+                        ui.button("Use on the right").clicked(),
+                        ui.button("Cancel drop").clicked(),
+                    )
+                })
+                .inner
+            })
+            .inner;
+        if baseline {
+            self.left = folder;
+        } else if right {
+            self.right = folder;
+        } else if !cancel {
+            self.dropped_folder = Some(folder);
+        }
+    }
+
     pub fn update(&mut self, ctx: &Context) {
         if let Some(result) = completed(&mut self.worker) {
             match result {
@@ -57,7 +91,9 @@ impl Comparer {
 
     pub fn show(&mut self, ui: &mut Ui, latest_recording: Option<&Path>) {
         let before = (self.left.clone(), self.right.clone());
-        ui.add_enabled_ui(self.worker.is_none(), |ui| {
+        self.show_dropped_folder(ui);
+        let editable = !self.busy() && self.dropped_folder.is_none();
+        ui.add_enabled_ui(editable, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.label("Left capture (baseline)");
                 path_entry(ui, &mut self.left, "Baseline capture folder");
