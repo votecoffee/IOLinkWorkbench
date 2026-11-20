@@ -164,6 +164,8 @@ enum Command {
     },
     /// Review a saved diagnostic snapshot offline using its embedded profile.
     ReviewDiagnostics { snapshot: PathBuf },
+    /// Compare two saved diagnostic snapshots by query and wire slot, entirely offline.
+    CompareDiagnostics { left: PathBuf, right: PathBuf },
     /// Decode a recorded Detailed Device Status payload without opening a transport.
     DecodeDiagnostics {
         profile: PathBuf,
@@ -512,6 +514,16 @@ fn main() -> Result<()> {
             ensure!(
                 review.ok(),
                 "saved diagnostic snapshot needs review; retained results are printed above"
+            );
+        }
+        Command::CompareDiagnostics { left, right } => {
+            let left = diagnostics::Snapshot::load(&left)?;
+            let right = diagnostics::Snapshot::load(&right)?;
+            let comparison = diagnostics::compare(&left, &right)?;
+            print!("{}", toml::to_string_pretty(&comparison)?);
+            ensure!(
+                comparison.ok(),
+                "a saved diagnostic snapshot needs review; retained results are printed above"
             );
         }
         Command::DecodeDiagnostics {

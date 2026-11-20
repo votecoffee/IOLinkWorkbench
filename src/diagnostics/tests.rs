@@ -219,6 +219,134 @@ fn diagnostic_snapshot_retains_partial_and_malformed_payloads_and_rejects_mixed_
 }
 
 #[test]
+fn diagnostic_comparison_reports_wire_slot_positions_and_preserves_empty_slots() -> Result<()> {
+    let (left, _) = read_snapshot(&profile()?)?;
+    let equal = compare(&left, &left)?;
+    assert!(equal.ok());
+    assert_eq!(equal.detailed_status_reply.same_wire_bytes, Some(true));
+    assert_eq!(equal.changed_slots, Some(Vec::new()));
+
+    let mut right = left.clone();
+    right.reads[0].raw_hex = Some("04".into());
+    right.reads[1].raw_hex = Some("000000E48DFE000000".into());
+    let difference = compare(&left, &right)?;
+    assert!(difference.ok());
+    assert_eq!(difference.device_status_reply.same_wire_bytes, Some(false));
+    let values = difference.device_status_values.as_ref().unwrap();
+    assert_eq!((values.left, values.right), (2, 4));
+    assert!(
+        difference
+            .summary_text()
+            .contains("Slot 3 · absent → 000000")
+    );
+    assert_eq!(
+        difference.changed_slots.unwrap(),
+        [
+            SlotChange {
+                slot: 1,
+                left_hex: Some("E48DFE".into()),
+                right_hex: Some("000000".into())
+            },
+            SlotChange {
+                slot: 2,
+                left_hex: Some("000000".into()),
+                right_hex: Some("E48DFE".into())
+            },
+            SlotChange {
+                slot: 3,
+                left_hex: None,
+                right_hex: Some("000000".into())
+            },
+        ]
+    );
+    assert_eq!(
+        difference.left.detailed_status.unwrap().raw_hex,
+        "E48DFE000000"
+    );
+    assert_eq!(
+        difference.right.detailed_status.unwrap().raw_hex,
+        "000000E48DFE000000"
+    );
+    Ok(())
+}
+
+#[test]
+fn diagnostic_comparison_retains_replies_when_recorded_context_differs_or_is_missing() -> Result<()>
+{
+    let (left, _) = read_snapshot(&profile()?)?;
+    let mut right = left.clone();
+    right.profile.connection.port = 3;
+    for read in &mut right.reads {
+        read.observation.as_mut().unwrap().port = 3;
+    }
+    let difference = compare(&left, &right)?;
+    assert!(difference.ok() && difference.changed_slots.is_none());
+    assert_eq!(difference.detailed_status_reply.same_wire_bytes, Some(true));
+    assert_eq!(
+        difference.detailed_status_reply.interpretation_issue,
+        Some("Recorded IO-Link port or mode differs")
+    );
+    assert_eq!(
+        difference.right.reads[1].observation.as_ref().unwrap().port,
+        3
+    );
+
+    right = left.clone();
+    for read in &mut right.reads {
+        let identity = &mut read.observation.as_mut().unwrap().identity;
+        identity.serial = None;
+    }
+    let unavailable = compare(&left, &right)?;
+    assert!(
+        unavailable.ok()
+            && unavailable.device_status_values.is_none()
+            && unavailable.changed_slots.is_none()
+    );
+    assert_eq!(
+        unavailable.detailed_status_reply.interpretation_issue,
+        Some("Recorded device Vendor ID, Device ID or serial is unavailable")
+    );
+    Ok(())
+}
+
+#[test]
+fn diagnostic_comparison_keeps_independent_healthy_replies_and_checks_within_file_consistency()
+-> Result<()> {
+    let (left, _) = read_snapshot(&profile()?)?;
+    let mut partial = left.clone();
+    partial.reads[1].raw_hex = None;
+    partial.reads[1].read_error = Some("synthetic timeout".into());
+    let report = compare(&left, &partial)?;
+    assert!(!report.ok());
+    assert!(report.device_status_values.is_some() && report.changed_slots.is_none());
+    assert_eq!(report.device_status_reply.same_wire_bytes, Some(true));
+    assert_eq!(report.detailed_status_reply.same_wire_bytes, None);
+    assert_eq!(
+        report.right.reads[1].read_error.as_deref(),
+        Some("synthetic timeout")
+    );
+
+    let mut malformed = left.clone();
+    malformed.reads[1].raw_hex = Some("FF".into());
+    let report = compare(&left, &malformed)?;
+    assert!(!report.ok() && report.changed_slots.is_none());
+    assert_eq!(report.detailed_status_reply.same_wire_bytes, Some(false));
+
+    let mut inconsistent = left.clone();
+    inconsistent.reads[1].observation.as_mut().unwrap().firmware = "synthetic-2".into();
+    let report = compare(&left, &inconsistent)?;
+    assert!(
+        !report.ok() && report.changed_slots.is_none() && report.device_status_values.is_none()
+    );
+    assert_eq!(report.device_status_reply.same_wire_bytes, Some(true));
+    assert_eq!(
+        report.device_status_reply.interpretation_issue,
+        Some("Recorded identity or master context differs within a snapshot")
+    );
+    Ok(())
+}
+
+#[test]
 fn duplicate_event_codes_or_invalid_types_are_rejected() -> Result<()> {
     let temp = tempfile::tempdir()?;
     let path = temp.path().join("bad.xml");

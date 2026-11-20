@@ -230,6 +230,7 @@ pub(super) fn render(
                 "offline-snapshot",
                 "offline-events",
                 "offline-diagnostic-snapshot",
+                "offline-diagnostic-comparison",
                 "profiles-dialog",
                 "profiles-files",
                 "drop-preview",
@@ -446,10 +447,11 @@ pub(super) fn render(
                         app.tab = Tab::Offline;
                         app.workspace.offline = OfflinePage::Events;
                     }
-                    "offline-diagnostic-snapshot" => {
+                    "offline-diagnostic-snapshot" | "offline-diagnostic-comparison" => {
                         app.tab = Tab::Offline;
                         app.workspace.offline = OfflinePage::DiagnosticSnapshots;
-                        app.saved_diagnostics.stage_render_fixture();
+                        app.saved_diagnostics
+                            .stage_render_fixture(label == "offline-diagnostic-comparison");
                     }
                     "profiles-dialog" => app.workspace.profile_dialog = true,
                     "profiles-files" => {
@@ -602,6 +604,7 @@ pub(super) fn render(
                 "offline-process-output" => Some("true (raw true, bits 0x1)"),
                 "acyclic-profile" => Some("Acyclic IODD layout"),
                 "offline-diagnostic-snapshot" => Some("37:0 · synthetic fixture reply unavailable"),
+                "offline-diagnostic-comparison" => Some("Slot 1 · E48DFE → 000000"),
                 "port-capture-review" => Some("Start capture set"),
                 "port-capture-results" => Some("Synthetic device identity mismatch"),
                 "writes-text-review" => {
@@ -700,7 +703,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 109);
+        assert_eq!(cases.len(), 110);
         assert!(
             cases
                 .iter()

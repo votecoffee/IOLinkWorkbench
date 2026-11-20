@@ -54,16 +54,24 @@ impl Offline {
     }
 }
 
+struct SavedResult {
+    ok: bool,
+    text: String,
+    comparison_reviews: Option<[String; 2]>,
+}
+
 pub(super) struct Saved {
     path: String,
-    worker: Option<super::Worker<(bool, String)>>,
-    result: Option<anyhow::Result<(bool, String)>>,
+    compare_path: String,
+    worker: Option<super::Worker<SavedResult>>,
+    result: Option<anyhow::Result<SavedResult>>,
 }
 
 impl Default for Saved {
     fn default() -> Self {
         Self {
             path: ".local/diagnostics.json".into(),
+            compare_path: String::new(),
             worker: None,
             result: None,
         }
@@ -71,12 +79,27 @@ impl Default for Saved {
 }
 
 impl Saved {
-    pub(super) fn stage_render_fixture(&mut self) {
+    pub(super) fn stage_render_fixture(&mut self, compare: bool) {
         self.path = ".local/synthetic-diagnostics.json".into();
-        self.result = Some(Ok((
-            false,
-            "37:0 · synthetic fixture reply unavailable".into(),
-        )));
+        if compare {
+            self.compare_path = ".local/synthetic-diagnostics-right.json".into();
+        }
+        self.result = Some(Ok(if compare {
+            SavedResult {
+                ok: true,
+                text: "Slot 1 · E48DFE → 000000".into(),
+                comparison_reviews: Some([
+                    "Synthetic left read".into(),
+                    "Synthetic right read".into(),
+                ]),
+            }
+        } else {
+            SavedResult {
+                ok: false,
+                text: "37:0 · synthetic fixture reply unavailable".into(),
+                comparison_reviews: None,
+            }
+        }));
     }
 
     pub fn busy(&self) -> bool {
@@ -119,28 +142,43 @@ impl Saved {
             )
             .clicked()
         {
-            let path = std::path::PathBuf::from(self.path.trim());
-            match super::background("offline-diagnostic-snapshot", move || {
-                let review = diagnostics::Snapshot::load(&path)?.review()?;
-                Ok((review.ok(), review.text()))
-            }) {
-                Ok(worker) => {
-                    self.worker = Some(worker);
-                    self.result = None;
-                }
-                Err(error) => self.result = Some(Err(error.into())),
-            }
+            self.open(false);
         }
+        ui.collapsing("Compare two snapshots", |ui| {
+            ui.small("Compare raw replies and, when the recorded context matches, Device Status and slot positions.");
+            if ui
+                .add_enabled(
+                    !busy,
+                    egui::TextEdit::singleline(&mut self.compare_path).hint_text("Second diagnostic snapshot JSON path"),
+                )
+                .changed()
+            {
+                self.result = None;
+            }
+            if ui
+                .add_enabled(
+                    !busy && !self.path.trim().is_empty() && !self.compare_path.trim().is_empty(),
+                    egui::Button::new("Compare diagnostic snapshots"),
+                )
+                .clicked()
+            {
+                self.open(true);
+            }
+        });
         if self.busy() {
             ui.label("Reading snapshot…");
         }
         if let Some(result) = &self.result {
             match result {
-                Ok((ok, text)) => {
-                    if !ok {
+                Ok(result) => {
+                    if !result.ok {
                         ui.colored_label(WARNING, "Snapshot needs review");
                     }
-                    ui.monospace(text);
+                    ui.monospace(&result.text);
+                    if let Some([left, right]) = &result.comparison_reviews {
+                        ui.collapsing("Left snapshot", |ui| ui.monospace(left));
+                        ui.collapsing("Right snapshot", |ui| ui.monospace(right));
+                    }
                 }
                 Err(error) => {
                     ui.colored_label(WARNING, format!("{error:#}"));
@@ -149,12 +187,48 @@ impl Saved {
         }
     }
 
+    fn open(&mut self, compare: bool) {
+        if self.busy() {
+            return;
+        }
+        let left = std::path::PathBuf::from(self.path.trim());
+        let right = compare.then(|| std::path::PathBuf::from(self.compare_path.trim()));
+        match super::background("offline-diagnostic-snapshot", move || {
+            let snapshot = diagnostics::Snapshot::load(&left)?;
+            if let Some(right) = right {
+                let comparison =
+                    diagnostics::compare(&snapshot, &diagnostics::Snapshot::load(&right)?)?;
+                return Ok(SavedResult {
+                    ok: comparison.ok(),
+                    text: comparison.summary_text(),
+                    comparison_reviews: Some([comparison.left.text(), comparison.right.text()]),
+                });
+            }
+            let review = snapshot.review()?;
+            Ok(SavedResult {
+                ok: review.ok(),
+                text: review.text(),
+                comparison_reviews: None,
+            })
+        }) {
+            Ok(worker) => {
+                self.worker = Some(worker);
+                self.result = None;
+            }
+            Err(error) => self.result = Some(Err(error.into())),
+        }
+    }
+
     #[cfg(test)]
     pub(super) fn gate_for_test(&mut self) -> super::TestCompletion {
         let (sender, receiver) = std::sync::mpsc::channel();
         self.worker = Some(receiver);
         Box::new(move || {
-            let _ = sender.send(Ok((true, "Synthetic saved diagnostic review".into())));
+            let _ = sender.send(Ok(SavedResult {
+                ok: true,
+                text: "Synthetic saved diagnostic review".into(),
+                comparison_reviews: None,
+            }));
         })
     }
 }

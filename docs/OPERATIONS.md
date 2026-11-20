@@ -69,6 +69,18 @@ An explicit parameter or diagnostic read uses its own client, apart from the cyc
 
 Use a new file in an existing parent folder. The two independent 36:0 and 37:0 queries retain their own raw reply or error, host UTC and monotonic duration, and any accepted connection observation. The saved profile supplies event definitions offline. A partially successful read or a change in master or device identity remains reviewable. Exit 1 indicates a read, decode, context or save failure. Continue to treat source event history and loss as unknown.
 
+### Compare diagnostic snapshots
+
+```powershell
+.\iolink-cli.exe compare-diagnostics .\.local\before-diagnostics.json .\.local\after-diagnostics.json
+```
+
+Use **Offline → Diagnostic snapshots → Compare two snapshots** in the GUI. The comparison reopens both files with their embedded event definitions and shows exact byte equality separately for **36:0** and **37:0** when both replies exist. Each snapshot's full review remains available. Files and endpoints are left as recorded.
+
+Values and changed slot positions require two valid replies for that query and matching recorded gateway route, master model and firmware, port and mode, and observed Vendor ID, Device ID and device serial. AL1350 comparisons also require matching recorded master serials. Other observed identity fields must agree where both files supply them. A discrepancy between the two reads within either file suppresses interpreted differences across the comparison. A failed query can still leave the other query eligible.
+
+The **changed_slots** list compares positions in the two saved **37:0** payloads. An omitted slot value denotes an absent position and **000000** denotes a present, empty slot. An empty list denotes matching slots. An omitted list means the comparison is unavailable and includes a reason in **detailed_status_reply**. Slot movement and byte changes do not establish event transitions or event-loss counts. Exit 1 flags an incomplete, malformed or internally inconsistent snapshot. Two valid files with differing recorded targets can still report raw equality and exit 0.
+
 ## Choose logging and inspect its plan
 
 ```powershell
