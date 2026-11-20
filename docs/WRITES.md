@@ -5,7 +5,7 @@ The GUI and CLI support four one-shot operations for the AL1350 IoT Core 3.1.x i
 | CLI operation | Review inputs | Live check before dispatch |
 |---|---|---|
 | `port-mode` | `--expected` and `--desired` numeric codes confirmed for the exact firmware | Master identity and current numeric mode. A port can be configured without a connected sensor. |
-| `isdu` | `--index`, optional `--subindex`, `--expected` hex, and either `--desired` hex or `--desired-value` for a supported IODD datatype | Master and device identity, IO-Link mode, and the exact current parameter bytes. When the profile has the address in its IODD, access must be declared read/write and the selected subindex must be enabled. |
+| `isdu` | `--index` or `--parameter-id`, optional `--subindex`, `--expected` hex, and either `--desired` hex or `--desired-value` for a supported IODD datatype | Master and device identity, IO-Link mode, and the exact current parameter bytes. When the profile has the address in its IODD, access must be declared read/write and the selected subindex must be enabled. |
 | `device-command` | Decimal `--code` and `--meaning` from the device's documentation | Master and device identity and IO-Link mode. Sends a single SystemCommand byte to index 2, subindex 0. The supported code classes are profile-defined, the four standard reset commands, and vendor-defined. |
 | `process-output` | `--expected` and `--desired` complete hex images of equal width, up to 32 bytes | Master and device identity, IO-Link mode, and the entire gateway `pdout` value. |
 
@@ -26,6 +26,15 @@ Preview runs offline and prints JSON with the destination, wire address, payload
 .\iolink-cli.exe write --help
 .\iolink-cli.exe write $profile --master-serial $serial isdu --index 65 --expected 01 --desired 02
 ```
+
+Both `write … isdu` and `read-current … isdu` accept `--parameter-id` in place of `--index`. Use the exact case-sensitive ID in the profile's imported IODD. `parameters PROFILE` lists those IDs. Use `--subindex` to select a record or array member when the IODD enables it. The commands resolve the ID locally and apply the same eligibility checks as a numeric address. These examples use an ID from the synthetic sample IODD.
+
+```powershell
+.\iolink-cli.exe read-current $profile --master-serial $serial isdu --parameter-id V_SIM_Threshold
+.\iolink-cli.exe write $profile --master-serial $serial isdu --parameter-id V_SIM_Threshold --expected 0001 --desired-value -2
+```
+
+An ID and its numeric index produce identical previews and confirmation codes for the same request. If the ID resolves to a different address after a profile edit, preview and approve the new address before applying.
 
 For a supported read/write parameter or enabled subindex, choose **IODD value** in the ISDU form or use `--desired-value` in the CLI. **Use as expected value** still copies the exact current hex.
 
@@ -78,4 +87,4 @@ Monitoring, capture and optional data feeds use read-only paths. The reviewed wr
 
 ## Verification
 
-`python tools/verify_writes.py PATH_TO_CLI` uses an isolated loopback peer. It checks all three current-value reads, IODD interpretation with raw-byte retention, all four write paths, offline typed and raw ISDU previews including temporal values, protected record bits and packed array writes, identity and value mismatches, exact and padding-aware readback, and a lost write reply with one dispatch. `cargo test --locked --bin iolink-workbench desktop::writes::tests` exercises the filtered IODD picker, address changes, offline GUI drafts, an interpreted current read alongside a held acquisition owner, approval guards, and close behavior with a held loopback write reply. Real firmware, machine conditions and actuator effects await physical qualification.
+`python tools/verify_writes.py PATH_TO_CLI` uses an isolated loopback peer. It checks all three current-value reads, ISDU addresses by index and IODD ID, interpretation with raw-byte retention, all four write paths, offline typed and raw ISDU previews including temporal values, protected record bits and packed array writes, identity and value mismatches, exact and padding-aware readback, and a lost write reply with one dispatch. `cargo test --locked --bin iolink-workbench desktop::writes::tests` exercises the filtered IODD picker, address changes, offline GUI drafts, an interpreted current read alongside a held acquisition owner, approval guards, and close behavior with a held loopback write reply. Real firmware, machine conditions and actuator effects await physical qualification.

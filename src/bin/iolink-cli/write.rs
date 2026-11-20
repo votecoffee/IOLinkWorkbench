@@ -34,23 +34,53 @@ enum CurrentPoint {
     /// Read the current numeric operating mode.
     PortMode,
     /// Read the exact ISDU bytes and include the IODD interpretation where available.
-    Isdu {
-        #[arg(long)]
-        index: u16,
-        #[arg(long, default_value_t = 0)]
-        subindex: u8,
-    },
+    Isdu(IsduAddress),
     /// Read the complete process output image reported by the gateway.
     ProcessOutput,
 }
 
+#[derive(Args)]
+struct IsduAddress {
+    /// Numeric ISDU index.
+    #[arg(
+        long,
+        required_unless_present = "parameter_id",
+        conflicts_with = "parameter_id"
+    )]
+    index: Option<u16>,
+    /// Exact parameter ID in the profile's imported IODD.
+    #[arg(long)]
+    parameter_id: Option<String>,
+    /// Numeric subindex. Zero addresses the whole parameter.
+    #[arg(long, default_value_t = 0)]
+    subindex: u8,
+}
+
+impl IsduAddress {
+    fn resolve(&self, profile: &Profile) -> Result<(u16, u8)> {
+        let index = if let Some(id) = &self.parameter_id {
+            ensure!(
+                profile.iodd.is_some(),
+                "--parameter-id requires an imported IODD"
+            );
+            profile.parameter(id)?.index
+        } else {
+            self.index.context("specify --index or --parameter-id")?
+        };
+        Ok((index, self.subindex))
+    }
+}
+
 pub(super) fn read_current(args: ReadArguments) -> Result<()> {
+    let profile = Profile::load(&args.profile)?;
     let point = match args.point {
         CurrentPoint::PortMode => ReadPoint::PortMode,
-        CurrentPoint::Isdu { index, subindex } => ReadPoint::Isdu { index, subindex },
+        CurrentPoint::Isdu(address) => {
+            let (index, subindex) = address.resolve(&profile)?;
+            ReadPoint::Isdu { index, subindex }
+        }
         CurrentPoint::ProcessOutput => ReadPoint::ProcessOutput,
     };
-    let profile = Profile::load(&args.profile)?;
     let reading = CurrentRead::new(&profile, &args.master_serial, point)?.read()?;
     println!("{}", serde_json::to_string_pretty(&reading)?);
     Ok(())
@@ -67,10 +97,8 @@ enum WriteOperation {
     },
     /// Write one readable ISDU parameter using reviewed raw or IODD-typed input.
     Isdu {
-        #[arg(long)]
-        index: u16,
-        #[arg(long, default_value_t = 0)]
-        subindex: u8,
+        #[command(flatten)]
+        address: IsduAddress,
         /// Exact current bytes in hexadecimal.
         #[arg(long)]
         expected: String,
@@ -107,12 +135,12 @@ impl WriteOperation {
         Ok(match self {
             Self::PortMode { expected, desired } => Operation::PortMode { expected, desired },
             Self::Isdu {
-                index,
-                subindex,
+                address,
                 expected,
                 desired,
                 desired_value,
             } => {
+                let (index, subindex) = address.resolve(profile)?;
                 if let Some(value) = desired_value {
                     Operation::isdu_typed(profile, index, subindex, expected, &value)?
                 } else {

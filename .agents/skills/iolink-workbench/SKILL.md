@@ -45,6 +45,8 @@ Physical writes require explicit user approval for the proposed target and opera
 
 In Device → Writes, Choose from IODD lists eligible parameter addresses and subindexes. Use selected address fills the numeric draft fields offline. Changing the address clears the old expected and desired values.
 
+For CLI `read-current … isdu` and `write … isdu`, use either `--index` or `--parameter-id` with the exact imported IODD ID. The ID resolves locally. The preview and confirmation use the resolved address and exact bytes.
+
 Checked ISDU current-value reads show Observed IODD details in the GUI and an optional `iodd_value` in CLI JSON. Use the original observed `value` as exact expected hex. The interpretation retains decode errors and domain findings alongside those bytes.
 
 For a single supported `StringT` value, the preview includes the IODD encoding and length for readback. Preflight compares exact bytes. After acknowledgement, `text_readback_matched` identifies equal decoded text with different zero padding and retains the exact returned bytes.

@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- The CLI accepts an exact imported IODD parameter ID for checked ISDU reads and reviewed writes. The resolved index and subindex are the addresses used for review and approval.
+
 - Checked ISDU current-value reads show the matching IODD interpretation, including engineering displays and decoding issues. The exact returned hex remains available for the expected-value check.
 
 - Device → Writes can search imported IODD names, IDs and indexes for eligible ISDU parameters and subindexes. An explicit selection fills the numeric address, and changing the address clears the draft values.

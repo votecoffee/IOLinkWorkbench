@@ -177,6 +177,11 @@ def verify(cli, profile, server):
 
     configured = import_for_write(ROOT / "samples/sensor.xml")
     formats = import_for_write(ROOT / "samples/sensor-formats.xml")
+    relocated_source = profile.parent / "relocated-index.xml"
+    formats_xml = (ROOT / "samples/sensor-formats.xml").read_text(encoding="utf-8")
+    relocated_source.write_text(formats_xml.replace('index="64"', 'index="69"', 1),
+                                encoding="utf-8", newline="\n")
+    relocated = import_for_write(relocated_source)
     array_source = profile.parent / "writable-array.xml"
     array_text = (ROOT / "samples/sensor-array.xml").read_text(encoding="utf-8")
     array_source.write_text(array_text.replace('accessRights="ro"', 'accessRights="rw"')
@@ -215,8 +220,10 @@ def verify(cli, profile, server):
         </Variable></VariableCollection>'''), encoding="utf-8", newline="\n")
     integers = import_for_write(integer_source)
     member = ["isdu", "--index", "66", "--subindex", "3", "--expected", "FF", "--desired", "0A"]
+    named_member = ["isdu", "--parameter-id", "V_SIM_Record", *member[3:]]
     signed = ["isdu", "--index", "64", "--expected", "0001", "--desired", "FFFE"]
     typed_signed = [*signed[:-2], "--desired-value", "-2"]
+    named_signed = ["isdu", "--parameter-id", "V_SIM_Threshold", *typed_signed[3:]]
     typed_bool = ["isdu", "--index", "66", "--subindex", "2", "--expected", "01", "--desired-value", "false"]
     typed_true = [*typed_bool[:6], "00", "--desired-value", "true"]
     typed_short_member = ["isdu", "--index", "85", "--subindex", "1", "--expected", "00", "--desired-value", "-1"]
@@ -234,6 +241,29 @@ def verify(cli, profile, server):
     compound = ["isdu", "--index", "66", "--expected", "FFEC010A41000000", "--desired", "FFEC000A42000000"]
     array = ["isdu", "--index", "67", "--expected", "A2C49570", "--desired", "A2C495F0"]
     before = len(server.requests)
+    for command, options in [("write", signed[3:]), ("read-current", [])]:
+        assert "--index" in run(["isdu", *options], status=2, target=formats, command=command)
+        assert "cannot be used with" in run(
+            ["isdu", "--index", "64", "--parameter-id", "V_SIM_Threshold", *options],
+            status=2, target=formats, command=command)
+        assert "requires an imported IODD" in run(
+            ["isdu", "--parameter-id", "V_SIM_Threshold", *options], status=1, command=command)
+        assert "not in the imported IODD catalog" in run(
+            ["isdu", "--parameter-id", "v_sim_threshold", *options], status=1, target=formats, command=command)
+        assert "does not declare this parameter read/write" in run(
+            ["isdu", "--parameter-id", "V_SIM_Label", *options], status=1, target=configured, command=command)
+        assert "Use device-command" in run(
+            ["isdu", "--parameter-id", "V_SIM_Command", *options], status=1, target=configured, command=command)
+        assert "no declared subindex" in run(
+            ["isdu", "--parameter-id", "V_SIM_Record", "--subindex", "99", *options],
+            status=1, target=formats, command=command)
+    signed_by_id = preview(named_signed, target=formats)
+    assert signed_by_id == preview(typed_signed, target=formats)
+    moved = preview(named_signed, target=relocated)
+    assert moved["target_and_request"]["request_data"]["index"] == 69
+    assert "confirmation mismatch" in run(
+        named_signed, confirm=signed_by_id["confirmation"], status=1, target=relocated)
+    assert preview(named_member, target=formats) == preview(member, target=formats)
     assert "does not declare this parameter read/write" in run(
         ["isdu", "--index", "65", "--expected", "01", "--desired", "02"], status=1, target=configured)
     assert "does not declare this parameter read/write" in run(
@@ -351,6 +381,10 @@ def verify(cli, profile, server):
     assert value["interpretation"]["raw_value"] == "500"
     assert any(display["value"] == "52.0" for display in value["interpretation"]["displays"])
     assert server.requests[before:] == ["/getdatamulti", f"{DEVICE}/iolreadacyclic", f"{DEVICE}/iolreadacyclic"]
+    by_id = run(named_signed[:3], target=configured, command="read-current")
+    assert by_id.pop("observed_utc").endswith("Z")
+    observed.pop("observed_utc")
+    assert by_id == observed
 
     server.parameters[66, 0] = "0102"
     observed = run(["isdu", "--index", "66"], target=formats, command="read-current")
@@ -360,10 +394,10 @@ def verify(cli, profile, server):
     assert len(server.writes) == writes
 
     server.parameters[66, 3] = "FF"
-    observed = run(member[:5], target=formats, command="read-current")
+    observed = run(named_member[:5], target=formats, command="read-current")
     assert observed["value"] == "FF" and observed["iodd_value"]["interpretation"]["raw_value"] == "255"
     assert observed["iodd_value"]["interpretation"]["value_assessment"]["status"] == "outside_definition"
-    request, receipt = apply(member, "readback_matched", target=formats)
+    request, receipt = apply(named_member, "readback_matched", target=formats)
     value_review = request["isdu_value_review"]
     assert value_review["basis"] == "iodd" and value_review["datatype"] == "UIntegerT"
     assert value_review["interpretation"]["raw_value"] == "10"
@@ -470,7 +504,7 @@ def verify(cli, profile, server):
     server.parameters[67, 0] = array[4]
     _, receipt = apply(array, "readback_matched", target=arrays)
     assert receipt["readback"] == server.parameters[67, 0] == array[-1]
-    print("PASS: checked reads, typed ISDU entry including time and duration, compound member review, exact target checks, exact and StringT readback, and single dispatch on uncertain outcomes")
+    print("PASS: checked reads and ISDU writes by index or IODD ID, typed values, compound member review, exact target checks, exact and StringT readback, and single dispatch on uncertain outcomes")
 
 
 def main():
