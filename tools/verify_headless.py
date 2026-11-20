@@ -469,6 +469,76 @@ def verify_standalone_boolean_input(cli, output):
     return profile
 
 
+def verify_process_octets(cli, output):
+    output.mkdir()
+    original = (ROOT / "samples/sensor.xml").read_text(encoding="utf-8")
+    old_input = '<ProcessDataIn id="IN" bitLength="16"><DatatypeRef datatypeId="PD"/></ProcessDataIn>'
+    new_input = (
+        '<ProcessDataIn id="IN" bitLength="256"><Datatype xsi:type="OctetStringT" fixedLength="32"/>'
+        '<Name textId="octets"/></ProcessDataIn>'
+        '<ProcessDataOut id="OUT" bitLength="32"><Datatype xsi:type="OctetStringT" fixedLength="4"/>'
+        '<Name textId="output"/></ProcessDataOut>'
+    )
+    assert original.count(old_input) == 1
+    source = output / "process-octets.xml"
+    source.write_text(original.replace(old_input, new_input), encoding="utf-8")
+    profile = output / "octets.toml"
+    run(cli, "import", source, profile, "--variant", "SIM-SENSOR")
+    saved = tomllib.loads(profile.read_text(encoding="utf-8"))
+    assert saved["input_bytes"] == 32
+    assert [(field["kind"], field["bits"]) for field in saved["iodd"]["fields"]] == [("octet_string", 256)]
+    payload = bytes([0, 128, 255, *range(28), 0])
+    rendered = ",".join(f"0x{byte:02X}" for byte in payload)
+    assert rendered in run(cli, "decode", profile, payload.hex())
+    run(cli, "decode", profile, payload[:-1].hex(), expected=1)
+    observed = json.loads(run(cli, "decode-output", profile, "0080FF00"))
+    assert observed["iodd_output"]["fields"][0]["value"]["value"] == "0x00,0x80,0xFF,0x00"
+    manual = output / "manual.toml"
+    run(cli, "set-field", profile, manual, "Manual bytes", "--kind", "octet-string",
+        "--bits", 256, "--bit-offset", 0)
+    assert rendered in run(cli, "decode", manual, payload.hex())
+    rejected = output / "misaligned.toml"
+    run(cli, "set-field", manual, rejected, "Manual bytes", "--bits", 248, "--bit-offset", 1, expected=1)
+    assert not rejected.exists()
+    return profile, payload.hex().upper(), rendered
+
+
+def verify_process_octet_capture(cli, fixture, endpoint, output):
+    profile, payload, rendered = fixture
+    output.mkdir()
+    live = output / "loopback.toml"
+    run(cli, "set-connection", profile, live, "--gateway", "ifm-al1350", "--endpoint", endpoint,
+        "--expected-mode", "3", "--firmware", "3.1.42", "--poll-us", "20000")
+    old_payload, old_faults = Gateway.payload, Gateway.inject_faults
+    Gateway.inject_faults = False
+    try:
+        Gateway.payload = payload
+        typed = output / "typed"
+        report, rows = capture(cli, live, typed, "--seconds", ".3")
+        assert report["row_kind"] == "host_poll" and report["source_update_loss"] == "unknown"
+        assert rows and all(row["raw_hex"] == payload and row["value.octets"] == rendered for row in rows)
+        raw = output / "raw"
+        _, raw_rows = capture(cli, live, raw, "--seconds", ".3", "--raw-only")
+        assert raw_rows and all(row["raw_hex"] == payload and "value.octets" not in row for row in raw_rows)
+        before = Gateway.requests
+        stored = tomllib.loads(run(cli, "verify-capture", typed))
+        assert stored["valid_rows"] == len(rows)
+        export = output / "export"
+        receipt = tomllib.loads(run(cli, "redecode-capture", raw, profile, export))
+        checked = tomllib.loads(run(cli, "verify-export", export, "--source", raw))
+        assert checked["original_source_reverified"] and checked["source_capture"] == receipt["source_capture"]
+        with (export / "data.csv").open(encoding="utf-8", newline="") as stream:
+            assert all(row["raw_hex"] == payload and row["value.octets"] == rendered
+                       for row in csv.DictReader(stream))
+        assert Gateway.requests == before
+        Gateway.payload = payload[:-2]
+        _, short = capture(cli, live, output / "short", "--seconds", ".3")
+        assert short and all(row["raw_hex"] == Gateway.payload and row["validity"] == "invalid"
+                             and not row["value.octets"] for row in short)
+    finally:
+        Gateway.payload, Gateway.inject_faults = old_payload, old_faults
+
+
 def verify_standalone_input_capture(cli, profile, endpoint, output, field, metric, cases, manual_bits):
     output.mkdir()
     input_profile = profile.read_bytes()
@@ -1777,6 +1847,7 @@ def main():
     verify_port_statuses_and_captures(cli, scratch / "multi-port")
     padded_input_profile = verify_padded_integer_input(cli, scratch / "padded-integer")
     boolean_input_profile = verify_standalone_boolean_input(cli, scratch / "standalone-boolean")
+    octet_fixture = verify_process_octets(cli, scratch / "process-octets")
     verify_identity_settings(cli, scratch / "identity-settings")
     verify_mapping_settings(cli, scratch / "mapping-settings")
     verify_logging_settings(cli, scratch / "logging-settings")
@@ -2087,6 +2158,7 @@ kind = "bool"
                  ("noncanonical", "02", "valid", "true"), ("long", "0002", "invalid", "")],
                 manual_bits=1,
             )
+            verify_process_octet_capture(cli, octet_fixture, endpoint, scratch / "ifm-process-octets")
             range_fixture = scratch / "range-fixture.toml"
             range_text = standard_range_profile.read_text(encoding="utf-8").replace('gateway = "simulator"', 'gateway = "ifm_al1350"')
             range_text = range_text.replace('endpoint = ""', f'endpoint = "http://127.0.0.1:{server.server_port}"')
@@ -2189,7 +2261,7 @@ kind = "bool"
 
     print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
-          "named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
+          "cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 
 

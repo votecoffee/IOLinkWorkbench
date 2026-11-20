@@ -1,5 +1,6 @@
 use anyhow::{Result, bail, ensure};
 use serde::{Deserialize, Serialize};
+use std::fmt::Write;
 
 pub const MAX_INPUT: usize = 32;
 
@@ -19,6 +20,13 @@ pub enum Kind {
     Signed,
     Bool,
     Float32,
+    OctetString,
+}
+
+impl Kind {
+    pub(crate) fn is_numeric(self) -> bool {
+        matches!(self, Self::Unsigned | Self::Signed | Self::Float32)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -26,7 +34,7 @@ pub enum Kind {
 pub struct Field {
     pub name: String,
     pub bit_offset: u16,
-    pub bits: u8,
+    pub bits: u16,
     pub byte_order: ByteOrder,
     pub kind: Kind,
     pub scale: f64,
@@ -65,16 +73,34 @@ impl Field {
             !self.name.contains(['\r', '\n']),
             "field name contains a line break"
         );
+        let bits = usize::from(self.bits);
+        let max_bits = if self.kind == Kind::OctetString {
+            MAX_INPUT * 8
+        } else {
+            64
+        };
         ensure!(
-            (1..=64).contains(&self.bits),
-            "{}: width must be 1–64",
+            (1..=max_bits).contains(&bits),
+            "{}: width must be 1–{max_bits}",
             self.name
         );
         ensure!(
-            usize::from(self.bit_offset) + usize::from(self.bits) <= input_bytes * 8,
+            usize::from(self.bit_offset) + bits <= input_bytes.saturating_mul(8),
             "{}: field extends outside the payload",
             self.name
         );
+        if self.kind == Kind::OctetString {
+            ensure!(
+                self.bit_offset.is_multiple_of(8) && self.bits.is_multiple_of(8),
+                "{}: octet string fields require byte-aligned offsets and whole bytes",
+                self.name
+            );
+            ensure!(
+                self.byte_order == ByteOrder::BigEndian,
+                "{}: octet string fields use big-endian offsets and preserve wire byte order",
+                self.name
+            );
+        }
         ensure!(
             self.kind != Kind::Bool || matches!(self.bits, 1 | 8),
             "{}: bool needs one bit or one byte",
@@ -91,13 +117,14 @@ impl Field {
             self.name
         );
         ensure!(
-            self.kind != Kind::Bool || (self.scale == 1.0 && self.offset == 0.0),
-            "{}: bool does not support scaling",
-            self.name
+            self.kind.is_numeric() || (self.scale == 1.0 && self.offset == 0.0),
+            "{}: {:?} does not support scaling",
+            self.name,
+            self.kind,
         );
         ensure!(
             self.decimals
-                .is_none_or(|places| places <= 12 && self.kind != Kind::Bool),
+                .is_none_or(|places| places <= 12 && self.kind.is_numeric()),
             "{}: decimals must be 0–12 on a numeric field",
             self.name
         );
@@ -106,6 +133,10 @@ impl Field {
 
     pub fn read_bits(&self, payload: &[u8]) -> Result<u64> {
         self.validate(payload.len())?;
+        ensure!(
+            self.kind != Kind::OctetString,
+            "octet strings have no integer bit value"
+        );
         let mut value = 0;
         for relative in 0..usize::from(self.bits) {
             let absolute = usize::from(self.bit_offset) + relative;
@@ -119,6 +150,17 @@ impl Field {
     }
 
     pub fn decode(&self, payload: &[u8]) -> Result<Value> {
+        if self.kind == Kind::OctetString {
+            self.validate(payload.len())?;
+            let end = payload.len() - usize::from(self.bit_offset / 8);
+            let bytes = &payload[end - usize::from(self.bits / 8)..end];
+            let bits_hex = hex(bytes);
+            return Ok(Value {
+                raw: bits_hex.clone(),
+                bits_hex,
+                value: octet_sequence(bytes),
+            });
+        }
         let bits = self.read_bits(payload)?;
         let (raw, number) = match self.kind {
             Kind::Unsigned => (bits.to_string(), bits as f64),
@@ -132,6 +174,7 @@ impl Field {
                 let number = f32::from_bits(bits as u32);
                 (number.to_string(), f64::from(number))
             }
+            Kind::OctetString => bail!("octet strings have no numeric value"),
         };
         let unscaled = self.scale == 1.0 && self.offset == 0.0;
         let value = match self.decimals.map(usize::from) {
@@ -178,10 +221,20 @@ pub fn parse_hex_bounded(text: &str, max_bytes: usize) -> Result<Vec<u8>> {
 }
 
 pub fn hex(bytes: &[u8]) -> String {
-    use std::fmt::Write;
     let mut output = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
         let _ = write!(output, "{byte:02X}");
+    }
+    output
+}
+
+pub(crate) fn octet_sequence(bytes: &[u8]) -> String {
+    let mut output = String::with_capacity((bytes.len() * 5).saturating_sub(1));
+    for (index, byte) in bytes.iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        let _ = write!(output, "0x{byte:02X}");
     }
     output
 }
@@ -234,6 +287,49 @@ pub(crate) fn insert_bits(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn octet_fields_preserve_wire_order_and_require_whole_bytes() -> Result<()> {
+        let field = Field {
+            name: "Device bytes".into(),
+            kind: Kind::OctetString,
+            bit_offset: 8,
+            bits: 32,
+            ..Field::default()
+        };
+        let payload = [0xAB, 0x00, 0x80, 0xFF, 0x00, 0xCD];
+        let decoded = field.decode(&payload)?;
+        assert_eq!(decoded.raw, "0080FF00");
+        assert_eq!(decoded.bits_hex, decoded.raw);
+        assert_eq!(decoded.value, "0x00,0x80,0xFF,0x00");
+        assert!(field.read_bits(&payload).is_err());
+        assert!(field.decode(&payload[..4]).is_err());
+        for invalid in [
+            Field {
+                bit_offset: 7,
+                ..field.clone()
+            },
+            Field {
+                bits: 31,
+                ..field.clone()
+            },
+            Field {
+                byte_order: ByteOrder::LittleEndian,
+                ..field.clone()
+            },
+            Field {
+                scale: 2.0,
+                ..field.clone()
+            },
+            Field {
+                decimals: Some(0),
+                ..field
+            },
+        ] {
+            assert!(invalid.decode(&payload).is_err());
+        }
+        Ok(())
+    }
 
     #[test]
     fn insert_bits_changes_only_the_selected_unaligned_bits() -> Result<()> {

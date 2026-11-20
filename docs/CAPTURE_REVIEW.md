@@ -51,6 +51,10 @@ The [HTTP](LOCAL_API.md), [MQTT](MQTT.md) and [shared-memory](SHARED_MEMORY.md) 
 
 `tools/verify_interface_review.py` copies explicitly supplied saved fixtures into a new ignored directory and verifies original-file preservation, exact counters/hashes, raw-only/legacy cases, unreachable endpoint and absent mapping metadata, corrupted CSV and balanced-but-wrong offer counts. It opens no live service for this review. Use a fixture with all three interface sections to exercise the complete report. Existing native/loopback suites remain separate from this offline evidence and from physical or visible GUI acceptance.
 
+## Octet string columns
+
+Each typed `OctetStringT` column contains one ordered byte list. The CSV writer quotes the list as a single cell, and verification compares it with the bytes selected by the saved mapping. Re-decode can add octet columns to a raw-only recording. Signal review treats octet values as text. The raw payload and source-quality columns carry the original observations.
+
 ## Standalone input encoding
 
 When the saved input profile includes applicable standalone integer padding metadata, the verification summary reports `noncanonical_input_padding_rows`. The verifier derives it from saved valid CSV rows, including stale rows with valid transport quality. Zero means there were no padding mismatches among the saved valid rows. The field is absent when the saved profile has no applicable padding declaration. This count describes saved rows and leaves transport validity and source-loss accounting intact. Re-decode receipts carry the original capture's verified count.

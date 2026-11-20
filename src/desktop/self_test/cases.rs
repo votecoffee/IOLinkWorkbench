@@ -227,6 +227,7 @@ pub(super) fn render(
                 "offline-process-output",
                 "offline-padded-input",
                 "offline-boolean-input",
+                "offline-octet-input",
                 "acyclic-profile",
                 "offline-parameter",
                 "offline-snapshot",
@@ -424,12 +425,19 @@ pub(super) fn render(
                         app.workspace.offline = OfflinePage::Process;
                         app.payload_inspector.output_pasted = "0001".into();
                     }
-                    "offline-padded-input" | "offline-boolean-input" => {
-                        let input = if label == "offline-boolean-input" {
-                            app.payload_inspector.pasted = "02".into();
-                            r#"<ProcessDataIn id="IN" bitLength="1"><Datatype xsi:type="BooleanT"/><Name textId="switch"/></ProcessDataIn>"#
-                        } else {
-                            r#"<ProcessDataIn id="IN" bitLength="12"><Datatype xsi:type="UIntegerT" bitLength="12"/><Name textId="integer"/></ProcessDataIn>"#
+                    "offline-padded-input" | "offline-boolean-input" | "offline-octet-input" => {
+                        let input = match label {
+                            "offline-boolean-input" => {
+                                app.payload_inspector.pasted = "02".into();
+                                r#"<ProcessDataIn id="IN" bitLength="1"><Datatype xsi:type="BooleanT"/><Name textId="switch"/></ProcessDataIn>"#
+                            }
+                            "offline-octet-input" => {
+                                app.payload_inspector.pasted = "0080FF00".into();
+                                r#"<ProcessDataIn id="IN" bitLength="32"><Datatype xsi:type="OctetStringT" fixedLength="4"/><Name textId="octets"/></ProcessDataIn>"#
+                            }
+                            _ => {
+                                r#"<ProcessDataIn id="IN" bitLength="12"><Datatype xsi:type="UIntegerT" bitLength="12"/><Name textId="integer"/></ProcessDataIn>"#
+                            }
                         };
                         let xml = include_str!("../../../samples/sensor.xml").replace(
                             r#"<ProcessDataIn id="IN" bitLength="16"><DatatypeRef datatypeId="PD"/></ProcessDataIn>"#,
@@ -628,6 +636,7 @@ pub(super) fn render(
                 "offline-boolean-input" => Some(
                     "Standalone Boolean input has a noncanonical byte. The IODD interprets any nonzero byte as true.",
                 ),
+                "offline-octet-input" => Some("0x00,0x80,0xFF,0x00"),
                 "acyclic-profile" => Some("Acyclic IODD layout"),
                 "offline-diagnostic-snapshot" => Some("37:0 · synthetic fixture reply unavailable"),
                 "offline-diagnostic-comparison" => Some("Slot 1 · E48DFE → 000000"),
@@ -729,7 +738,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 112);
+        assert_eq!(cases.len(), 113);
         assert!(
             cases
                 .iter()

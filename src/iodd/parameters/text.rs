@@ -72,11 +72,7 @@ pub(crate) fn decode(
             payload.len() == length,
             "octet string response width differs from the IODD"
         );
-        return Ok(payload
-            .iter()
-            .map(|byte| format!("0x{byte:02X}"))
-            .collect::<Vec<_>>()
-            .join(","));
+        return Ok(crate::decode::octet_sequence(payload));
     }
     ensure!(datatype == "StringT", "unsupported string datatype");
     ensure!(

@@ -77,7 +77,12 @@ impl Form {
                 );
                 ui.end_row();
                 ui.label("Bit width");
-                ui.add(egui::DragValue::new(&mut field.bits).range(1..=64));
+                let max_bits = if field.kind == Kind::OctetString {
+                    profile.input_bytes * 8
+                } else {
+                    64
+                };
+                ui.add(egui::DragValue::new(&mut field.bits).range(1..=max_bits));
                 ui.end_row();
                 ui.label("Type");
                 egui::ComboBox::from_id_salt("manual-field-kind")
@@ -85,12 +90,13 @@ impl Form {
                     .show_ui(ui, |ui| {
                         ui.selectable_value(&mut field.kind, Kind::Unsigned, "Unsigned");
                         ui.selectable_value(&mut field.kind, Kind::Signed, "Signed");
+                        ui.selectable_value(&mut field.kind, Kind::Bool, "Boolean (1 or 8 bits)");
+                        ui.selectable_value(&mut field.kind, Kind::Float32, "Float32 (32 bits)");
                         ui.selectable_value(
                             &mut field.kind,
-                            Kind::Bool,
-                            "Boolean (1 bit, unscaled)",
+                            Kind::OctetString,
+                            "Octet string (whole bytes)",
                         );
-                        ui.selectable_value(&mut field.kind, Kind::Float32, "Float32 (32 bits)");
                     });
                 ui.end_row();
                 ui.label("Byte order");

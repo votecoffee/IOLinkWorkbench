@@ -95,12 +95,13 @@ impl ProcessDataLayout {
         self.fields.iter().filter(|field| {
             // Packed values occupy their assigned bits. A standalone numeric value
             // covering a full wire container has no separate padding to regenerate.
-            self.packed
-                || self.standalone_boolean
-                || self.padded_integer
-                || (field.bit_offset == 0
-                    && usize::from(field.bits) == self.bit_length
-                    && matches!(field.bits, 8 | 16 | 32 | 64))
+            field.kind != Kind::OctetString
+                && (self.packed
+                    || self.standalone_boolean
+                    || self.padded_integer
+                    || (field.bit_offset == 0
+                        && usize::from(field.bits) == self.bit_length
+                        && matches!(field.bits, 8 | 16 | 32 | 64)))
         })
     }
 
@@ -127,7 +128,7 @@ impl ProcessDataLayout {
             insert_bits(
                 &mut image,
                 field.bit_offset,
-                u16::from(field.bits),
+                field.bits,
                 &value.to_be_bytes(),
             )?;
         }
@@ -207,7 +208,7 @@ pub(crate) fn padded_integer_wire_bytes(bit_length: usize, fields: &[Field]) -> 
         return None;
     }
     let bits = usize::from(field.bits);
-    let width = parameters::integer_container_bytes(u16::from(field.bits));
+    let width = parameters::integer_container_bytes(field.bits);
     (bits < width * 8 && (bit_length == bits || bit_length == width * 8)).then_some(width)
 }
 
@@ -258,6 +259,7 @@ fn output_value(field: &Field, input: &str) -> Result<u64> {
             ensure!(value.is_finite(), "expected a finite Float32 value");
             u64::from(value.to_bits())
         }
+        Kind::OctetString => bail!("edit octet strings with a complete output image"),
     })
 }
 
@@ -760,6 +762,17 @@ fn field(
         ),
         "BooleanT" => (Kind::Bool, 1),
         "Float32T" => (Kind::Float32, 32),
+        "OctetStringT" => {
+            let bytes: u16 = dt
+                .attribute("fixedLength")
+                .context("missing octet string length")?
+                .parse()?;
+            ensure!(
+                (1..=MAX_INPUT).contains(&usize::from(bytes)),
+                "octet string length must be 1–{MAX_INPUT} bytes"
+            );
+            (Kind::OctetString, bytes * 8)
+        }
         other => bail!("unsupported datatype {other}"),
     };
     let scale = owner.attribute("gradient").unwrap_or("1").parse()?;
@@ -1056,20 +1069,24 @@ fn parse_process_item<'a, 'input>(
                 usize::from(field.bit_offset) + usize::from(field.bits) <= bits,
                 "extends beyond declared process data width"
             );
+            ensure!(
+                field.kind != Kind::OctetString || layout.packed || usize::from(field.bits) == bits,
+                "standalone octet string length differs from the declared process data width"
+            );
             Ok((field, unit_defined))
         });
         match result {
             Ok((field, unit_defined)) => {
                 for existing in &layout.fields {
                     ensure!(
-                        field.bit_offset >= existing.bit_offset + u16::from(existing.bits)
-                            || existing.bit_offset >= field.bit_offset + u16::from(field.bits),
+                        field.bit_offset >= existing.bit_offset + existing.bits
+                            || existing.bit_offset >= field.bit_offset + field.bits,
                         "{id}: fields {} and {} overlap",
                         existing.name,
                         field.name
                     );
                 }
-                missing_unit |= field.kind != Kind::Bool && !unit_defined;
+                missing_unit |= field.kind.is_numeric() && !unit_defined;
                 if field.unit.starts_with("IODD unit ") {
                     layout
                         .needs_input
@@ -1126,7 +1143,7 @@ fn parse_process_item<'a, 'input>(
                 .attribute("count")
                 .context("array has no count")?
                 .parse()?;
-            let geometry = array::Geometry::new(u16::from(template.bits), count)?;
+            let geometry = array::Geometry::new(template.bits, count)?;
             ensure!(
                 geometry.bits() as usize <= bits,
                 "array extends beyond declared process data width"

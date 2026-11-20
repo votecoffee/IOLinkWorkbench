@@ -302,6 +302,69 @@ fn standalone_boolean_input_round_trips_and_uses_the_whole_byte() -> Result<()> 
 }
 
 #[test]
+fn octet_string_process_data_retains_fixed_widths_offsets_and_member_order() -> Result<()> {
+    use crate::profile::Profile;
+    let original =
+        r#"<ProcessDataIn id="IN" bitLength="16"><DatatypeRef datatypeId="PD"/></ProcessDataIn>"#;
+    let full = r#"<ProcessDataIn id="IN" bitLength="256"><Datatype xsi:type="OctetStringT" fixedLength="32"/><Name textId="octets"/></ProcessDataIn>"#;
+    let packed = r#"<ProcessDataIn id="IN" bitLength="40"><Datatype xsi:type="RecordT" bitLength="40"><RecordItem subindex="1" bitOffset="8"><SimpleDatatype xsi:type="OctetStringT" fixedLength="4"/><Name textId="octets"/></RecordItem><RecordItem subindex="2" bitOffset="0"><SimpleDatatype xsi:type="BooleanT"/><Name textId="flag"/></RecordItem></Datatype><Name textId="record"/></ProcessDataIn>"#;
+    let array = r#"<ProcessDataIn id="IN" bitLength="32"><Datatype xsi:type="ArrayT" count="2"><SimpleDatatype xsi:type="OctetStringT" fixedLength="2"/></Datatype><Name textId="array"/></ProcessDataIn>"#;
+    let import = |layout: &str| -> Result<Profile> {
+        let catalog = parse(
+            &SENSOR.replace(original, layout),
+            "synthetic process octets".into(),
+        )?;
+        let (identity, imported) = catalog.select(Some("SIM-SENSOR"), None)?;
+        let mut profile = Profile::default();
+        profile.apply_iodd(identity, imported);
+        Profile::parse(&toml::to_string(&profile)?)
+    };
+    let profile = import(full)?;
+    assert_eq!(profile.input_bytes, MAX_INPUT);
+    let mut bytes = [0; MAX_INPUT];
+    bytes[30] = 255;
+    let decoded = profile.decode(&bytes)?;
+    assert_eq!(decoded[0].0.bits, 256);
+    assert_eq!(decoded[0].2.raw, crate::decode::hex(&bytes));
+    assert_eq!(decoded[0].2.value.split(',').count(), MAX_INPUT);
+    assert!(decoded[0].2.value.ends_with("0xFF,0x00"));
+    assert!(profile.decode(&bytes[..31]).is_err());
+
+    let profile = import(packed)?;
+    let decoded = profile.decode(&[0, 0x80, 0xFF, 0, 1])?;
+    assert_eq!(decoded[0].2.value, "0x00,0x80,0xFF,0x00");
+    assert_eq!(decoded[1].2.value, "true");
+
+    let profile = import(array)?;
+    let decoded = profile.decode(&[0, 1, 0, 2])?;
+    assert_eq!(decoded[0].2.value, "0x00,0x01");
+    assert_eq!(decoded[1].2.value, "0x00,0x02");
+
+    let bad_offset = packed.replace("bitOffset=\"8\"", "bitOffset=\"7\"");
+    let profile = import(&bad_offset)?;
+    let imported = profile.iodd.as_ref().unwrap();
+    assert_eq!(imported.fields.len(), 1);
+    assert!(
+        imported
+            .needs_input
+            .iter()
+            .any(|note| note.contains("byte-aligned"))
+    );
+
+    let bad_length = full.replace("fixedLength=\"32\"", "fixedLength=\"31\"");
+    let profile = import(&bad_length)?;
+    let imported = profile.iodd.as_ref().unwrap();
+    assert!(imported.fields.is_empty());
+    assert!(
+        imported
+            .needs_input
+            .iter()
+            .any(|note| note.contains("length differs"))
+    );
+    Ok(())
+}
+
+#[test]
 fn typed_output_field_edits_keep_wire_width_and_neighboring_bits() -> Result<()> {
     let mut layout = ProcessDataLayout {
         id: "OUT".into(),

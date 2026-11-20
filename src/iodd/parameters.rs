@@ -218,7 +218,7 @@ impl Parameter {
         Ok(Field {
             name: self.id.clone(),
             kind,
-            bits: u8::try_from(self.bits.context("IODD parameter width is unavailable")?)?,
+            bits: self.bits.context("IODD parameter width is unavailable")?,
             ..Field::default()
         })
     }
@@ -257,7 +257,7 @@ impl Parameter {
             ensure!(
                 matches!(field.kind, Kind::Signed | Kind::Unsigned)
                     && (2..=64).contains(&field.bits)
-                    && payload.len() == integer_container_bytes(u16::from(field.bits)),
+                    && payload.len() == integer_container_bytes(field.bits),
                 "parameter response width differs from the IODD"
             );
             // Packed members and legacy local values keep their original byte width.

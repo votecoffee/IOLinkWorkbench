@@ -219,6 +219,7 @@ impl Draft {
                 FieldKind::Bool => "Desired Boolean (true or false)",
                 FieldKind::Float32 => "Desired Float32 (unscaled)",
                 FieldKind::Signed | FieldKind::Unsigned => "Desired integer (unscaled decimal)",
+                FieldKind::OctetString => "Edit octet strings with a complete output image",
             };
             text_entry(ui, label, &mut self.desired);
             if let Some(layout) = profile.output_layout() {

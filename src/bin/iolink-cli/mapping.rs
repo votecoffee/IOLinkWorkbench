@@ -10,6 +10,7 @@ enum KindChoice {
     Signed,
     Bool,
     Float32,
+    OctetString,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -24,7 +25,7 @@ pub struct Arguments {
     #[arg(long)]
     bit_offset: Option<u16>,
     #[arg(long)]
-    bits: Option<u8>,
+    bits: Option<u16>,
     #[arg(long, value_enum)]
     kind: Option<KindChoice>,
     #[arg(long, value_enum)]
@@ -76,6 +77,7 @@ impl Arguments {
                 KindChoice::Signed => Kind::Signed,
                 KindChoice::Bool => Kind::Bool,
                 KindChoice::Float32 => Kind::Float32,
+                KindChoice::OctetString => Kind::OctetString,
             };
         }
         if let Some(order) = self.byte_order {

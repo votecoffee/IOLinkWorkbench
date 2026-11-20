@@ -89,7 +89,7 @@ impl Display {
             self.field.read_bits(payload)?.to_string()
         } else {
             let width = self.field.bits;
-            let display_bits = integer_container_bytes(u16::from(width)) * 8;
+            let display_bits = integer_container_bytes(width) * 8;
             let mut bits = self.field.read_bits(payload)?;
             if self.field.kind == Kind::Signed && width < 64 && bits & (1 << (width - 1)) != 0 {
                 bits |= u64::MAX << width;

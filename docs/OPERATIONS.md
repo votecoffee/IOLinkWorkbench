@@ -48,6 +48,12 @@ Select the acyclic-only layout in **Device → IODD import**. The CLI uses the I
 
 The saved profile retains identity, parameter and event definitions with zero input bytes. Use **Parameters** for ISDU reads and snapshots, **Diagnostics → Device events** for diagnostic reads, and **Device → Writes** for reviewed ISDU operations. Process input acquisition and process output operations require corresponding cyclic data. Acyclic-only profiles require v0.83.0 or later.
 
+### Cyclic octet strings
+
+The importer maps fixed-length `OctetStringT` input and output values, including byte-aligned record members and array elements. Each value preserves wire order and leading, embedded, and trailing zeros. The typed view and each selected CSV column show an ordered list such as `0x00,0x80,0xFF,0x00`. The raw view retains the complete payload. [IO-Link Interface and System Specification, Table A.4 and Annex F.2.7](https://io-link.com/fileadmin/user_upload/Downloads/Package_2024/IOL-Interface-Spec_10002_V114_Jun24.pdf)
+
+For a manual input field, choose **Octet string** or use `set-field --kind octet-string`. Specify the offset and width in bits, both multiples of eight, within the 32-byte process image. The big-endian offset counts from the last process byte. Decimal formatting and scaling apply to numeric fields. Use the full expected and desired hex images for a reviewed output operation involving octet strings. Reimport the IODD to add fields from earlier imports, or re-decode saved raw captures with the new mapping. Profiles containing octet fields require v0.92.0 or later.
+
 ### Standalone Boolean input
 
 An IODD input consisting of a single `BooleanT` uses one wire byte. Workbench decodes `00` as false and any nonzero byte as true. Inputs, Offline → Process bytes and CLI `decode` flag values from `01` through `FE` as noncanonical. Packed record and array Booleans still use one bit per field. Manual Boolean mappings can specify either one bit or eight bits. [IO-Link Interface and System Specification, Annex F.2.2](https://io-link-old.io-link.com/share/Downloads/Package-2024-released/IOL-Interface-Spec_10002_V114_Jun24.pdf)
