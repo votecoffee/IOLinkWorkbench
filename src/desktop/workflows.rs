@@ -154,7 +154,7 @@ impl App {
             {
                 start_requested = true;
             }
-            if self.worker.is_some() {
+            if self.acquisition_active() {
                 ui.label(
                     "Session active. Use Stop and flush in the header before starting another.",
                 );
@@ -424,12 +424,13 @@ impl App {
         ui.heading("IODD parameter reads");
         ui.label("Choose a declared parameter to read on an independent acyclic client. Reading does not write device settings.");
         let available = self.acyclic_controls(ui);
+        let editable = !self.acquisition_active() && !self.writes.busy();
         let parameter_actions = parameters::show(
             ui,
             &self.profile,
             &mut self.parameter_picker,
             available,
-            self.worker.is_none() && !self.writes.busy(),
+            editable,
             &mut self.parameter_snapshot_path,
         );
         if let Some(selection) = parameter_actions.display {

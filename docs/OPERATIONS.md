@@ -75,19 +75,19 @@ Rotation is checked before the next row. Time rotation uses receive elapsed time
 
 ## Capture several configured ports
 
-Use one saved profile per distinct port on the same AL1350 origin or simulator route. Select the active input layout and confirm any required IODD condition on each physical profile. Give every port its own mapping and logging settings. For a simulator example, save a second port profile first:
+Use one saved profile per distinct port on the same AL1350 origin or simulator route. Select the active input layout and confirm any required IODD condition on each physical profile. Give every port its own mapping and logging settings. For a simulator example, select the two bundled profiles in **Logging → Multiple ports** or pass them to the CLI:
 
 ```powershell
-.\iolink-cli.exe set-connection .\samples\simulator.toml .\.local\simulator-port2.toml --port 2
-.\iolink-cli.exe capture-ports .\.local\sim-port-set .\samples\simulator.toml .\.local\simulator-port2.toml --seconds 2
+New-Item -ItemType Directory -Force .\.local | Out-Null
+.\iolink-cli.exe capture-ports .\.local\sim-port-set .\samples\simulator.toml .\samples\simulator-port2.toml --seconds 2
 .\iolink-cli.exe verify-capture .\.local\sim-port-set\port-2
 ```
 
 The parent of OUTPUT must exist and OUTPUT must be new. The command validates the entire selection before opening a gateway. At most four ports run independently. All AL1350 profiles must use the same configured origin and compatible firmware pins. The sessions read the existing port configuration and input data. They have separate receive clocks and acquisition windows, so use each port report for timing, source gaps and overruns. AL1350 input remains a host poll with unknown source-update loss.
 
-A separate folder per port contains the normal `profile.toml`, CSV parts and `capture.toml` report. When the workers and CSV writers finish, `capture-set.toml` records each port in selection order, its relative directory, whether the report was saved, and the outcome. A startup/reporting error appears in the summary; a finalized capture's detailed errors are in that port's `capture.toml`. When observed master identifiers disagree, the batch flags the conflict and returns exit 1 while retaining individual results. A failed port leaves other ports running through their own sampling and flush. Choose a new output folder to retry.
+A separate folder per port contains the normal `profile.toml`, CSV parts and `capture.toml` report. When the workers and CSV writers finish, `capture-set.toml` records each port in selection order, its relative directory, whether the report was saved, and the outcome. The summary shows the first error per failed port. The port's `capture.toml`, when saved, has the detailed acquisition and writer results. When observed master identifiers disagree, the batch flags the conflict and returns exit 1 while retaining individual results. A failed port leaves other ports running through their own sampling and flush. Choose a new output folder to retry.
 
-Ctrl+C or Ctrl+Break requests stop for all selected ports. A successful drain returns 130 on interruption or 0 at the end of the time limit. A port failure or conflicting master observations return 1, including on an interrupted run. Detailed guarantees and test scope are in [CLI interruption](CLI_LIFECYCLE.md). Use `capture` for single-port integration options. Batch GUI controls are roadmap work.
+Ctrl+C or Ctrl+Break requests stop for all selected ports. A successful drain returns 130 on interruption or 0 at the end of the time limit. A port failure or conflicting master observations return 1, including on an interrupted run. Detailed guarantees and test scope are in [CLI interruption](CLI_LIFECYCLE.md). Use `capture` for single-port integration options. See [record several ports](GUI_WORKFLOW.md#record-several-ports) for the GUI workflow.
 
 ## Timing, loss and saved evidence
 

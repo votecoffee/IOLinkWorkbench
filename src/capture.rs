@@ -23,7 +23,9 @@ mod logger;
 mod ports;
 mod writer;
 pub use logger::{Latency, LoggerMetrics};
-pub use ports::{PortBatch, PortOptions, PortResult, run_ports};
+pub use ports::{
+    PortBatch, PortLive, PortOptions, PortResult, check_ports, run_ports, run_ports_observed,
+};
 
 /// Cyclic-to-GUI publication cadence. This is not the input sampling interval.
 pub const LIVE_REFRESH_INTERVAL: Duration = Duration::from_millis(80);

@@ -6,7 +6,7 @@ The workspace follows EthernetIP Workbench's Device → Inputs → Logging patte
 |---|---|
 | Device | Setup overview, host connection, identity expectations, IODD import, reviewed AL1350 writes and advanced profile TOML, on separate pages |
 | Inputs | Current raw input, quality, advancing host ages and a compact field/value/unit table; expand bit layout and scaling when needed |
-| Logging | New capture folder, duration, update/on-change selection and CSV values; buffer sizing, rotation and the full plan expand on demand |
+| Logging | Single port records the applied profile. Multiple ports reviews and records a set of saved port profiles. |
 | Mappings | Imported/manual fields and overrides; Edit mapping opens a focused editor instead of stacking it below the list |
 | Parameters | Search declared IODD parameters or read a documented numeric ISDU address |
 | Integration | Optional local HTTP, MQTT and Windows shared-memory settings, on separate pages |
@@ -27,6 +27,15 @@ The workspace follows EthernetIP Workbench's Device → Inputs → Logging patte
 Unapplied changes remain visible in the header even when their page is hidden. **Review pending edits** returns to the correct draft. Setup, mapping and profile-file changes are disabled during acquisition or an active parameter read; integration changes apply to the next session. Independent parameter reads and saved reviews keep their existing background ownership and do not become sampling locks.
 
 The footer shows the latest session message; hover to read it in full. **Diagnostics → Connection & identity** also shows the full message. Quality/loss alerts remain above the tabs. Per-session feed choices are summarized in Integration and the connection review; they are not saved profile keys.
+
+## Record several ports
+
+1. Open **Logging → Multiple ports**. Enter a saved TOML profile for each distinct configured port on the same master. For a simulator run, use **samples/simulator.toml** and **samples/simulator-port2.toml** from the portable package.
+2. Choose **Review profiles** to inspect the route, ports, expected identity and logging modes offline. **Start capture set** uses the reviewed settings. If you edit a profile file, review it again to pick up the change.
+3. Enter a new **Output folder**, set the duration per port, and choose **Start capture set**. While recording, each port shows its own received, invalid, stale, reconnect and overrun counts. Expand **Device identity and input quality** for the observed IDs and receipt quality. The header’s **Show port capture set** returns here from any tab.
+4. Choose **Stop and flush** to stop the whole set, or let each port finish its timed run. **Last capture set** lists the outcomes. Select **Verify capture** beside a port to open its saved bundle in Offline. A failed port leaves the others recording. Its final result shows the error.
+
+The saved profiles supply each port's duration-independent settings and the capture-set page keeps its own output path. Use Single port for live integration feeds. See [concurrent capture files](OPERATIONS.md#capture-several-configured-ports).
 
 ## Inspect a live payload offline
 

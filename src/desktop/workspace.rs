@@ -8,10 +8,18 @@ mod tests;
 pub(super) struct Workspace {
     pub profile_dialog: bool,
     pub connect_dialog: bool,
+    pub logging: LoggingPage,
     pub parameter: ParameterPage,
     pub offline: OfflinePage,
     pub diagnostics: DiagnosticsPage,
     pub integration: IntegrationPage,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub(super) enum LoggingPage {
+    #[default]
+    Single,
+    Ports,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -91,15 +99,19 @@ impl App {
             ui.add_space(4.0);
             ui.horizontal_wrapped(|ui| {
                 ui.label(RichText::new("IO-Link Workbench").size(22.0).strong());
-                if self.worker.is_some() || self.profile.connection.gateway == Gateway::Simulator {
+                if self.acquisition_active()
+                    || self.profile.connection.gateway == Gateway::Simulator
+                {
                     ui.colored_label(ACCENT, "READ ONLY");
                 }
                 ui.label(if self.closing {
                     "CLOSING"
                 } else if self.writes.writing() {
                     "WRITE IN PROGRESS"
-                } else if self.worker.is_some() && self.stop.requested() {
+                } else if self.acquisition_active() && self.stop.requested() {
                     "STOPPING / FLUSHING"
+                } else if self.port_capture.active() {
+                    "RECORDING PORT SET"
                 } else if self.worker.is_some() && !self.live.connected {
                     "CONNECTING / RECONNECTING"
                 } else if self.active_recording.is_some() {
@@ -113,17 +125,26 @@ impl App {
                 });
             });
             ui.horizontal_wrapped(|ui| {
-                ui.add_sized(
-                    [180.0, 18.0],
-                    egui::Label::new(RichText::new(&self.profile.name).strong()).truncate(),
-                )
-                .on_hover_text(&self.profile.name);
-                ui.label(match self.profile.connection.gateway {
-                    Gateway::Simulator => {
-                        format!("Simulator · Port {}", self.profile.connection.port)
+                if self.port_capture.active() {
+                    if ui.button("Show port capture set").clicked() {
+                        self.tab = Tab::Logging;
+                        self.workspace.logging = LoggingPage::Ports;
                     }
-                    Gateway::IfmAl1350 => format!("AL1350 · Port {}", self.profile.connection.port),
-                });
+                } else {
+                    ui.add_sized(
+                        [180.0, 18.0],
+                        egui::Label::new(RichText::new(&self.profile.name).strong()).truncate(),
+                    )
+                    .on_hover_text(&self.profile.name);
+                    ui.label(match self.profile.connection.gateway {
+                        Gateway::Simulator => {
+                            format!("Simulator · Port {}", self.profile.connection.port)
+                        }
+                        Gateway::IfmAl1350 => {
+                            format!("AL1350 · Port {}", self.profile.connection.port)
+                        }
+                    });
+                }
                 if ui
                     .add_enabled(
                         self.start_block_reason().is_none(),
@@ -134,14 +155,14 @@ impl App {
                     self.workspace.profile_dialog = false;
                     self.workspace.connect_dialog = true;
                 }
-                if ui.button("Record CSV…").clicked() {
+                if !self.port_capture.active() && ui.button("Record CSV…").clicked() {
                     self.tab = Tab::Logging;
                 }
                 if ui.button("Profiles…").clicked() {
                     self.workspace.connect_dialog = false;
                     self.workspace.profile_dialog = true;
                 }
-                if self.worker.is_some()
+                if self.acquisition_active()
                     && ui
                         .add_enabled(!self.stop.requested(), egui::Button::new("Stop and flush"))
                         .clicked()
@@ -171,10 +192,11 @@ impl App {
                 );
             }
             let counts = self.live.counts;
-            if counts.invalid != 0
-                || counts.stale != 0
-                || counts.logger_overruns != 0
-                || counts.reconnects != 0
+            if !self.port_capture.active()
+                && (counts.invalid != 0
+                    || counts.stale != 0
+                    || counts.logger_overruns != 0
+                    || counts.reconnects != 0)
             {
                 ui.horizontal_wrapped(|ui| {
                     ui.colored_label(
@@ -212,7 +234,7 @@ impl App {
             self.page_navigation(ui);
             egui::ScrollArea::vertical().id_salt(self.scroll_id()).auto_shrink([false, false]).show(ui, |ui| {
                 ui.set_max_width(1000.0);
-                let editable = self.worker.is_none() && !self.acyclic.busy() && !self.setup.busy() && !self.writes.busy();
+                let editable = !self.acquisition_active() && !self.acyclic.busy() && !self.setup.busy() && !self.writes.busy();
                 let on_setup = self.tab == Tab::Mappings || (self.tab == Tab::Device && self.setup.page != setup::Page::Writes);
                 if on_setup && !editable {
                     ui.colored_label(WARNING, "Wait for active acquisition, reads, writes or IODD inspection before editing setup.");
@@ -222,7 +244,13 @@ impl App {
                     Tab::Device => self.setup.show(ui, &mut self.profile, &mut self.message, editable, &mut self.tab),
                     Tab::Mappings => self.setup.show_mappings(ui, &mut self.profile, &mut self.message, editable),
                     Tab::Inputs => { self.inputs(ui); false }
-                    Tab::Logging => { self.logging(ui); false }
+                    Tab::Logging => {
+                        match self.workspace.logging {
+                            LoggingPage::Single => self.logging(ui),
+                            LoggingPage::Ports => self.port_capture_page(ui),
+                        }
+                        false
+                    }
                     Tab::Parameters => { self.parameter_page(ui); false }
                     Tab::Integration => { self.integration_page(ui); false }
                     Tab::Diagnostics => { self.diagnostics_page(ui); false }
@@ -243,6 +271,16 @@ impl App {
                     .map(|page| (page, page.label()))
                     .collect();
                 subtabs(ui, &mut self.setup.page, &choices);
+            }
+            Tab::Logging => {
+                subtabs(
+                    ui,
+                    &mut self.workspace.logging,
+                    &[
+                        (LoggingPage::Single, "Single port"),
+                        (LoggingPage::Ports, "Multiple ports"),
+                    ],
+                );
             }
             Tab::Parameters => {
                 subtabs(
@@ -314,6 +352,7 @@ impl App {
             match self.tab {
                 Tab::Device => self.setup.page as u8,
                 Tab::Mappings => u8::from(self.setup.mapping_opened()),
+                Tab::Logging => self.workspace.logging as u8,
                 Tab::Parameters => self.workspace.parameter as u8,
                 Tab::Integration => self.workspace.integration as u8,
                 Tab::Diagnostics => self.workspace.diagnostics as u8,
@@ -377,15 +416,12 @@ impl App {
             }
             OfflinePage::Process => self.payload_inspector.show(ui, &self.profile),
             OfflinePage::Parameter => {
-                if let Some(selection) = self.offline_parameter.show(
-                    ui,
-                    &self.profile,
-                    self.worker.is_none()
-                        && !self.acyclic.busy()
-                        && !self.writes.busy()
-                        && !self.setup.pending()
-                        && !self.setup.busy(),
-                ) {
+                let editable = !self.acquisition_active()
+                    && !self.acyclic.busy()
+                    && !self.writes.busy()
+                    && !self.setup.pending()
+                    && !self.setup.busy();
+                if let Some(selection) = self.offline_parameter.show(ui, &self.profile, editable) {
                     self.select_parameter_display(selection);
                 }
             }
@@ -439,7 +475,7 @@ impl App {
                 .vscroll(true)
                 .show(ctx, |ui| {
                     let editable = !self.closing
-                        && self.worker.is_none()
+                        && !self.acquisition_active()
                         && !self.acyclic.busy()
                         && !self.writes.busy()
                         && !self.setup.busy();
@@ -458,7 +494,7 @@ impl App {
                 });
             self.workspace.profile_dialog = open && !applied;
         }
-        if self.workspace.connect_dialog && self.worker.is_none() && !self.closing {
+        if self.workspace.connect_dialog && !self.acquisition_active() && !self.closing {
             let mut open = true;
             egui::Window::new("Review connection").open(&mut open).default_width(600.0).vscroll(true).show(ctx, |ui| {
                 ui.heading(&self.profile.name);
@@ -491,7 +527,7 @@ impl App {
                 }
                 if !self.message.is_empty() { ui.label(&self.message); }
             });
-            self.workspace.connect_dialog &= open && self.worker.is_none();
+            self.workspace.connect_dialog &= open && !self.acquisition_active();
         } else {
             self.workspace.connect_dialog = false;
         }

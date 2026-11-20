@@ -586,6 +586,7 @@ def verify_port_statuses_and_captures(cli, output):
                 report, rows = port_capture(destination, entry)
                 if entry["port"] == 3:
                     assert not rows and "identity mismatch" in report["terminal_error"]
+                    assert entry["error"] == report["terminal_error"]
                     assert report["rejected_status"]["identity"]["device_id"] == 2
                 else:
                     assert report["last_status"]["route"] == "AL1350 loopback fixture"

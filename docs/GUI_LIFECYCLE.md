@@ -1,6 +1,6 @@
 # GUI operation completion and closing
 
-Use the normal window close action to end a session. Closing requests the cyclic sampler's existing stop token, keeps the event loop responsive, and waits for the capture report after CSV drain/flush and interface shutdown. It also waits for pending acyclic reads, IODD inspection, saved-capture verification/export/comparison and saved-parameter review. A read-only request already in progress finishes under its existing timeout; no device command or port change is issued to cancel it.
+Use the normal window close action to end a session. Closing requests the cyclic sampler's existing stop token, keeps the event loop responsive, and waits for the capture report after CSV drain/flush and interface shutdown. It also waits for pending acyclic reads, IODD inspection, multi-port profile review, saved-capture verification/export/comparison and saved-parameter review. A read-only request already in progress finishes under its existing timeout; no device command or port change is issued to cancel it.
 
 During closing, navigation and action controls are disabled and the footer reports pending operations. New cyclic sessions are rejected before the stop token can be reset or a new destination created. Every worker owner is polled each frame, including reviewed writes and saved-parameter review when their tabs are hidden. When all completions have been consumed, the app emits the native close command.
 
@@ -18,6 +18,8 @@ Each accepted session gets a fresh stop token and a fresh bounded GUI display qu
 
 `cargo test --locked --bin iolink-workbench desktop::self_test::start_tests` covers rejected launch with the existing worker-denial guard, pending and completed-but-unconsumed ownership, pending drafts/inspection, and two consecutive GUI-controlled simulator CSV captures. The positive test keeps acyclic/review completion channels pending, verifies both captures, checks fresh sample indexes and stop/queue isolation, rejects destination reuse and preserves the first capture's bytes. Held channels model unrelated work; only the cyclic simulator capture actually runs. No desktop input or native window is used, and these checks do not establish visible interaction or physical gateway concurrency.
 
+The **Multiple ports** page shares the cyclic acquisition owner with single-port recording and monitoring. Close requests one stop for the set and waits for each port writer to finish. A partial failure cancels close and opens **Logging → Multiple ports** with the per-port results. The two modes use separate input views and preserve previous recording paths.
+
 ## Automated evidence
 
 ```powershell
@@ -27,7 +29,7 @@ python tools/verify_gui.py target/x86_64-pc-windows-msvc/release/iolink-workbenc
 
 The shutdown tests use internal logical close requests, channel gates and egui output commands. They cover hidden-tab completion, lost worker senders, refusal of new sessions, capture-error cancellation and app-drop stop signaling. A real simulator session is started through the GUI controller, stopped, drained, and its rotated saved CSV bundle is verified by the common archive reader. Tests serialize their real GUI-worker dispatch with the self-test worker-denial guard. They send no desktop keyboard/pointer input, create no native test window and take no screenshots.
 
-A separate loopback write test holds a reply during close and verifies that an unconfirmed result reopens the Writes page. The native verifier paints 100 profile, page, dialog and [synthetic observation views](LIVE_VIEW.md) in a hidden OpenGL context. It denies background dispatch and performs no input injection or pixel readback. Neither suite establishes native window-manager close routing, visible interactions, DPI/multi-monitor behavior, file-entry usability or physical IO-Link operation.
+A separate loopback write test holds a reply during close and verifies that an unconfirmed result reopens the Writes page. Tests in `desktop::port_capture` start independent simulator sessions through the GUI controller, then check hidden-tab completion, per-port CSV verification, applied-profile preservation and partial-failure close handling. The native verifier paints 108 profile, page, dialog and [synthetic observation views](LIVE_VIEW.md) in a hidden OpenGL context. It denies background dispatch and performs no input injection or pixel readback. Neither suite establishes native window-manager close routing, visible interactions, DPI/multi-monitor behavior, file-entry usability or physical IO-Link operation.
 
 Route checks precede output-folder preparation and worker launch. They share the transport's AL1350 origin and HTTPS rules and capture's physical IODD condition check. A local rejection leaves the prior observation, report and stop token available. Resolve issues through Device → Connection or Mappings. Reachability and observed identity are checked in the worker.
 

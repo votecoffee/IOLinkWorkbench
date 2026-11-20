@@ -13,7 +13,7 @@ pub(super) struct Destination {
 }
 
 impl Destination {
-    fn check(input: &str) -> Result<Self> {
+    pub(super) fn check(input: &str) -> Result<Self> {
         let input = input.trim();
         ensure!(!input.is_empty(), "Enter a new capture folder");
         let path = std::path::absolute(input).context("resolve capture folder")?;

@@ -234,6 +234,8 @@ pub(super) fn render(
                 "drop-preview",
                 "drop-saved-preview",
                 "latest-recording",
+                "port-capture-review",
+                "port-capture-results",
                 "connection-dialog",
                 "connection-needs-endpoint",
                 "connection-feed-settings",
@@ -244,7 +246,9 @@ pub(super) fn render(
                 use super::super::{
                     acyclic::Query,
                     setup::Page,
-                    workspace::{DiagnosticsPage, IntegrationPage, OfflinePage, ParameterPage},
+                    workspace::{
+                        DiagnosticsPage, IntegrationPage, LoggingPage, OfflinePage, ParameterPage,
+                    },
                 };
                 match label {
                     "device-connection" => app.setup.page = Page::Connection,
@@ -458,6 +462,12 @@ pub(super) fn render(
                             has_error: true,
                         });
                     }
+                    "port-capture-review" | "port-capture-results" => {
+                        app.tab = Tab::Logging;
+                        app.workspace.logging = LoggingPage::Ports;
+                        app.port_capture
+                            .stage_render_fixture(profile.clone(), label == "port-capture-results");
+                    }
                     "connection-dialog" => app.workspace.connect_dialog = true,
                     "connection-needs-endpoint" => {
                         app.profile =
@@ -585,6 +595,8 @@ pub(super) fn render(
                 ),
                 "offline-process-output" => Some("true (raw true, bits 0x1)"),
                 "acyclic-profile" => Some("Acyclic IODD layout"),
+                "port-capture-review" => Some("Start capture set"),
+                "port-capture-results" => Some("Synthetic device identity mismatch"),
                 "writes-text-review" => {
                     Some("Readback accepts the same IODD text with different zero padding.")
                 }
@@ -681,7 +693,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 106);
+        assert_eq!(cases.len(), 108);
         assert!(
             cases
                 .iter()

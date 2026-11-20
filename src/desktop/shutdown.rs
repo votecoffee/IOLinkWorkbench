@@ -26,6 +26,7 @@ impl App {
 
     pub(super) fn pending_jobs(&self) -> usize {
         usize::from(self.worker.is_some())
+            + self.port_capture.pending_jobs()
             + usize::from(self.acyclic.busy())
             + usize::from(self.writes.busy())
             + usize::from(self.setup.busy())

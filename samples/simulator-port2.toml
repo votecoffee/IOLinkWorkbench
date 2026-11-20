@@ -1,0 +1,18 @@
+version = 1
+name = "Synthetic snapshot input"
+input_bytes = 2
+
+[connection]
+gateway = "simulator"
+port = 2
+poll_us = 3000
+simulate_snapshots = true
+
+[expected_identity]
+vendor_id = 65535
+device_id = 1
+product_id = "SIM-SENSOR"
+
+[logging]
+mode = "every_update"
+raw_only = true

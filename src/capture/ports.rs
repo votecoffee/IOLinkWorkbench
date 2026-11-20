@@ -1,12 +1,34 @@
 //! Concurrent independent cyclic captures for explicitly selected ports.
-use super::{Options, Report, Stop, check_layout, run};
+use super::{Live, LiveQueue, Options, Report, Stop, check_layout, run};
 use crate::{
     profile::{Gateway, Profile},
     transport::ports::{master_conflict, run_port_workers, validate_selection},
 };
 use anyhow::{Context, Result, ensure};
 use serde::Serialize;
-use std::{fs, io::Write, path::PathBuf, time::Duration};
+use std::{fs, io::Write, path::PathBuf, sync::Arc, time::Duration};
+
+/// One latest-observation slot for each possible port. Slow readers skip old views.
+#[derive(Clone)]
+pub struct PortLive([LiveQueue; 4]);
+
+impl Default for PortLive {
+    fn default() -> Self {
+        Self(std::array::from_fn(|_| {
+            Arc::new(crossbeam_queue::ArrayQueue::new(1))
+        }))
+    }
+}
+
+impl PortLive {
+    fn queue(&self, port: u8) -> Option<&LiveQueue> {
+        self.0.get(usize::from(port.checked_sub(1)?))
+    }
+
+    pub fn take(&self, port: u8) -> Option<Live> {
+        self.queue(port)?.pop()
+    }
+}
 
 pub struct PortOptions {
     pub output: PathBuf,
@@ -44,12 +66,36 @@ impl PortBatch {
     }
 }
 
-pub fn run_ports(profiles: &[Profile], options: &PortOptions, stop: &Stop) -> Result<PortBatch> {
+/// Check a group of explicit cyclic routes without opening a gateway or creating files.
+pub fn check_ports(profiles: &[Profile]) -> Result<Gateway> {
     let gateway = validate_selection(profiles)?;
     for profile in profiles {
         check_layout(profile)
             .with_context(|| format!("check port {} capture layout", profile.connection.port))?;
     }
+    Ok(gateway)
+}
+
+pub fn run_ports(profiles: &[Profile], options: &PortOptions, stop: &Stop) -> Result<PortBatch> {
+    run_ports_inner(profiles, options, stop, None)
+}
+
+pub fn run_ports_observed(
+    profiles: &[Profile],
+    options: &PortOptions,
+    stop: &Stop,
+    live: &PortLive,
+) -> Result<PortBatch> {
+    run_ports_inner(profiles, options, stop, Some(live))
+}
+
+fn run_ports_inner(
+    profiles: &[Profile],
+    options: &PortOptions,
+    stop: &Stop,
+    live: Option<&PortLive>,
+) -> Result<PortBatch> {
+    let gateway = check_ports(profiles)?;
     ensure!(
         !options.duration.is_zero() && options.duration <= Duration::from_secs(86_400),
         "port capture duration must be positive and at most 24 hours"
@@ -77,7 +123,7 @@ pub fn run_ports(profiles: &[Profile], options: &PortOptions, stop: &Stop) -> Re
                 ..Options::default()
             },
             stop,
-            None,
+            live.and_then(|updates| updates.queue(profile.connection.port)),
         )
     });
     let results: Vec<_> = results
@@ -117,7 +163,14 @@ fn port_directory(profile: &Profile) -> String {
 
 fn port_result(profile: &Profile, result: Result<Report>) -> PortResult {
     let (report, error) = match result {
-        Ok(report) => (Some(report), None),
+        Ok(report) => {
+            let error = report
+                .terminal_error
+                .as_ref()
+                .or(report.writer_error.as_ref())
+                .cloned();
+            (Some(report), error)
+        }
         Err(error) => (None, Some(format!("{error:#}"))),
     };
     PortResult {

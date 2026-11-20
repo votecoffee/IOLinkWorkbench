@@ -23,6 +23,7 @@ mod logging_fields;
 mod observation;
 mod parameters;
 mod payload_inspector;
+mod port_capture;
 mod saved_capture;
 pub mod self_test;
 mod session_review;
@@ -123,6 +124,7 @@ struct App {
     setup: setup::Editor,
     capture_path: String,
     capture_folder_check: Option<capture_destination::FolderCheck>,
+    port_capture: port_capture::Panel,
     duration: u32,
     simulate_faults: bool,
     api_enabled: bool,
@@ -176,6 +178,7 @@ impl App {
             setup,
             capture_path: default_capture_path(),
             capture_folder_check: None,
+            port_capture: port_capture::Panel::default(),
             duration: 10,
             simulate_faults: false,
             api_enabled: false,
@@ -208,10 +211,14 @@ impl App {
         }
     }
 
+    fn acquisition_active(&self) -> bool {
+        self.worker.is_some() || self.port_capture.active()
+    }
+
     fn start_block_reason(&self) -> Option<&'static str> {
         if self.closing {
             Some("Application is closing; new sessions are disabled")
-        } else if self.worker.is_some() {
+        } else if self.acquisition_active() {
             Some(
                 "An acquisition session is already active; wait for its completion before starting another",
             )
@@ -326,9 +333,25 @@ impl App {
                 }
             }
         }
+        let batch_outcome = self.port_capture.update();
+        if let Some(failed) = batch_outcome {
+            capture_failed |= failed;
+            self.message = if failed {
+                "Port capture set needs review · see Logging → Multiple ports"
+            } else {
+                "Port capture set saved · see Logging → Multiple ports"
+            }
+            .into();
+        }
         self.acyclic.update();
         let write_unconfirmed = self.writes.update(&mut self.message);
         let close_requested = ctx.input(|input| input.viewport().close_requested());
+        if batch_outcome == Some(true) && (close_requested || self.closing) {
+            self.tab = Tab::Logging;
+            self.workspace.logging = workspace::LoggingPage::Ports;
+            self.workspace.connect_dialog = false;
+            self.workspace.profile_dialog = false;
+        }
         if write_unconfirmed && (close_requested || self.closing) {
             self.tab = Tab::Device;
             self.setup.page = setup::Page::Writes;
@@ -379,10 +402,17 @@ fn default_capture_path() -> String {
 }
 
 fn next_capture_path(current: &str) -> String {
+    next_capture_path_with_prefix(current, "capture")
+}
+
+fn next_capture_path_with_prefix(current: &str, prefix: &str) -> String {
     let parent = Path::new(current.trim())
         .parent()
         .unwrap_or_else(|| Path::new(".local"));
-    let name = format!("capture-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S-%3f"));
+    let name = format!(
+        "{prefix}-{}",
+        chrono::Utc::now().format("%Y%m%d-%H%M%S-%3f")
+    );
     parent.join(name).to_string_lossy().into_owned()
 }
 
