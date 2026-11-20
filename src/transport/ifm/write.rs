@@ -252,17 +252,59 @@ pub enum IsduValueReview {
     },
 }
 
+#[derive(Serialize)]
+pub struct IsduComparison {
+    pub expected: Box<DecodedParameter>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub changed_members: Vec<IsduMemberChange>,
+}
+
+#[derive(Serialize)]
+pub struct IsduMemberChange {
+    pub subindex: u8,
+    pub name: String,
+    pub bit_offset: u16,
+    pub expected_hex: String,
+    pub proposed_hex: String,
+}
+
+impl IsduComparison {
+    fn new(expected: DecodedParameter, proposed: &DecodedParameter) -> Self {
+        // Both images use the same validated compound layout and declared member order.
+        let before = expected.record_items.iter().chain(&expected.array_items);
+        let after = proposed.record_items.iter().chain(&proposed.array_items);
+        let changed_members = before
+            .zip(after)
+            .filter(|(before, after)| before.value.raw_hex != after.value.raw_hex)
+            .map(|(before, after)| IsduMemberChange {
+                subindex: after.subindex,
+                name: after.name.clone(),
+                bit_offset: after.bit_offset,
+                expected_hex: before.value.raw_hex.clone(),
+                proposed_hex: after.value.raw_hex.clone(),
+            })
+            .collect();
+        Self {
+            expected: Box::new(expected),
+            changed_members,
+        }
+    }
+}
+
 pub struct Plan {
     target: Target,
     review: Review,
     confirmation: String,
     point: Option<ReadPoint>,
+    isdu_comparison: Option<IsduComparison>,
 }
 
 #[derive(Serialize)]
 pub struct Preview<'a> {
     confirmation: &'a str,
     target_and_request: &'a Review,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    isdu_comparison: Option<&'a IsduComparison>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize)]
@@ -348,6 +390,7 @@ impl Plan {
         let port = format!("/iolinkmaster/port[{}]", target.connection.port);
         let device = format!("{port}/iolinkdevice");
         let mut isdu_value_review = None;
+        let mut isdu_comparison = None;
         let (kind, address, request_data, expected_value, requested_value, command_meaning) =
             match &operation {
                 Operation::PortMode { expected, desired } => (
@@ -366,8 +409,10 @@ impl Plan {
                 } => {
                     let before = parse_hex_bounded(expected, MAX_ISDU_BYTES)?;
                     let proposed = parse_hex_bounded(desired, MAX_ISDU_BYTES)?;
-                    isdu_value_review =
-                        Some(review_isdu_value(iodd_parameter, &before, &proposed)?);
+                    let (review, comparison) =
+                        review_isdu_value(iodd_parameter, &before, &proposed)?;
+                    isdu_value_review = Some(review);
+                    isdu_comparison = comparison;
                     let after = hex(&proposed);
                     (
                         "isdu",
@@ -445,6 +490,7 @@ impl Plan {
             review,
             confirmation,
             point,
+            isdu_comparison,
         })
     }
 
@@ -452,6 +498,7 @@ impl Plan {
         Preview {
             confirmation: &self.confirmation,
             target_and_request: &self.review,
+            isdu_comparison: self.isdu_comparison(),
         }
     }
 
@@ -461,6 +508,10 @@ impl Plan {
 
     pub fn read_point(&self) -> Option<ReadPoint> {
         self.point
+    }
+
+    pub fn isdu_comparison(&self) -> Option<&IsduComparison> {
+        self.isdu_comparison.as_ref()
     }
 
     pub fn confirmation(&self) -> &str {
@@ -661,19 +712,21 @@ fn review_isdu_value(
     parameter: Option<&Parameter>,
     expected: &[u8],
     proposed: &[u8],
-) -> Result<IsduValueReview> {
+) -> Result<(IsduValueReview, Option<IsduComparison>)> {
     let Some(parameter) = parameter else {
-        return Ok(IsduValueReview::NoIoddParameter);
+        return Ok((IsduValueReview::NoIoddParameter, None));
     };
     let reviewed = parameter
         .review_write(expected, proposed)
         .with_context(|| format!("ISDU write review for {}", parameter.name))?;
-    Ok(IsduValueReview::Iodd {
+    let comparison = IsduComparison::new(parameter.decode(expected), &reviewed.decoded);
+    let review = IsduValueReview::Iodd {
         parameter_id: parameter.id.clone(),
         name: parameter.name.clone(),
         datatype: parameter.datatype.clone(),
         interpretation: Box::new(reviewed.decoded),
         manual_review: reviewed.manual_review,
         preserved_read_only: reviewed.preserved_read_only,
-    })
+    };
+    Ok((review, Some(comparison)))
 }

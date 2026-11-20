@@ -487,6 +487,7 @@ pub(super) fn render(
             );
             let output = ctx.run(input, |ctx| app.render(ctx));
             let review_note = match label {
+                "writes-review" => Some("Changed IODD members (2)"),
                 "writes-text-review" => {
                     Some("Readback accepts the same IODD text with different zero padding.")
                 }

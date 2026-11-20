@@ -49,6 +49,8 @@ For CLI `read-current … isdu` and `write … isdu`, use either `--index` or `-
 
 Checked ISDU current-value reads show Observed IODD details in the GUI and an optional `iodd_value` in CLI JSON. Use the original observed `value` as exact expected hex. The interpretation retains decode errors and domain findings alongside those bytes.
 
+For a matched IODD parameter, the offline preview compares the supplied expected bytes with the proposed bytes and lists changed record or array members. CLI JSON stores this in `isdu_comparison`. Preflight still reads the current bytes independently before dispatch.
+
 For a single supported `StringT` value, the preview includes the IODD encoding and length for readback. Preflight compares exact bytes. After acknowledgement, `text_readback_matched` identifies equal decoded text with different zero padding and retains the exact returned bytes.
 
 Typed integer ISDU drafts support 2- to 64-bit values in 1-, 2-, 4- or 8-byte containers. A standalone typed Boolean true encodes as `FF`. Generate a new preview for typed true operations reviewed before v0.73.0. Existing compact representations still decode.

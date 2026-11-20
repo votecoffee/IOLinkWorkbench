@@ -3,9 +3,10 @@ use super::{ACCENT, App, Gateway, Profile, WARNING, Worker, background, complete
 use anyhow::{Context, Result, ensure};
 use eframe::egui::{self, Ui};
 use iolink_workbench::{
-    iodd::AssessmentStatus,
+    iodd::{AssessmentStatus, DecodedParameter},
     transport::write::{
-        CurrentRead, CurrentValue, IsduValueReview, Operation, Outcome, Plan, ReadPoint,
+        CurrentRead, CurrentValue, IsduComparison, IsduValueReview, Operation, Outcome, Plan,
+        ReadPoint,
     },
 };
 
@@ -470,27 +471,7 @@ impl Panel {
             .inner;
         if let Some(iodd) = &current.iodd_value {
             let decoded = &iodd.interpretation;
-            let observed = if let Some(time) = &decoded.time_value {
-                Some(time.value.clone())
-            } else if let Some(display) = decoded
-                .preferred_display
-                .as_ref()
-                .or_else(|| decoded.displays.first())
-            {
-                Some(if display.unit.is_empty() {
-                    display.value.clone()
-                } else {
-                    format!("{} {}", display.value, display.unit)
-                })
-            } else {
-                decoded.raw_value.as_ref().map(|value| {
-                    if iodd.datatype == "StringT" {
-                        format!("{value:?}")
-                    } else {
-                        value.clone()
-                    }
-                })
-            };
+            let observed = iodd_value_summary(decoded, &iodd.datatype);
             let label = match observed {
                 Some(value) => format!("Observed IODD · {} · {value}", iodd.name),
                 None => format!("Observed IODD · {} · {}", iodd.name, iodd.datatype),
@@ -514,6 +495,81 @@ impl Panel {
             self.draft.expected = value;
         }
     }
+}
+
+fn iodd_value_summary(decoded: &DecodedParameter, datatype: &str) -> Option<String> {
+    if let Some(time) = &decoded.time_value {
+        return Some(time.value.clone());
+    }
+    if let Some(display) = decoded
+        .preferred_display
+        .as_ref()
+        .or_else(|| decoded.displays.first())
+    {
+        return Some(if display.unit.is_empty() {
+            display.value.clone()
+        } else {
+            format!("{} {}", display.value, display.unit)
+        });
+    }
+    decoded.raw_value.as_ref().map(|value| {
+        if datatype == "StringT" {
+            format!("{value:?}")
+        } else {
+            value.clone()
+        }
+    })
+}
+
+fn show_isdu_comparison(
+    ui: &mut Ui,
+    comparison: &IsduComparison,
+    proposed: &DecodedParameter,
+    datatype: &str,
+) {
+    let expected_value = iodd_value_summary(&comparison.expected, datatype);
+    let proposed_value = iodd_value_summary(proposed, datatype);
+    if expected_value.is_some() || proposed_value.is_some() {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(format!(
+                "Expected IODD · {}",
+                expected_value.as_deref().unwrap_or("see raw bytes")
+            ));
+            ui.label(format!(
+                "Proposed IODD · {}",
+                proposed_value.as_deref().unwrap_or("see raw bytes")
+            ));
+        });
+    }
+    if comparison.expected.needs_review() {
+        ui.colored_label(WARNING, "Review the expected IODD decoding details.");
+    }
+    if !comparison.changed_members.is_empty() {
+        ui.collapsing(
+            format!(
+                "Changed IODD members ({})",
+                comparison.changed_members.len()
+            ),
+            |ui| {
+                for member in &comparison.changed_members {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(format!(
+                            "Subindex {} · {} · bit {}",
+                            member.subindex, member.name, member.bit_offset
+                        ));
+                        ui.monospace(format!("{} → {}", member.expected_hex, member.proposed_hex));
+                    });
+                }
+            },
+        );
+    }
+    ui.collapsing("IODD value details", |ui| {
+        ui.strong("Expected");
+        ui.monospace(comparison.expected.text());
+        ui.separator();
+        ui.strong("Proposed");
+        ui.monospace(proposed.text());
+    });
 }
 
 fn show_review(ui: &mut Ui, plan: &Plan) {
@@ -572,15 +628,7 @@ fn show_review(ui: &mut Ui, plan: &Plan) {
             preserved_read_only,
             ..
         }) => {
-            let value = interpretation
-                .time_value
-                .as_ref()
-                .map(|time| time.value.as_str())
-                .or(interpretation.raw_value.as_deref());
-            ui.label(match value {
-                Some(value) => format!("IODD · {name} · {datatype} · {value}"),
-                None => format!("IODD · {name} · {datatype}"),
-            });
+            ui.label(format!("IODD · {name} · {datatype}"));
             if interpretation.time_value.is_some() {
                 ui.small("Typed input uses milliseconds. Fractions round by less than one tick. See exact ticks in the details.");
             }
@@ -597,9 +645,9 @@ fn show_review(ui: &mut Ui, plan: &Plan) {
             if let Some(note) = manual_review {
                 ui.colored_label(WARNING, note);
             }
-            ui.collapsing("IODD value details", |ui| {
-                ui.monospace(interpretation.text())
-            });
+            if let Some(comparison) = plan.isdu_comparison() {
+                show_isdu_comparison(ui, comparison, interpretation, datatype);
+            }
         }
         None => {}
     }

@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- ISDU previews show expected and proposed IODD values together, with before-and-after member bytes for whole records and arrays. The comparison appears in CLI preview and receipt JSON.
+
 - The CLI accepts an exact imported IODD parameter ID for checked ISDU reads and reviewed writes. The resolved index and subindex are the addresses used for review and approval.
 
 - Checked ISDU current-value reads show the matching IODD interpretation, including engineering displays and decoding issues. The exact returned hex remains available for the expected-value check.

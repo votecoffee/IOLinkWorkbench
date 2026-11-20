@@ -100,6 +100,7 @@ def verify(cli, profile, server):
 
     mode = ["port-mode", "--expected", "3", "--desired", "0"]
     plan = preview(mode)
+    assert "isdu_comparison" not in plan
     assert "confirmation mismatch" in run([*mode[:-1], "1"], confirm=plan["confirmation"], status=1)
     assert not server.requests
     observed = run(["port-mode"], command="read-current")
@@ -120,7 +121,9 @@ def verify(cli, profile, server):
     apply(["port-mode", "--expected", "0", "--desired", "3"], "readback_matched")
 
     parameter = ["isdu", "--index", "65", "--subindex", "1", "--expected", "0001", "--desired", "0002"]
-    pin = preview(parameter)["confirmation"]
+    raw_plan = preview(parameter)
+    assert "isdu_comparison" not in raw_plan
+    pin = raw_plan["confirmation"]
     server.vendor = 1234
     assert "identity mismatch" in run(parameter[:5], status=1, command="read-current")
     assert "identity mismatch" in run(parameter, confirm=pin, status=1)
@@ -289,24 +292,41 @@ def verify(cli, profile, server):
     assert "is not US-ASCII" in run([*compound[:-1], "FFEC000AFF000000"], status=1, target=formats)
     assert "subindex 2 is write-only" in run(compound, status=1, target=write_only_record)
     assert "IODD width is unavailable for subindex 4" in run(compound, status=1, target=unknown_width_record)
-    compound_review = preview(compound, target=formats)["target_and_request"]["isdu_value_review"]
+    compound_plan = preview(compound, target=formats)
+    compound_review = compound_plan["target_and_request"]["isdu_value_review"]
     assert compound_review["datatype"] == "RecordT" and "manual_review" not in compound_review
     assert compound_review["preserved_read_only"] == [1]
     fields = compound_review["interpretation"]["record_items"]
     assert [(field["subindex"], field["value"]["raw_value"]) for field in fields] == [
         (1, "-20"), (2, "false"), (3, "10"), (4, "B")]
+    record_comparison = compound_plan["isdu_comparison"]
+    assert record_comparison["expected"]["raw_hex"] == compound[4]
+    assert record_comparison["changed_members"] == [
+        {"subindex": 2, "name": "Switch", "bit_offset": 40, "expected_hex": "01", "proposed_hex": "00"},
+        {"subindex": 4, "name": "Label", "bit_offset": 0, "expected_hex": "41000000", "proposed_hex": "42000000"},
+    ]
     assert "does not permit access to this subindex" in run(
         [*array[:3], "--subindex", "6", "--expected", "07", "--desired", "0F"], status=1, target=arrays)
     assert "outside declared writable members" in run([*array[:-1], "02C495F0"], status=1, target=arrays)
     assert "outside the IODD choices or ranges" in run([*array[:-1], "A2C49560"], status=1, target=arrays)
-    array_review = preview(array, target=arrays)["target_and_request"]["isdu_value_review"]
+    array_plan = preview(array, target=arrays)
+    array_review = array_plan["target_and_request"]["isdu_value_review"]
     assert array_review["datatype"] == "ArrayT" and "manual_review" not in array_review
     assert [(field["bit_offset"], field["value"]["raw_value"])
             for field in array_review["interpretation"]["array_items"]] == [
                 (24, "2"), (20, "-4"), (16, "4"), (12, "-7"), (8, "5"), (4, "-1"), (0, "0")]
+    array_comparison = array_plan["isdu_comparison"]
+    assert array_comparison["expected"]["raw_hex"] == array[4]
+    assert [(member["subindex"], member["bit_offset"], member["expected_hex"], member["proposed_hex"])
+            for member in array_comparison["changed_members"]] == [(6, 4, "07", "0F")]
     signed_review = preview(signed, target=formats)["target_and_request"]["isdu_value_review"]
     assert signed_review["datatype"] == "IntegerT" and signed_review["interpretation"]["raw_value"] == "-2"
     assert "manual_review" not in signed_review
+    prior = preview([*signed[:4], "01", *signed[5:]], target=formats)["isdu_comparison"]
+    assert prior["expected"]["raw_hex"] == "01" and "width differs" in prior["expected"]["decode_error"]
+    assert "changed_members" not in prior
+    prior = preview(member, target=formats)["isdu_comparison"]["expected"]
+    assert prior["raw_value"] == "255" and prior["value_assessment"]["status"] == "outside_definition"
     assert preview(typed_signed, target=formats) == preview(signed, target=formats)
     assert preview(typed_bool, target=formats) == preview([*typed_bool[:-2], "--desired", "00"], target=formats)
     assert preview(typed_true, target=formats) == preview([*typed_true[:-2], "--desired", "FF"], target=formats)
@@ -504,7 +524,7 @@ def verify(cli, profile, server):
     server.parameters[67, 0] = array[4]
     _, receipt = apply(array, "readback_matched", target=arrays)
     assert receipt["readback"] == server.parameters[67, 0] == array[-1]
-    print("PASS: checked reads and ISDU writes by index or IODD ID, typed values, compound member review, exact target checks, exact and StringT readback, and single dispatch on uncertain outcomes")
+    print("PASS: checked reads and ISDU writes by index or IODD ID, expected and proposed comparisons, compound member review, exact target checks, exact and StringT readback, and single dispatch on uncertain outcomes")
 
 
 def main():
