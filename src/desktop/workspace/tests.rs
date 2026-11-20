@@ -1326,6 +1326,91 @@ fn stop_and_flush_from_another_tab_can_review_the_recording() -> Result<()> {
 }
 
 #[test]
+fn compare_shortcuts_stage_two_recordings_and_invalidate_previous_results() -> Result<()> {
+    let _serial = WORKER_TEST_LOCK.lock().unwrap();
+    let scratch = tempfile::tempdir()?;
+    let record = |folder, name: &str| -> Result<Recording> {
+        let directory = scratch.path().join(folder);
+        let mut profile = Profile::parse(include_str!("../../../samples/simulator.toml"))?;
+        profile.name = name.into();
+        let report = capture::run(
+            &profile,
+            &capture::Options {
+                output: Some(directory.clone()),
+                duration: Some(Duration::from_millis(50)),
+                ..Default::default()
+            },
+            &Stop::default(),
+            None,
+        )?;
+        assert!(report.success() && report.csv_rows_flushed > 0);
+        Ok(Recording {
+            directory,
+            rows: report.csv_rows_flushed,
+            parts: report.csv_parts,
+            unconfirmed_rows: report.csv_rows_unconfirmed,
+            has_error: false,
+        })
+    };
+    let baseline = record("Review 基準", "Baseline sensor run")?;
+    let latest = record("Latest run", "Latest sensor run")?;
+    let mut app = App::new();
+    app.tab = Tab::Offline;
+    app.latest_recording = Some(latest);
+    let ctx = Context::default();
+    let size = egui::vec2(790.0, 530.0);
+    let finish = |app: &mut App| {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while app.pending_jobs() > 0 && Instant::now() < deadline {
+            draw(app, &ctx, size);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(app.pending_jobs(), 0);
+    };
+    let shows = |app: &mut App, start: &str| {
+        draw(app, &ctx, size)
+            .iter()
+            .any(|(text, _)| text.starts_with(start))
+    };
+
+    click(&mut app, &ctx, size, "Compare captures");
+    paste(
+        &mut app,
+        &ctx,
+        size,
+        "Comparison capture folder",
+        baseline.directory.to_str().unwrap(),
+    );
+    drop_paths(
+        &mut app,
+        &ctx,
+        size,
+        &[&baseline.directory.join("capture.toml")],
+    );
+    click(&mut app, &ctx, size, "Verify capture");
+    finish(&mut app);
+    click(&mut app, &ctx, size, "Compare as baseline");
+    assert_eq!(app.saved_capture.page, saved_capture::Page::Compare);
+    assert_eq!(app.pending_jobs(), 0);
+    assert!(!shows(&mut app, "Verify latest recording"));
+    click(&mut app, &ctx, size, "Verify and compare");
+    finish(&mut app);
+    assert!(shows(&mut app, "Left · Baseline sensor run"));
+    assert!(shows(&mut app, "Right · Baseline sensor run"));
+
+    click(&mut app, &ctx, size, "Use latest recording");
+    assert_eq!(app.pending_jobs(), 0);
+    assert!(!shows(&mut app, "Right ·"));
+    click(&mut app, &ctx, size, "Verify and compare");
+    click(&mut app, &ctx, size, "Verify");
+    finish(&mut app);
+    click(&mut app, &ctx, size, "Compare captures");
+    assert!(shows(&mut app, "Left · Baseline sensor run"));
+    assert!(shows(&mut app, "Right · Latest sensor run"));
+    Ok(())
+}
+
+#[test]
 fn verified_raw_only_capture_offers_redecode_instead_of_an_empty_field_picker() -> Result<()> {
     let _serial = WORKER_TEST_LOCK.lock().unwrap();
     let path = tempfile::tempdir()?;

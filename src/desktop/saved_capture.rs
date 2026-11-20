@@ -214,7 +214,13 @@ impl Verifier {
         self.available_fields = Some(fields);
     }
 
-    pub fn show(&mut self, ui: &mut Ui, mapping: &Profile, mapping_available: bool) {
+    pub fn show(
+        &mut self,
+        ui: &mut Ui,
+        mapping: &Profile,
+        mapping_available: bool,
+        latest_recording: Option<&Path>,
+    ) {
         ui.heading("Review saved capture");
         let editable = self.can_select_directory();
         if self.verify.busy() {
@@ -225,7 +231,7 @@ impl Verifier {
             ui.label("Checking saved files for export…");
         }
         if self.page == Page::Compare {
-            self.comparer.show(ui);
+            self.comparer.show(ui, latest_recording);
             return;
         }
 
@@ -259,16 +265,27 @@ impl Verifier {
         self.verify.show_error(ui);
         if let Some(verified) = self.verify.value() {
             ui.colored_label(ACCENT, "CSV data matches the saved report");
-            if verified.logged_fields().is_empty() {
-                ui.label("No typed CSV fields were recorded.");
-            } else {
-                ui.horizontal_wrapped(|ui| {
+            ui.horizontal_wrapped(|ui| {
+                if verified.logged_fields().is_empty() {
+                    ui.label("No typed CSV fields were recorded.");
+                } else {
                     ui.label(format!("{} logged fields", verified.logged_fields().len()));
                     if ui.button("Choose a signal").clicked() {
                         self.page = Page::Signal;
                     }
-                });
-            }
+                }
+                if ui
+                    .add_enabled(
+                        !self.comparer.busy(),
+                        egui::Button::new("Compare as baseline"),
+                    )
+                    .on_disabled_hover_text("Wait for the active comparison to finish")
+                    .clicked()
+                {
+                    self.comparer.select_baseline(self.directory.trim());
+                    self.page = Page::Compare;
+                }
+            });
             show_summary(ui, &verified.capture);
             interfaces::show_review(ui, verified);
         }

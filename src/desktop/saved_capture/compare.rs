@@ -1,7 +1,10 @@
 use crate::desktop::{WARNING, Worker, background, completed, path_entry};
 use eframe::egui::{self, Context, Ui};
 use iolink_workbench::archive::{self, CaptureComparison, ComparisonMetric};
-use std::{path::PathBuf, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 #[derive(Default)]
 pub(super) struct Comparer {
@@ -25,6 +28,15 @@ impl Comparer {
     pub(super) fn busy(&self) -> bool {
         self.worker.is_some()
     }
+
+    pub(super) fn select_baseline(&mut self, directory: &str) {
+        if self.left != directory {
+            self.left = directory.into();
+            self.result = None;
+            self.message.clear();
+        }
+    }
+
     pub fn update(&mut self, ctx: &Context) {
         if let Some(result) = completed(&mut self.worker) {
             match result {
@@ -43,16 +55,24 @@ impl Comparer {
         }
     }
 
-    pub fn show(&mut self, ui: &mut Ui) {
+    pub fn show(&mut self, ui: &mut Ui, latest_recording: Option<&Path>) {
         let before = (self.left.clone(), self.right.clone());
         ui.add_enabled_ui(self.worker.is_none(), |ui| {
             ui.horizontal_wrapped(|ui| {
-                ui.label("Left capture");
-                path_entry(ui, &mut self.left, "Finalized capture folder");
+                ui.label("Left capture (baseline)");
+                path_entry(ui, &mut self.left, "Baseline capture folder");
             });
             ui.horizontal_wrapped(|ui| {
                 ui.label("Right capture");
-                path_entry(ui, &mut self.right, "Finalized capture folder");
+                path_entry(ui, &mut self.right, "Comparison capture folder");
+                if let Some(directory) = latest_recording.and_then(Path::to_str)
+                    && ui
+                        .button("Use latest recording")
+                        .on_hover_text(directory)
+                        .clicked()
+                {
+                    self.right = directory.into();
+                }
             });
             let ready = !self.left.trim().is_empty() && !self.right.trim().is_empty();
             if ui
@@ -73,7 +93,7 @@ impl Comparer {
                 }
             }
         });
-        if before != (self.left.clone(), self.right.clone()) {
+        if before.0 != self.left || before.1 != self.right {
             self.result = None;
             if self.worker.is_none() {
                 self.message.clear();

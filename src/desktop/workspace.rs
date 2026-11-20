@@ -351,7 +351,9 @@ impl App {
     fn offline_page(&mut self, ui: &mut Ui) {
         match self.workspace.offline {
             OfflinePage::Captures => {
-                if self.latest_recording.is_some() {
+                if self.latest_recording.is_some()
+                    && self.saved_capture.page != saved_capture::Page::Compare
+                {
                     self.latest_recording(ui);
                     ui.separator();
                 }
@@ -359,6 +361,9 @@ impl App {
                     ui,
                     &self.profile,
                     !self.setup.pending() && !self.setup.busy(),
+                    self.latest_recording
+                        .as_ref()
+                        .map(|recording| recording.directory.as_path()),
                 );
             }
             OfflinePage::Process => self.payload_inspector.show(ui, &self.profile),

@@ -57,7 +57,7 @@ The [HTTP](LOCAL_API.md), [MQTT](MQTT.md) and [shared-memory](SHARED_MEMORY.md) 
 .\iolink-cli.exe compare-captures trial-a trial-b
 ```
 
-**Offline → Saved captures → Compare captures** accepts independent left/right folders and runs verification in a background worker. Both sides must pass complete metadata/CSV checks before a result appears. Failure or edited folder selections clear the previous comparison. It neither joins nor writes CSV and never opens a transport or IPC object. Raw-only captures are supported.
+**Offline → Saved captures → Compare captures** accepts independent left/right folders. From a verified capture, choose **Compare as baseline** to fill the left folder. **Use latest recording** fills the right folder from the current app session. **Verify and compare** starts a background worker that checks both folders, including any previously verified baseline. Failure or a changed folder clears the prior comparison. The worker reads saved files and supports raw-only captures.
 
 Output is TOML with both full `review-interfaces` reports, metadata hashes, an explicit settings table and numeric metric rows. The left/right values are recorded statistics or verified CSV counts. Missing numeric fields are omitted and marked `metric_unavailable`, distinct from recorded zero. Each metric keeps its own domain; source gaps, CSV overruns, API drops/retention, MQTT coalescing/uncertain writes and shared-memory skips/replacements are never added together. Original fractional means and complete counters remain in the embedded reviews; the comparison table uses integer counts, microsecond quantiles and terminal host receive ages.
 

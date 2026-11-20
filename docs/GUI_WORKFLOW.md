@@ -77,6 +77,8 @@ The field picker starts with the first logged column. Before verification, type 
 
 Verify, Signal and Exports share the capture folder. Each keeps its results when you switch pages. Editing the source folder clears its earlier results and source-specific export destinations. Compare retains its own two folders. Navigation remains available during background work, and completed results appear on their own pages.
 
+To compare a new recording against a baseline, verify the baseline folder and choose **Compare as baseline**. This opens **Compare captures** and fills the left folder. Choose **Use latest recording** to fill the right folder with the latest finalized recording from this app session. You can also edit either folder. Choose **Verify and compare** to check both captures and show the results. A changed folder clears the prior comparison.
+
 ## Selecting files from Explorer
 
 On **Offline → Saved captures**, drop the capture's **capture.toml** to select its folder on **Verify**, or a re-decoded bundle's **receipt.toml** to select its folder on **Exports**. Choose **Verify capture** or **Verify bundle** explicitly. Bundle selection starts with local checks. Select **Also reverify the original Capture folder above** when you intend to include the original source.
@@ -89,6 +91,6 @@ Selecting another IODD clears the previous inspection, variant/layout and ZIP-me
 
 ## Verification scope
 
-In-process egui tests check page isolation and toolbar bounds at **790×530** and **1130×790**, review/profile navigation, starter selection and guarded replacement, failed-load and source-file preservation, overview routing, synthetic file-drop routing and explicit load/inspect/apply, Unicode paths, rejected multi-file/unsupported drops, hover geometry, hidden-draft recovery, and acyclic result attribution after selection and page changes. The rotated simulator capture test stops recording from another tab, verifies the latest capture with a pending export path, then reviews a signal, combines the CSV parts and re-decodes across page changes. Synthetic pointer events stay inside an isolated egui context.
+In-process egui tests check page isolation and toolbar bounds at **790×530** and **1130×790**, review/profile navigation, starter selection and guarded replacement, failed-load and source-file preservation, overview routing, synthetic file-drop routing and explicit load/inspect/apply, Unicode paths, rejected multi-file/unsupported drops, hover geometry, hidden-draft recovery, and acyclic result attribution after selection and page changes. Simulator capture tests cover stopping from another tab, verification with a pending export path, signal review, combining CSV parts, re-decoding, and staging and comparing a baseline and latest recording across page changes. Synthetic pointer events stay inside an isolated egui context.
 
 The capability-checked native verifier paints 98 built-in profile/page/dialog and observation cases at **1130×790** into a hidden OpenGL framebuffer. It sends no input and reads no pixels. These checks establish layout geometry, workflow behavior and draw submission. Visible appearance, Explorer/OS drop delivery, window-manager interaction, DPI and physical-device acceptance remain separate. The preview case supplies synthetic hover metadata without desktop input or file access.

@@ -313,7 +313,7 @@ The app sends only documented data reads and explicitly requested ISDU reads. Po
 
 ## Capture files and timing
 
-**Compare saved captures.** Use **compare-captures LEFT RIGHT** or **Offline → Saved captures → Compare captures**. Both folders are fully verified before results appear. Timing and loss domains remain separate, missing values stay unavailable, and arithmetic differences require matching recorded settings; count differences also require identical recorded duration. This is descriptive saved-record evidence, with no clock alignment or performance/physical acceptance verdict. See the [comparison policy](docs/CAPTURE_REVIEW.md#compare-two-captures).
+**Compare saved captures.** Use **compare-captures LEFT RIGHT** or **Offline → Saved captures → Compare captures**. Use **Compare as baseline** on a verified capture to fill the left folder and **Use latest recording** to fill the right folder. Choose **Verify and compare**. Both folders are fully verified before results appear. Timing and loss domains remain separate, missing values stay unavailable, and arithmetic differences require matching recorded settings; count differences also require identical recorded duration. This is descriptive saved-record evidence, with no clock alignment or performance/physical acceptance verdict. See the [comparison policy](docs/CAPTURE_REVIEW.md#compare-two-captures).
 
 **GUI closing.** Normal close waits for capture flush and pending reads/reviews/exports, including hidden-tab work, and disables new actions while waiting. A capture failure during closing cancels exit and keeps the error visible. See the [lifecycle and pending operator checklist](docs/GUI_LIFECYCLE.md).
 
