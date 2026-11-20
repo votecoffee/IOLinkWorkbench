@@ -77,59 +77,7 @@ fn representation(
         "IntegerT" | "UIntegerT" | "BooleanT" | "Float32T" => {
             assessment::numeric_bytes(parameter, declared)
         }
-        "StringT" | "OctetStringT" => {
-            let length = usize::from(
-                parameter
-                    .fixed_length
-                    .context("declared string length is unavailable")?,
-            );
-            ensure!(
-                (1..=232).contains(&length),
-                "declared string length must be 1–232 octets"
-            );
-            if parameter.datatype == "StringT" {
-                ensure!(
-                    matches!(parameter.encoding.as_deref(), Some("UTF-8" | "US-ASCII")),
-                    "default text encoding is unavailable or unsupported"
-                );
-                ensure!(
-                    parameter.encoding.as_deref() != Some("US-ASCII") || declared.is_ascii(),
-                    "default text is not US-ASCII"
-                );
-                ensure!(!declared.contains('\0'), "default text contains NUL");
-                ensure!(
-                    declared.len() <= length,
-                    "default text exceeds the declared octet length"
-                );
-                let mut bytes = declared.as_bytes().to_vec();
-                bytes.resize(length, 0);
-                Ok(bytes)
-            } else {
-                ensure!(
-                    declared.len() < 5 * length,
-                    "default octet sequence exceeds the declared length"
-                );
-                let bytes = declared
-                    .split(',')
-                    .map(|part| -> Result<u8> {
-                        let digits = part
-                            .strip_prefix("0x")
-                            .context("octet default requires comma-separated 0xNN entries")?;
-                        ensure!(
-                            digits.len() == 2
-                                && digits.bytes().all(|byte| byte.is_ascii_hexdigit()),
-                            "invalid default octet"
-                        );
-                        Ok(u8::from_str_radix(digits, 16)?)
-                    })
-                    .collect::<Result<Vec<_>>>()?;
-                ensure!(
-                    bytes.len() == length,
-                    "default octet count differs from the declared length"
-                );
-                Ok(bytes)
-            }
-        }
+        "StringT" | "OctetStringT" => super::text::encode(parameter, declared),
         _ => anyhow::bail!("default representation is unsupported"),
     }?;
     Ok((bytes, None))

@@ -26,13 +26,20 @@ Preview runs offline and prints JSON with the destination, wire address, payload
 .\iolink-cli.exe write $profile --master-serial $serial isdu --index 65 --expected 01 --desired 02
 ```
 
-For a supported read/write parameter or enabled subindex, choose **IODD value** in the ISDU form or use `--desired-value` in the CLI. Enter `true` or `false` for Boolean parameters, or an unscaled decimal value for 8-, 16-, 32- or 64-bit signed or unsigned integers. **Use as expected value** still copies the exact current hex. For example, if index 64 is a signed 16-bit parameter and its current bytes are `0001`, entering `-2` produces `FFFE` in the preview.
+For a supported read/write parameter or enabled subindex, choose **IODD value** in the ISDU form or use `--desired-value` in the CLI. **Use as expected value** still copies the exact current hex.
+
+- For Boolean parameters, enter `true` or `false`. For 8-, 16-, 32- or 64-bit integers, enter an unscaled decimal number.
+- For `Float32T`, enter an unscaled decimal number or exponent form, such as `-2.5` or `2.5e-1`. Explicit `INF` and `-INF` are supported, subject to the same IODD checks. Use `--desired-value=-INF` for the negative literal in the CLI. The preview shows the resulting 32-bit encoding.
+- For `StringT`, enter the exact text, including any leading or trailing spaces. The IODD must specify UTF-8 or US-ASCII and a fixed byte length. Workbench zero-pads to that length. To clear a text value, select **Write empty text** in the GUI or pass `--desired-value=` in the CLI. A device that returns a condensed readback can produce an `unconfirmed` receipt because Workbench checks exact bytes. [IO-Link interface specification, Annex F.2.6](https://io-link.com/fileadmin/user_upload/Downloads/Package_2024/IOL-Interface-Spec_10002_V114_Jun24.pdf)
+- For `OctetStringT`, enter comma-separated `0xNN` entries, such as `0x00,0x80,0xFF,0x2C`. Supply exactly the number of octets declared in the IODD.
+
+If index 64 is a signed 16-bit parameter and its current bytes are `0001`, entering `-2` produces `FFFE` in the preview.
 
 ```powershell
 .\iolink-cli.exe write $profile --master-serial $serial isdu --index 64 --expected 0001 --desired-value -2
 ```
 
-The typed and raw forms produce the same confirmation when the reviewed bytes and target match. For other widths, datatypes, and whole compound images, enter raw hex in the GUI or use `--desired`.
+The typed and raw forms produce the same confirmation when the reviewed bytes and target match. Use raw hex or `--desired` for other widths, unsupported datatypes, and whole compound images.
 
 The ISDU preview includes `isdu_value_review`. In the GUI, the parameter name, datatype and decoded value appear beneath the wire request. Expand **IODD value details** for named choices, range assessment and any engineering displays. For supported scalar, text, octet and time datatypes, preview rejects bytes that the declared datatype cannot decode. For supported numeric choices and ranges, it also rejects values outside well-formed definitions and values that cannot be compared with them. The check applies to the proposed bytes so an out-of-definition current value can still be corrected. Dispatch compares the exact expected bytes with a fresh read.
 

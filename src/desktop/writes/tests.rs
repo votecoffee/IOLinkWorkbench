@@ -82,7 +82,7 @@ fn draft_forms_stage_the_shared_wire_preview_offline() -> Result<()> {
 }
 
 #[test]
-fn typed_isdu_draft_stages_exact_bytes_and_keeps_expected_hex() -> Result<()> {
+fn typed_isdu_draft_stages_exact_bytes_and_requires_explicit_empty_text() -> Result<()> {
     let mut profile = fixture_profile("https://127.0.0.1:9".into())?;
     let catalog = iolink_workbench::iodd::parse(
         include_str!("../../../samples/sensor-formats.xml"),
@@ -107,6 +107,14 @@ fn typed_isdu_draft_stages_exact_bytes_and_keeps_expected_hex() -> Result<()> {
     assert!(draft.operation(&profile).is_err());
     draft.reset_values();
     assert!(draft.expected.is_empty() && draft.desired.is_empty() && !draft.typed_desired);
+    draft.index = 66;
+    draft.subindex = 4;
+    draft.expected = "41424344".into();
+    draft.typed_desired = true;
+    assert!(draft.operation(&profile).is_err());
+    draft.empty_text = true;
+    let plan = Plan::new(&profile, "SYNTHETIC-MASTER", draft.operation(&profile)?)?;
+    assert_eq!(plan.review().request_data["value"], "00000000");
     Ok(())
 }
 

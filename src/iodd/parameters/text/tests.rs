@@ -36,6 +36,11 @@ fn text_supports_condensed_unicode_and_nul_only_padding_using_octet_limits() -> 
     );
     assert_eq!(decode("StringT", Some(8), Some("UTF-8"), &[0; 8])?, "");
     assert!(decode("StringT", Some(2), Some("UTF-8"), "µm".as_bytes()).is_err());
+    let profile = profile()?;
+    let parameter = profile.parameter("V_SIM_Text")?;
+    assert_eq!(encode(parameter, " µm ")?, b" \xC2\xB5m \0\0\0");
+    assert_eq!(encode(parameter, "")?, [0; 8]);
+    assert!(encode(parameter, "a\0b").is_err());
     Ok(())
 }
 
@@ -70,10 +75,12 @@ fn octet_strings_keep_zeros_order_and_maximum_supported_length() -> Result<()> {
     for payload in [vec![], vec![0; 3], vec![0; 5]] {
         assert!(decode("OctetStringT", Some(4), None, &payload).is_err());
     }
-    let parameter = profile()?.parameter("V_SIM_Octets")?.clone();
+    let mut parameter = profile()?.parameter("V_SIM_Octets")?.clone();
     let bad = parameter.decode(&[0, 0, 0]);
     assert_eq!(bad.raw_hex, "000000");
     assert!(bad.decode_error.is_some());
+    parameter.fixed_length = Some(232);
+    assert_eq!(encode(&parameter, &text)?, payload);
     Ok(())
 }
 

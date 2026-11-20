@@ -31,6 +31,7 @@ struct Draft {
     expected: String,
     desired: String,
     typed_desired: bool,
+    empty_text: bool,
     index: u16,
     subindex: u8,
     code: u8,
@@ -64,13 +65,19 @@ impl Draft {
                     .parse()
                     .context("Enter the desired numeric mode in decimal")?,
             },
-            Kind::Parameter if self.typed_desired => Operation::isdu_typed(
-                profile,
-                self.index,
-                self.subindex,
-                self.expected.clone(),
-                &self.desired,
-            )?,
+            Kind::Parameter if self.typed_desired => {
+                ensure!(
+                    !self.desired.is_empty() || self.empty_text,
+                    "Enter a desired IODD value"
+                );
+                Operation::isdu_typed(
+                    profile,
+                    self.index,
+                    self.subindex,
+                    self.expected.clone(),
+                    &self.desired,
+                )?
+            }
             Kind::Parameter => Operation::Isdu {
                 index: self.index,
                 subindex: self.subindex,
@@ -92,6 +99,7 @@ impl Draft {
         self.expected.clear();
         self.desired.clear();
         self.typed_desired = false;
+        self.empty_text = false;
     }
 
     fn show(&mut self, ui: &mut Ui, profile: &Profile) {
@@ -140,33 +148,48 @@ impl Draft {
             subindex: self.subindex,
         };
         let previous = self.typed_desired;
-        let typed_label = if let Some(parameter) = point.typed_isdu_parameter(profile) {
+        let parameter = point.typed_isdu_parameter(profile);
+        if let Some(parameter) = parameter {
             ui.small(format!("{} · {}", parameter.name, parameter.datatype));
             ui.horizontal_wrapped(|ui| {
                 ui.selectable_value(&mut self.typed_desired, false, "Raw hex");
                 ui.selectable_value(&mut self.typed_desired, true, "IODD value");
             });
-            if parameter.datatype == "BooleanT" {
-                "Desired Boolean (true or false)"
-            } else {
-                "Desired integer (unscaled decimal)"
-            }
         } else {
             self.typed_desired = false;
-            "Desired parameter hex"
-        };
+        }
         if previous != self.typed_desired {
             self.desired.clear();
+            self.empty_text = false;
         }
-        text_entry(
-            ui,
-            if self.typed_desired {
-                typed_label
+        let typed = parameter.filter(|_| self.typed_desired);
+        let datatype = typed.map(|parameter| parameter.datatype.as_str());
+        let label = match datatype {
+            Some("BooleanT") => "Desired Boolean (true or false)",
+            Some("Float32T") => "Desired Float32 (unscaled)",
+            Some("StringT") => "Desired text",
+            Some("OctetStringT") => "Desired bytes (0xNN,0xNN)",
+            Some(_) => "Desired integer (unscaled decimal)",
+            None => "Desired parameter hex",
+        };
+        text_entry(ui, label, &mut self.desired);
+        if let Some(parameter) = typed
+            && let Some(length) = parameter
+                .fixed_length
+                .filter(|_| matches!(datatype, Some("StringT" | "OctetStringT")))
+        {
+            if datatype == Some("StringT") {
+                let encoding = parameter.encoding.as_deref().unwrap_or_default();
+                ui.small(format!("{encoding} · {length} bytes including padding"));
             } else {
-                "Desired parameter hex"
-            },
-            &mut self.desired,
-        );
+                ui.small(format!("Enter exactly {length} bytes"));
+            }
+        }
+        if datatype == Some("StringT") && self.desired.is_empty() {
+            ui.checkbox(&mut self.empty_text, "Write empty text");
+        } else {
+            self.empty_text = false;
+        }
     }
 
     fn values(&mut self, ui: &mut Ui, before: &str, after: &str) {

@@ -81,7 +81,7 @@ enum WriteOperation {
             conflicts_with = "desired_value"
         )]
         desired: Option<String>,
-        /// Proposed IODD integer (unscaled decimal) or Boolean (true or false).
+        /// Proposed unscaled IODD value (Boolean, number, text or comma-separated 0xNN octets).
         #[arg(long, allow_negative_numbers = true)]
         desired_value: Option<String>,
     },

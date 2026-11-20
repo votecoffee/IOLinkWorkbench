@@ -134,18 +134,28 @@ impl DecodedParameter {
 
 impl Parameter {
     pub(crate) fn supports_typed_write(&self) -> bool {
-        matches!(
-            (self.datatype.as_str(), self.bits),
-            ("BooleanT", Some(1)) | ("IntegerT" | "UIntegerT", Some(8 | 16 | 32 | 64))
-        )
+        match self.datatype.as_str() {
+            "BooleanT" => self.bits == Some(1),
+            "IntegerT" | "UIntegerT" => matches!(self.bits, Some(8 | 16 | 32 | 64)),
+            "Float32T" => self.bits == Some(32),
+            "StringT" | "OctetStringT" => {
+                matches!(self.fixed_length, Some(1..=232))
+                    && (self.datatype == "OctetStringT"
+                        || matches!(self.encoding.as_deref(), Some("UTF-8" | "US-ASCII")))
+            }
+            _ => false,
+        }
     }
 
     pub(crate) fn encode_typed_write(&self, input: &str) -> Result<Vec<u8>> {
         ensure!(
             self.supports_typed_write(),
-            "typed ISDU entry supports Boolean and 8-, 16-, 32- or 64-bit integer parameters"
+            "typed ISDU entry is unavailable for the declared datatype or width"
         );
-        super::assessment::numeric_bytes(self, input)
+        match self.datatype.as_str() {
+            "StringT" | "OctetStringT" => super::text::encode(self, input),
+            _ => super::assessment::numeric_bytes(self, input),
+        }
     }
 
     /// Review a write image offline. A compound image may change only declared writable bits.

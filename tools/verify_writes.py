@@ -53,7 +53,10 @@ class Gateway(BaseHTTPRequestHandler):
                 elif address == f"{DEVICE}/pdout/setdata":
                     state.output = data["newvalue"]
                 else:
-                    state.parameters[data["index"], data["subindex"]] = data["value"]
+                    value = data["value"]
+                    if action == "condense_text":
+                        value = bytes.fromhex(value).rstrip(b"\0").hex().upper()
+                    state.parameters[data["index"], data["subindex"]] = value
             if action == "drop_response":
                 return
         else:
@@ -190,16 +193,24 @@ def verify(cli, profile, server):
                                                        'encoding="US-ASCII"'),
                                     encoding="utf-8", newline="\n")
     unknown_width_record = import_for_write(unknown_width_source)
-    values_source = profile.parent / "writable-values.xml"
-    values_text = (ROOT / "samples/sensor-values.xml").read_text(encoding="utf-8")
-    values_source.write_text(values_text.replace('accessRights="ro"', 'accessRights="rw"'),
-                             encoding="utf-8", newline="\n")
-    values = import_for_write(values_source)
+    def import_writable_sample(name):
+        source = profile.parent / f"{name}-writable.xml"
+        text = (ROOT / f"samples/{name}.xml").read_text(encoding="utf-8")
+        source.write_text(text.replace('accessRights="ro"', 'accessRights="rw"'),
+                          encoding="utf-8", newline="\n")
+        return import_for_write(source)
+
+    values = import_writable_sample("sensor-values")
+    strings = import_writable_sample("sensor-strings")
     member = ["isdu", "--index", "66", "--subindex", "3", "--expected", "FF", "--desired", "0A"]
     signed = ["isdu", "--index", "64", "--expected", "0001", "--desired", "FFFE"]
     typed_signed = [*signed[:-2], "--desired-value", "-2"]
     typed_bool = ["isdu", "--index", "66", "--subindex", "2", "--expected", "01", "--desired-value", "false"]
     typed_wide = ["isdu", "--index", "82", "--expected", "0000000000000000", "--desired-value", "18446744073709551615"]
+    typed_float = ["isdu", "--index", "83", "--expected", "3FA00000", "--desired-value", "-2.5"]
+    typed_text = ["isdu", "--index", "77", "--expected", "58", "--desired-value", " µm "]
+    typed_octets = ["isdu", "--index", "79", "--subindex", "2", "--expected", "00000000",
+                    "--desired-value", "0x00,0x80,0xFF,0x2C"]
     compound = ["isdu", "--index", "66", "--expected", "FFEC010A41000000", "--desired", "FFEC000A42000000"]
     array = ["isdu", "--index", "67", "--expected", "A2C49570", "--desired", "A2C495F0"]
     before = len(server.requests)
@@ -212,9 +223,9 @@ def verify(cli, profile, server):
     assert "requires an IODD declaration" in run(typed_signed, status=1)
     assert "does not declare this parameter read/write" in run(
         [*typed_signed[:2], "65", *typed_signed[3:]], status=1, target=configured)
-    assert "supports Boolean and 8-" in run(
+    assert "unavailable for the declared datatype or width" in run(
         [*compound[:-2], "--desired-value", "10"], status=1, target=formats)
-    assert "supports Boolean and 8-" in run(
+    assert "unavailable for the declared datatype or width" in run(
         ["isdu", "--index", "85", "--subindex", "1", "--expected", "00", "--desired-value", "-1"],
         status=1, target=values)
     assert "expected true, false, 1 or 0" in run([*typed_bool[:-1], "2"], status=1, target=formats)
@@ -254,6 +265,26 @@ def verify(cli, profile, server):
     wide_plan = preview(typed_wide, target=values)["target_and_request"]
     assert wide_plan["request_data"]["value"] == "FFFFFFFFFFFFFFFF"
     assert wide_plan["isdu_value_review"]["interpretation"]["raw_value"] == typed_wide[-1]
+    assert preview(typed_float, target=values) == preview([*typed_float[:-2], "--desired", "C0200000"], target=values)
+    infinity = preview([*typed_float[:-2], "--desired-value=-INF"], target=values)["target_and_request"]
+    assert infinity["request_data"]["value"] == "FF800000"
+    assert "outside the IODD choices or ranges" in run([*typed_float[:-1], "0"], status=1, target=values)
+    assert "NaN" in run([*typed_float[:-1], "NaN"], status=1, target=values)
+    assert "non-finite numeric literal" in run([*typed_float[:-1], "1e40"], status=1, target=values)
+    text_plan = preview(typed_text, target=strings)["target_and_request"]
+    assert text_plan["request_data"]["value"] == "20C2B56D20000000"
+    assert text_plan["isdu_value_review"]["interpretation"]["raw_value"] == " µm "
+    assert "exceeds the declared octet length" in run([*typed_text[:-1], "µ" * 5], status=1, target=strings)
+    assert "text is not US-ASCII" in run(
+        ["isdu", "--index", "78", "--subindex", "3", "--expected", "4F4B", "--desired-value", "µm"],
+        status=1, target=strings)
+    empty = preview([*typed_text[:-2], "--desired-value="], target=strings)["target_and_request"]
+    assert empty["request_data"]["value"] == "0000000000000000"
+    assert empty["isdu_value_review"]["interpretation"]["raw_value"] == ""
+    assert preview(typed_octets, target=strings) == preview([*typed_octets[:-2], "--desired", "0080FF2C"], target=strings)
+    assert "octet count differs from the declared length" in run(
+        [*typed_octets[:-1], "0x00,0x80,0xFF"], status=1, target=strings)
+    assert "invalid octet" in run([*typed_octets[:-1], "0x00,0xXX,0xFF,0x2C"], status=1, target=strings)
     overlap = preview([*signed[:-1], "01F4"], target=configured)["target_and_request"]["isdu_value_review"]
     assert overlap["interpretation"]["value_assessment"]["status"] == "definition_needs_review"
     assert "manual_review" in overlap
@@ -270,6 +301,20 @@ def verify(cli, profile, server):
     server.parameters[66, 2] = "01"
     _, receipt = apply(typed_bool, "readback_matched", target=formats)
     assert receipt["readback"] == server.parameters[66, 2] == "00"
+
+    server.parameters[83, 0] = "3FA00000"
+    _, receipt = apply(typed_float, "readback_matched", target=values)
+    assert receipt["readback"] == "C0200000"
+    server.parameters[77, 0] = "58"
+    _, receipt = apply(typed_text, "readback_matched", target=strings)
+    assert receipt["readback"] == "20C2B56D20000000"
+    server.next_write = "condense_text"
+    _, receipt = apply([*typed_text[:4], "20C2B56D20000000", "--desired-value", "µm"],
+                       "unconfirmed", status=1, target=strings)
+    assert receipt["readback"] == "C2B56D"
+    server.parameters[79, 2] = "00000000"
+    _, receipt = apply(typed_octets, "readback_matched", target=strings)
+    assert receipt["readback"] == "0080FF2C"
 
     compound_plan = preview(compound, target=formats)
     server.parameters[66, 0] = "FFED010A41000000"
