@@ -141,6 +141,41 @@ fn fixture(profile: &Profile, obstacle: Option<PathBuf>) -> Result<Box<dyn Input
 }
 
 #[test]
+fn preparation_time_does_not_consume_a_timed_capture_window() -> Result<()> {
+    fs::create_dir_all(".local")?;
+    let scratch = tempfile::tempdir_in(".local")?;
+    let profile = Profile::parse(include_str!("../../samples/simulator.toml"))?;
+    let transport = fixture(&profile, None)?;
+    let output = scratch.path().join("capture");
+    let preparation = Duration::from_secs(2);
+    let duration = Duration::from_millis(250);
+    // Model an output origin already older than the entire requested window.
+    let start = Instant::now() - preparation;
+    let report = run_with_transport(
+        &profile,
+        &Options {
+            output: Some(output.clone()),
+            duration: Some(duration),
+            ..Options::default()
+        },
+        &Stop::default(),
+        None,
+        transport,
+        start,
+    )?;
+    assert!(report.success(), "{report:?}");
+    assert_eq!(report.requested_duration_ms, Some(250));
+    assert!(report.elapsed_us >= us(preparation + duration));
+    let verified = crate::archive::verify(&output, None)?;
+    assert!(verified.rows_checked > 0);
+    let mut csv = csv::Reader::from_path(output.join("capture-0001.csv"))?;
+    let first = csv.records().next().expect("verified capture has rows")?;
+    assert_eq!(first.get(0), Some(report.utc_start.as_str()));
+    assert!(first[1].parse::<u64>()? >= us(preparation));
+    Ok(())
+}
+
+#[test]
 fn on_change_retries_a_dropped_value_until_it_is_queued() -> Result<()> {
     fs::create_dir_all(".local")?;
     let scratch = tempfile::tempdir_in(".local")?;
@@ -159,6 +194,7 @@ fn on_change_retries_a_dropped_value_until_it_is_queued() -> Result<()> {
         &Stop::default(),
         None,
         fixture(&profile, None)?,
+        Instant::now(),
     )?;
     assert!(report.success(), "{report:?}");
     assert!(report.counts.logger_overruns > 0);
@@ -206,6 +242,7 @@ fn rotation_failure_stops_capture_and_reports_unconfirmed_rows() -> Result<()> {
         &Stop::default(),
         None,
         fixture(&profile, Some(obstacle.clone()))?,
+        Instant::now(),
     )?;
     assert!(!report.success());
     assert!(report.writer_error.is_some());
@@ -278,6 +315,7 @@ fn rejected_reconnect_does_not_replace_the_captured_device_status() -> Result<()
             connections: 0,
             polls: 0,
         }),
+        Instant::now(),
     )?;
     assert!(!report.success());
     assert_eq!(report.csv_rows_flushed, 2);

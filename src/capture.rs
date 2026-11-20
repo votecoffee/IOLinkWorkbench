@@ -324,9 +324,17 @@ fn us(time: Duration) -> u64 {
     time.as_micros().try_into().unwrap_or(u64::MAX)
 }
 
-fn wait_until(wait: &mut deadline::DeadlineWait, target: Instant, stop: &Stop) {
+fn wait_until(
+    wait: &mut deadline::DeadlineWait,
+    target: Instant,
+    capture_remaining: impl Fn(Instant) -> Duration,
+    stop: &Stop,
+) {
     while !stop.requested() {
-        let remaining = target.saturating_duration_since(Instant::now());
+        let now = Instant::now();
+        let remaining = target
+            .saturating_duration_since(now)
+            .min(capture_remaining(now));
         if remaining.is_zero() {
             break;
         }
@@ -369,7 +377,7 @@ pub fn run(
             || options.simulated_writer_delay.is_zero(),
         "writer delay is simulator-only"
     );
-    run_with_transport(profile, options, stop, live, transport)
+    run_with_transport(profile, options, stop, live, transport, Instant::now())
 }
 
 fn run_with_transport(
@@ -378,9 +386,15 @@ fn run_with_transport(
     stop: &Stop,
     live: Option<&LiveQueue>,
     mut transport: Box<dyn InputTransport>,
+    start: Instant,
 ) -> Result<Report> {
-    let start = Instant::now();
     let utc_start = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
+    ensure!(
+        options
+            .duration
+            .is_none_or(|duration| start.checked_add(duration).is_some()),
+        "capture duration overflow"
+    );
     let local_api = options
         .local_api
         .as_ref()
@@ -396,13 +410,6 @@ fn run_with_transport(
         .as_ref()
         .map(|config| crate::shared_memory::Service::start(config, profile, start, &utc_start))
         .transpose()?;
-    let deadline = options
-        .duration
-        .and_then(|duration| start.checked_add(duration));
-    ensure!(
-        options.duration.is_none() || deadline.is_some(),
-        "capture duration overflow"
-    );
     let writer = options
         .output
         .as_ref()
@@ -432,18 +439,25 @@ fn run_with_transport(
     let mut rejected_status = None;
     let mut last_error = None;
     let mut terminal_error = None;
+    // Keep the shared output origin while giving acquisition its full time budget.
+    let sampling_start = Instant::now();
+    let capture_remaining = |now: Instant| {
+        options.duration.map_or(Duration::MAX, |limit| {
+            limit.saturating_sub(now.saturating_duration_since(sampling_start))
+        })
+    };
     let mut last_ui = start;
-    let mut next = start;
+    let mut next = sampling_start;
 
     loop {
         if stop.requested()
-            || deadline.is_some_and(|end| Instant::now() >= end)
+            || capture_remaining(Instant::now()).is_zero()
             || writer.as_ref().is_some_and(writer::Writer::failed)
         {
             break;
         }
-        wait_until(&mut timer, deadline.map_or(next, |end| next.min(end)), stop);
-        if stop.requested() || deadline.is_some_and(|end| Instant::now() >= end) {
+        wait_until(&mut timer, next, capture_remaining, stop);
+        if stop.requested() || capture_remaining(Instant::now()).is_zero() {
             break;
         }
 
@@ -550,7 +564,7 @@ fn run_with_transport(
                 continue;
             }
         };
-        if deadline.is_some_and(|end| input.received >= end) || stop.requested() {
+        if capture_remaining(input.received).is_zero() || stop.requested() {
             break;
         }
         let stamp = input.received;
