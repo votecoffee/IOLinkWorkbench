@@ -3,6 +3,7 @@ use iolink_workbench::local_api::Config;
 use std::net::SocketAddr;
 
 #[derive(Args)]
+#[group(id = "local_api_options")]
 pub struct Arguments {
     /// Enable a read-only local API on 127.0.0.1:PORT; port 0 selects a free port.
     #[arg(long)]

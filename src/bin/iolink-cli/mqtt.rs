@@ -3,6 +3,7 @@ use iolink_workbench::mqtt::Config;
 use std::net::SocketAddr;
 
 #[derive(Args)]
+#[group(id = "mqtt_options")]
 pub struct Arguments {
     /// Opt-in MQTT 3.1.1 TCP QoS 0 publishing; numeric IP:PORT, no TLS/auth.
     #[arg(long)]

@@ -344,13 +344,14 @@ fn wait_until(
 }
 
 pub fn probe(profile: &Profile) -> Result<(Status, &'static str)> {
-    let status = transport::open(profile, false)?.connect()?;
+    let status = transport::read_status(profile)?;
     let check = profile.expected_identity.verify(&status.identity)?;
     Ok((status, check))
 }
 
 /// Check the confirmation required before reading a conditional physical layout.
 pub fn check_layout(profile: &Profile) -> Result<()> {
+    profile.require_process_input()?;
     if profile.connection.gateway == crate::profile::Gateway::IfmAl1350
         && let Some(condition) = profile
             .iodd

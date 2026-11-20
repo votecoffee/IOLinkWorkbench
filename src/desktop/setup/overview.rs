@@ -9,7 +9,12 @@ use iolink_workbench::{
 
 impl Editor {
     pub(super) fn overview(&mut self, ui: &mut Ui, profile: &Profile, tab: &mut Tab) {
-        ui.label("Review these host settings, then use Connect… to review and start monitoring. This overview performs no device reads.");
+        let has_input = profile.has_process_input();
+        if has_input {
+            ui.label("Review these host settings, then use Connect… to review and start monitoring. This overview performs no device reads.");
+        } else {
+            ui.label("Output-only IODD · review the host settings for output and parameter reads.");
+        }
         section(ui, "1. Host connection", |ui| {
             match profile.connection.gateway {
                 Gateway::Simulator => {
@@ -26,10 +31,14 @@ impl Editor {
                     ui.small("Documented adapter target; confirm the selected master, firmware and existing port setup before reading.");
                 }
             }
-            ui.label(format!(
-                "Port {} · {} input bytes · requested host poll {} µs",
-                profile.connection.port, profile.input_bytes, profile.connection.poll_us
-            ));
+            if has_input {
+                ui.label(format!(
+                    "Port {} · {} input bytes · requested host poll {} µs",
+                    profile.connection.port, profile.input_bytes, profile.connection.poll_us
+                ));
+            } else {
+                ui.label(format!("Port {}", profile.connection.port));
+            }
             if ui.small_button("Edit connection").clicked() {
                 self.page = Page::Connection;
             }
@@ -57,6 +66,15 @@ impl Editor {
                 }
             } else {
                 ui.label("No IODD imported · manual mapping and raw capture are available");
+            }
+            if !has_input {
+                if ui.small_button("Review output layout").clicked() {
+                    *tab = Tab::Mappings;
+                }
+                if ui.small_button("Import IODD").clicked() {
+                    self.page = Page::Iodd;
+                }
+                return;
             }
             let fields = profile.effective_fields();
             let overrides = fields
@@ -96,6 +114,17 @@ impl Editor {
                 self.page = Page::Identity;
             }
         });
+        if !has_input {
+            section(ui, "4. Device data", |ui| {
+                if ui.small_button("Open reviewed writes").clicked() {
+                    self.page = Page::Writes;
+                }
+                if ui.small_button("Open parameters").clicked() {
+                    *tab = Tab::Parameters;
+                }
+            });
+            return;
+        }
         section(ui, "4. CSV values", |ui| {
             let mode = match profile.logging.mode {
                 LogMode::EveryUpdate => "Every verified update / host poll",

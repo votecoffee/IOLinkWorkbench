@@ -164,9 +164,7 @@ impl Editor {
                 Ok(catalog) => {
                     self.variant = (catalog.variants.len() == 1)
                         .then(|| catalog.variants[0].product_id.clone());
-                    self.layout = (catalog.layouts.len() == 1
-                        && catalog.layouts[0].condition.is_none())
-                    .then(|| catalog.layouts[0].id.clone());
+                    self.layout = catalog.default_layout_id().map(str::to_owned);
                     *message = catalog
                         .schema_validation
                         .as_ref()
@@ -268,29 +266,47 @@ impl Editor {
         message: &mut String,
         editable: bool,
     ) -> bool {
-        ui.heading("Process input mappings");
-        ui.label("Review imported fields or edit a host decoding override. Values to log are selected in Logging.");
+        let has_input = profile.has_process_input();
+        if has_input {
+            ui.heading("Process input mappings");
+            ui.label("Review imported fields or edit a host decoding override. Values to log are selected in Logging.");
+        } else {
+            ui.heading("IODD output layout");
+            if let Some(output) = profile.output_layout() {
+                ui.label(format!(
+                    "{} · {} bits · {} mapped fields",
+                    output.id,
+                    output.bit_length,
+                    output.fields.len()
+                ));
+            }
+        }
         let mut changed = false;
         ui.add_enabled_ui(editable, |ui| {
-            if self.mapping.opened() {
+            if has_input && self.mapping.opened() {
                 if ui.add_enabled_ui(!self.pending && !self.connection.pending() && !self.identity.pending(), |ui| self.mapping.show(ui, profile, message)).inner {
                     self.sync(profile); changed = true;
                 }
                 return;
             }
 
-            ui.heading("Effective process input");
-            if let Ok(context) = iolink_workbench::timing::assess(profile, Some(profile.connection.poll_us), Default::default(), 1000) {
-                ui.collapsing("Cycle target from the applied profile", |ui| { ui.label(context.text()); });
+            if has_input {
+                ui.heading("Effective process input");
+                if let Ok(context) = iolink_workbench::timing::assess(profile, Some(profile.connection.poll_us), Default::default(), 1000) {
+                    ui.collapsing("Cycle target from the applied profile", |ui| { ui.label(context.text()); });
+                }
+                ui.small("Bit 0 is the least significant bit. Big endian counts from the last byte, little endian from the first.");
             }
-            ui.small("Bit 0 is the least significant bit. Big endian counts from the last byte, little endian from the first.");
             if let Some(import) = &profile.iodd {
                 ui.small(import.communication.as_ref().map(|value| value.summary()).unwrap_or_else(|| "IODD wired communication declaration unavailable".into()));
                 ui.small(import.stamp_validation.as_ref().map(|report| report.summary()).unwrap_or_else(|| "IODD checksum not checked in this saved profile".into()));
                 if let Some(localization) = &import.localization { ui.small(localization.summary()); }
                 ui.small(import.schema_validation.as_ref().map(|report| report.summary()).unwrap_or_else(|| "Parser checks only; XSD validation not performed".into()));
-                ui.label(format!("{} · product {} · layout {} · {} imported bytes",
-                    import.source, import.variant, import.layout, import.input_bytes));
+                ui.label(format!("{} · product {} · layout {}",
+                    import.source, import.variant, import.layout));
+                if has_input {
+                    ui.small(format!("{} imported input bytes", import.input_bytes));
+                }
                 for item in &import.needs_input { ui.colored_label(WARNING, item); }
                 if let Some(condition) = &import.condition {
                     let checkbox = egui::Checkbox::new(&mut profile.confirm_iodd_condition,
@@ -300,6 +316,13 @@ impl Editor {
                         changed = true;
                     }
                 }
+            }
+            if !has_input {
+                ui.small("Inspect a gateway output in Device → Writes or paste saved hex in Offline → Process bytes.");
+                if !profile.fields.is_empty() {
+                    ui.small(format!("Retained manual input mappings · {}", profile.fields.len()));
+                }
+                return;
             }
             let mut edit_field = None;
             for (field, origin) in profile.effective_fields() {
@@ -333,7 +356,7 @@ impl Editor {
             self.unit_definitions.clone(),
         );
         ui.heading("IODD import");
-        ui.label("Inspect a local XML or ZIP, select its device variant and input layout, then apply it.");
+        ui.label("Inspect a local XML or ZIP, select its device variant and process data layout, then apply it.");
         ui.small("Drop one IODD XML/ZIP file here to select its path; inspection and import stay explicit.");
         ui.collapsing("Language, standard resources and validation", |ui| {
         ui.checkbox(
@@ -482,14 +505,21 @@ impl Editor {
                             );
                         }
                     });
-                egui::ComboBox::from_id_salt("input-layout")
-                    .selected_text(self.layout.as_deref().unwrap_or("Select input layout"))
+                egui::ComboBox::from_id_salt("process-layout")
+                    .selected_text(self.layout.as_deref().unwrap_or("Select process data layout"))
                     .show_ui(ui, |ui| {
                         for layout in &catalog.layouts {
                             ui.selectable_value(
                                 &mut self.layout,
                                 Some(layout.id.clone()),
                                 &layout.id,
+                            );
+                        }
+                        for output in &catalog.output_only_layouts {
+                            ui.selectable_value(
+                                &mut self.layout,
+                                Some(output.id.clone()),
+                                format!("{} · output only", output.id),
                             );
                         }
                     });
@@ -499,14 +529,13 @@ impl Editor {
                 {
                     match catalog.select(self.variant.as_deref(), self.layout.as_deref()) {
                         Ok((identity, imported)) => {
-                            profile.input_bytes = imported.input_bytes;
-                            profile.expected_identity = identity;
-                            profile.iodd = Some(imported);
-                            profile.confirm_iodd_condition = false;
-                            profile.logging.fields.clear();
+                            profile.apply_iodd(identity, imported);
                             changed = true;
-                            *message =
-                                "IODD applied. Review retained manual fields and overrides.".into();
+                            *message = if profile.has_process_input() {
+                                "IODD applied. Review retained manual fields and overrides.".into()
+                            } else {
+                                "Output-only layout applied. Open Writes to review outputs or Parameters for ISDU reads.".into()
+                            };
                         }
                         Err(error) => *message = format!("{error:#}"),
                     }
@@ -532,16 +561,19 @@ impl Editor {
                     ));
                 }
             }
-            if !catalog.output_only_layouts.is_empty() {
-                ui.collapsing("Output-only layouts", |ui| {
-                    for layout in &catalog.output_only_layouts {
-                        ui.label(format!("{} · {} bits", layout.id, layout.bit_length));
-                        if let Some(condition) = &layout.condition {
-                            ui.small(condition);
-                        }
-                    }
-                    ui.small("Applying an IODD profile requires an input layout.");
-                });
+            if let Some(output) = catalog
+                .output_only_layouts
+                .iter()
+                .find(|output| Some(&output.id) == self.layout.as_ref())
+            {
+                ui.small(format!(
+                    "Output only · {} bits · {} mapped fields",
+                    output.bit_length,
+                    output.fields.len()
+                ));
+                if let Some(condition) = &output.condition {
+                    ui.colored_label(WARNING, condition);
+                }
             }
         }
         if changed {

@@ -206,6 +206,14 @@ pub(super) struct Definitions {
 }
 
 impl Catalog {
+    pub fn default_layout_id(&self) -> Option<&str> {
+        match (self.layouts.as_slice(), self.output_only_layouts.as_slice()) {
+            ([input], []) if input.condition.is_none() => Some(&input.id),
+            ([], [output]) if output.condition.is_none() => Some(&output.id),
+            _ => None,
+        }
+    }
+
     pub fn select(
         &self,
         variant: Option<&str>,
@@ -220,24 +228,43 @@ impl Catalog {
             None if self.variants.len() == 1 => &self.variants[0],
             None => bail!("select the connected product ID"),
         };
-        let layout = match layout {
-            Some(id) => self
-                .layouts
-                .iter()
-                .find(|layout| layout.id == id)
-                .with_context(|| format!("unknown input layout {id}"))?,
-            None if self.layouts.len() == 1 && self.layouts[0].condition.is_none() => {
-                &self.layouts[0]
-            }
-            None => bail!("select the input layout and confirm any condition against the device"),
-        };
-        let mut needs_input = layout.needs_input.clone();
+        let layout_id = layout.or_else(|| self.default_layout_id()).context(
+            "select the process data layout and confirm any condition against the device",
+        )?;
+        let (input_bytes, condition, fields, output, mut needs_input) =
+            if let Some(input) = self.layouts.iter().find(|input| input.id == layout_id) {
+                (
+                    input.input_bytes,
+                    &input.condition,
+                    input.fields.as_slice(),
+                    input.output.as_ref(),
+                    input.needs_input.clone(),
+                )
+            } else {
+                let output = self
+                    .output_only_layouts
+                    .iter()
+                    .find(|output| output.id == layout_id)
+                    .with_context(|| format!("unknown process data layout {layout_id}"))?;
+                (
+                    0,
+                    &output.condition,
+                    &[][..],
+                    Some(output),
+                    output.needs_input.clone(),
+                )
+            };
         if let Some(localization) = &self.localization {
             needs_input.extend(localization.review.iter().cloned());
         }
-        if let Some(condition) = &layout.condition {
+        if let Some(condition) = condition {
+            let workflow = if input_bytes == 0 {
+                "reviewing live output"
+            } else {
+                "capture"
+            };
             needs_input.push(format!(
-                "Confirm active layout condition {condition} before capture"
+                "Confirm active layout condition {condition} before {workflow}"
             ));
         }
         Ok((
@@ -250,12 +277,12 @@ impl Catalog {
             Imported {
                 source: self.source.clone(),
                 variant: variant.product_id.clone(),
-                layout: layout.id.clone(),
-                condition: layout.condition.clone(),
-                input_bytes: layout.input_bytes,
-                output: layout.output.clone(),
+                layout: layout_id.into(),
+                condition: condition.clone(),
+                input_bytes,
+                output: output.cloned(),
                 needs_input,
-                fields: layout.fields.clone(),
+                fields: fields.to_vec(),
                 parameters: self.parameters.clone(),
                 standard_parameter_refs: self.standard_parameter_refs.clone(),
                 schema_validation: self.schema_validation.clone(),

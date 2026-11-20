@@ -2,11 +2,13 @@
 
 ## Windows preview
 
+- Import an output-only IODD layout into a profile for offline output inspection, status, ISDU reads and reviewed outputs. Workbench rejects input monitoring and capture before opening a cyclic session. Manual input mappings are retained for later review.
+
 - Checked process-output reads retain the raw gateway image and show the paired IODD field values when the image width and recorded layout confirmation permit interpretation. The GUI and CLI can also decode pasted output images offline under the selected layout.
 
 - Process output drafts can replace one IODD field in the exact expected image. The GUI and CLI show the entire proposed image for the same width, padding, approval and preflight checks as a raw draft. Supported values include packed Boolean, signed and unsigned integers, and finite Float32.
 
-- The selected IODD input layout retains its paired process output declaration. Offline full-image output previews show typed expected and proposed values and changes to unmapped bits. The preview checks byte width, padding and recorded layout confirmation. Output-only layouts appear in IODD inspection, and profile import still requires an input layout.
+- The selected IODD input layout retains its paired process output declaration. Offline full-image output previews show typed expected and proposed values and changes to unmapped bits. The preview checks byte width, padding and recorded layout confirmation. IODD inspection lists output-only layouts separately.
 
 - A typed member edit can build a complete record or array write at subindex 0, including for IODDs with direct subindex access disabled. The proposed image keeps every bit outside the selected member.
 

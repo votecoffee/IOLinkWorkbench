@@ -61,6 +61,7 @@ impl Profile {
     }
 
     pub fn logging_plan(&self) -> Result<CapturePlan<'_>> {
+        self.require_process_input()?;
         self.validate()?;
         let snapshots = match self.connection.gateway {
             Gateway::Simulator => self.connection.simulate_snapshots,

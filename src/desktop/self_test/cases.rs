@@ -377,10 +377,19 @@ pub(super) fn render(
                     }
                     "offline-process-output" => {
                         apply_output_fixture(&mut app.profile)?;
+                        let imported = app
+                            .profile
+                            .iodd
+                            .as_mut()
+                            .context("missing output fixture")?;
+                        imported.layout = "OUT".into();
+                        imported.input_bytes = 0;
+                        imported.fields.clear();
+                        app.profile.input_bytes = 0;
+                        app.profile.validate()?;
                         app.setup.sync(&app.profile);
                         app.tab = Tab::Offline;
                         app.workspace.offline = OfflinePage::Process;
-                        app.payload_inspector.page = super::super::payload_inspector::Page::Output;
                         app.payload_inspector.output_pasted = "0001".into();
                     }
                     "offline-parameter" => {

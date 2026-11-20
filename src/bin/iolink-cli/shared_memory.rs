@@ -2,6 +2,7 @@ use clap::Args;
 use iolink_workbench::shared_memory::Config;
 
 #[derive(Args)]
+#[group(id = "shared_memory_options")]
 pub struct Arguments {
     /// Opt-in Windows local shared-memory latest snapshot; suffix, not a full object path.
     #[arg(long)]

@@ -219,6 +219,27 @@ impl Default for Profile {
 }
 
 impl Profile {
+    pub fn has_process_input(&self) -> bool {
+        self.input_bytes > 0
+    }
+
+    pub fn require_process_input(&self) -> Result<()> {
+        ensure!(
+            self.has_process_input(),
+            "This profile has an output-only layout. Input monitoring and capture require a process input layout."
+        );
+        Ok(())
+    }
+
+    /// Apply a selected IODD and reset CSV field selection for its layout.
+    pub fn apply_iodd(&mut self, identity: Identity, imported: Imported) {
+        self.input_bytes = imported.input_bytes;
+        self.expected_identity = identity;
+        self.iodd = Some(imported);
+        self.confirm_iodd_condition = false;
+        self.logging.fields.clear();
+    }
+
     pub fn output_layout(&self) -> Option<&crate::iodd::ProcessDataLayout> {
         self.iodd.as_ref()?.output.as_ref()
     }
@@ -296,6 +317,9 @@ impl Profile {
     }
 
     pub fn effective_fields(&self) -> Vec<(&Field, &'static str)> {
+        if !self.has_process_input() {
+            return Vec::new();
+        }
         let Some(import) = &self.iodd else {
             return self.fields.iter().map(|field| (field, "manual")).collect();
         };
@@ -366,9 +390,27 @@ impl Profile {
         );
         ensure!(!self.name.trim().is_empty(), "profile name is empty");
         ensure!(
-            (1..=MAX_INPUT).contains(&self.input_bytes),
-            "input_bytes must be 1–{MAX_INPUT}"
+            self.input_bytes <= MAX_INPUT,
+            "input_bytes must be 1–{MAX_INPUT}, or zero for an imported output-only layout"
         );
+        let output_only = self
+            .iodd
+            .as_ref()
+            .is_some_and(|import| import.input_bytes == 0);
+        if output_only || !self.has_process_input() {
+            ensure!(
+                !self.has_process_input()
+                    && output_only
+                    && self.iodd.as_ref().is_some_and(|import| {
+                        import.fields.is_empty()
+                            && import
+                                .output
+                                .as_ref()
+                                .is_some_and(|output| output.id == import.layout)
+                    }),
+                "zero input width requires a matching imported output-only layout and no imported input fields"
+            );
+        }
         ensure!((1..=4).contains(&self.connection.port), "port must be 1–4");
         ensure!(
             (100..=60_000_000).contains(&self.connection.poll_us),
@@ -444,6 +486,9 @@ impl Profile {
         }
         for field in &self.fields {
             ensure!(names.insert(&field.name), "duplicate field {}", field.name);
+            if output_only {
+                field.validate(MAX_INPUT)?;
+            }
         }
         names.clear();
         for (field, _) in self.effective_fields() {
@@ -474,6 +519,7 @@ impl Profile {
     }
 
     pub fn decode(&self, payload: &[u8]) -> Result<Vec<(&Field, &'static str, Value)>> {
+        self.require_process_input()?;
         ensure!(
             payload.len() == self.input_bytes,
             "expected {} bytes, received {}",

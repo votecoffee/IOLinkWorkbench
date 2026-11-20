@@ -4,6 +4,10 @@ use super::*;
 impl App {
     pub(super) fn inputs(&mut self, ui: &mut Ui) {
         ui.heading("Live inputs");
+        if let Err(error) = self.profile.require_process_input() {
+            ui.label(error.to_string());
+            return;
+        }
         ui.label("Read raw and typed process input. Use Connect… to start monitoring or Record CSV… to configure logging.");
         let running = self.worker.is_some();
         if let Some(status) = &self.live.status {
@@ -127,6 +131,11 @@ impl App {
 
     pub(super) fn logging(&mut self, ui: &mut Ui) {
         ui.heading("CSV logging");
+        if let Err(error) = self.profile.require_process_input() {
+            ui.label(error.to_string());
+            self.latest_recording(ui);
+            return;
+        }
         ui.label("Choose a new folder, the values to log and when to stop. Raw input and metadata are always retained.");
         let available = self.start_block_reason().is_none();
         let route = self.check_session_route();

@@ -468,6 +468,10 @@ impl App {
                     Gateway::IfmAl1350 if matches!(&route, Err(session_review::RouteIssue::Connection(_))) => "ifm AL1350 · review the configured endpoint".into(),
                     Gateway::IfmAl1350 => format!("ifm AL1350 · {}", self.profile.connection.endpoint),
                 });
+                if !self.profile.has_process_input() {
+                    if let Err(issue) = &route { self.show_route_issue(ui, issue); }
+                    return;
+                }
                 ui.label(format!("Port {} · host poll {} µs · expected input {} bytes", self.profile.connection.port,
                     self.profile.connection.poll_us, self.profile.input_bytes));
                 ui.label(format!("Expected vendor {} · device {} · Product ID {}",
@@ -494,6 +498,10 @@ impl App {
 
     fn integration_page(&mut self, ui: &mut Ui) {
         ui.heading("Software integration");
+        if let Err(error) = self.profile.require_process_input() {
+            ui.label(error.to_string());
+            return;
+        }
         ui.label("Optional feeds run with the next monitor or capture session. Stop acquisition to change their settings.");
         ui.add_enabled_ui(self.start_block_reason().is_none(), |ui| match self.workspace.integration {
             IntegrationPage::Api => {

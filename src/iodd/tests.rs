@@ -3,6 +3,50 @@ use super::*;
 const SENSOR: &str = include_str!("../../samples/sensor.xml");
 
 #[test]
+fn output_only_import_preserves_identity_output_and_dormant_input_mappings() -> Result<()> {
+    use crate::profile::Profile;
+    let xml = SENSOR
+        .replace("ProcessDataIn id=\"IN\"", "ProcessDataOut id=\"OUT\"")
+        .replace("</ProcessDataIn>", "</ProcessDataOut>");
+    let catalog = parse(&xml, "synthetic output only".into())?;
+    assert!(catalog.layouts.is_empty());
+    assert_eq!(catalog.default_layout_id(), Some("OUT"));
+    let (identity, imported) = catalog.select(Some("SIM-SENSOR"), None)?;
+    assert_eq!(identity.product_id.as_deref(), Some("SIM-SENSOR"));
+    assert_eq!(imported.layout, "OUT");
+    assert_eq!(imported.output.as_ref().unwrap().bit_length, 16);
+    assert!(imported.fields.is_empty() && !imported.parameters.is_empty());
+    let profile = Profile {
+        input_bytes: imported.input_bytes,
+        iodd: Some(imported),
+        expected_identity: identity,
+        fields: vec![Field {
+            name: "retained input".into(),
+            bits: 16,
+            ..Field::default()
+        }],
+        ..Profile::default()
+    };
+    let reloaded = Profile::parse(&toml::to_string(&profile)?)?;
+    assert_eq!(reloaded.fields, profile.fields);
+    assert!(reloaded.effective_fields().is_empty() && reloaded.log_fields().is_empty());
+    assert!(reloaded.output_layout().is_some());
+    assert!(reloaded.decode(&[]).is_err() && reloaded.logging_plan().is_err());
+    let mut claimed_input = reloaded;
+    claimed_input.input_bytes = 2;
+    assert!(claimed_input.validate().is_err());
+    assert!(
+        Profile {
+            input_bytes: 0,
+            ..Profile::default()
+        }
+        .validate()
+        .is_err()
+    );
+    Ok(())
+}
+
+#[test]
 fn typed_output_field_edits_keep_wire_width_and_neighboring_bits() -> Result<()> {
     let mut layout = ProcessDataLayout {
         id: "OUT".into(),

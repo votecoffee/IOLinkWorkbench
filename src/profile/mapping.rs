@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 
 impl Profile {
     pub fn with_field(&self, field: Field) -> Result<Self> {
+        self.require_process_input()?;
         field.validate(self.input_bytes)?;
         let mut candidate = self.clone();
         if let Some(existing) = candidate

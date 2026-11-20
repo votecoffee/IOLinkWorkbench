@@ -53,7 +53,7 @@ enum Command {
         #[command(flatten)]
         options: IoddOptions,
     },
-    /// Save an offline simulator profile from an IODD variant and input layout.
+    /// Save an offline profile from an IODD variant and process data layout.
     Import {
         path: PathBuf,
         profile: PathBuf,
@@ -61,6 +61,7 @@ enum Command {
         options: IoddOptions,
         #[arg(long)]
         variant: Option<String>,
+        /// Exact input layout ID or output-only layout ID.
         #[arg(long)]
         layout: Option<String>,
     },
@@ -614,13 +615,11 @@ fn main() -> Result<()> {
             let catalog = iodd::load_with_options(&path, &options.load())?;
             let (expected_identity, imported) =
                 catalog.select(variant.as_deref(), layout.as_deref())?;
-            let profile_data = Profile {
+            let mut profile_data = Profile {
                 name: imported.variant.clone(),
-                input_bytes: imported.input_bytes,
-                expected_identity,
-                iodd: Some(imported),
                 ..Profile::default()
             };
+            profile_data.apply_iodd(expected_identity, imported);
             profile_data.save(&profile)?;
             println!("Saved {}", profile.display());
         }
@@ -744,6 +743,7 @@ fn main() -> Result<()> {
                 "--seconds must be 0.01–86400"
             );
             let mut profile = Profile::load(&profile)?;
+            profile.require_process_input()?;
             if let Some(capacity) = queue_capacity {
                 profile.logging.queue_capacity = capacity;
             }
@@ -809,4 +809,15 @@ fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Cli;
+    use clap::CommandFactory;
+
+    #[test]
+    fn argument_groups_are_consistent() {
+        Cli::command().debug_assert();
+    }
 }

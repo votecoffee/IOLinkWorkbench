@@ -58,8 +58,13 @@ impl Inspector {
 
     pub fn show(&mut self, ui: &mut Ui, applied: &Profile) {
         ui.heading("Offline payload decoder");
+        if !applied.has_process_input() && self.page == Page::Pasted {
+            self.page = Page::Output;
+        }
         ui.horizontal_wrapped(|ui| {
-            ui.selectable_value(&mut self.page, Page::Pasted, "Input bytes");
+            if applied.has_process_input() {
+                ui.selectable_value(&mut self.page, Page::Pasted, "Input bytes");
+            }
             ui.selectable_value(&mut self.page, Page::Output, "Output bytes");
             if self.copied.is_some() {
                 ui.selectable_value(&mut self.page, Page::Observation, "From Inputs");

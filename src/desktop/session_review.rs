@@ -23,6 +23,9 @@ impl RouteIssue {
 
 impl App {
     pub(super) fn check_session_route(&self) -> Result<(), RouteIssue> {
+        self.profile
+            .require_process_input()
+            .map_err(RouteIssue::Layout)?;
         transport::check_route(&self.profile).map_err(RouteIssue::Connection)?;
         capture::check_layout(&self.profile).map_err(RouteIssue::Layout)
     }

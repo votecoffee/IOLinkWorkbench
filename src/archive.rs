@@ -377,6 +377,9 @@ impl Summary {
 }
 
 fn check_manifest(manifest: &Manifest, profile: &Profile) -> Result<()> {
+    profile
+        .require_process_input()
+        .context("saved capture profile")?;
     ensure!(
         manifest.iodd_communication.as_ref() == profile.communication(),
         "capture report and profile have different IODD communication declarations"

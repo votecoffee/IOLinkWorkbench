@@ -105,6 +105,15 @@ pub trait InputTransport: Send {
 }
 
 pub fn open(profile: &Profile, simulate_faults: bool) -> Result<Box<dyn InputTransport>> {
+    profile.require_process_input()?;
+    open_client(profile, simulate_faults)
+}
+
+pub(crate) fn read_status(profile: &Profile) -> Result<Status> {
+    open_client(profile, false)?.connect()
+}
+
+fn open_client(profile: &Profile, simulate_faults: bool) -> Result<Box<dyn InputTransport>> {
     profile.validate()?;
     ensure!(
         profile.connection.gateway == Gateway::Simulator || !simulate_faults,

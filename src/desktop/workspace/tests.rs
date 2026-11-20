@@ -291,6 +291,48 @@ fn feed_review_routes_errors_and_shows_the_prepared_session_destinations() -> Re
 }
 
 #[test]
+fn output_only_profile_blocks_input_controls_and_opens_output_workflows() -> Result<()> {
+    let mut app = App::new();
+    let xml = include_str!("../../../samples/sensor.xml")
+        .replace("ProcessDataIn id=\"IN\"", "ProcessDataOut id=\"OUT\"")
+        .replace("</ProcessDataIn>", "</ProcessDataOut>");
+    let catalog = iolink_workbench::iodd::parse(&xml, "synthetic output".into())?;
+    let (pins, imported) = catalog.select(Some("SIM-SENSOR"), None)?;
+    app.profile.apply_iodd(pins, imported);
+    app.profile.validate()?;
+    app.setup.sync(&app.profile);
+    assert!(
+        app.start(false)
+            .unwrap_err()
+            .to_string()
+            .contains("output-only layout")
+    );
+    assert!(app.start(true).is_err() && app.worker.is_none());
+
+    let context = Context::default();
+    let size = egui::vec2(1060.0, 830.0);
+    app.tab = Tab::Device;
+    click(&mut app, &context, size, "Open reviewed writes");
+    assert!(app.setup.page == setup::Page::Writes);
+    app.tab = Tab::Mappings;
+    let labels = draw(&mut app, &context, size);
+    assert!(
+        labels
+            .iter()
+            .any(|(label, _)| label == "IODD output layout")
+    );
+    assert!(labels.iter().all(|(label, _)| label != "Add manual field"));
+    app.tab = Tab::Offline;
+    app.workspace.offline = OfflinePage::Process;
+    draw(&mut app, &context, size);
+    assert_eq!(
+        app.payload_inspector.page,
+        super::super::payload_inspector::Page::Output
+    );
+    Ok(())
+}
+
+#[test]
 fn session_route_reviews_block_start_and_point_to_the_relevant_settings() -> Result<()> {
     let _serial = WORKER_TEST_LOCK.lock().unwrap();
     let mut app = App::new();

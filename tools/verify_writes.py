@@ -332,6 +332,47 @@ def verify(cli, profile, server):
     assert request["request_data"] == {"newvalue": "A011"}
     assert len(server.writes) == before + 1 and receipt["readback"] == server.output == "A011"
 
+    # The alternate conditional item carries outputs but declares no input image.
+    output_only_profile = profile.parent / "output-only.toml"
+    output_only_route = profile.parent / "output-only-route.toml"
+    subprocess.run([cli, "import", output_source, output_only_profile, "--variant", "SIM-SENSOR",
+                    "--layout", "OUT_SINGLE"], env=env, check=True, capture_output=True, timeout=15)
+    standalone = tomllib.loads(output_only_profile.read_text(encoding="utf-8"))
+    assert standalone["input_bytes"] == standalone["iodd"]["input_bytes"] == 0
+    assert standalone["iodd"]["output"]["id"] == "OUT_SINGLE"
+    assert standalone["iodd"]["fields"] == []
+    subprocess.run([cli, "set-connection", output_only_profile, output_only_route, "--gateway", "ifm-al1350",
+                    "--endpoint", f"http://127.0.0.1:{server.server_port}", "--port", "2",
+                    "--firmware", "3.1.42", "--expected-mode", "3"], env=env, check=True,
+                   capture_output=True, timeout=15)
+    read_requests = len(server.requests)
+    recording = profile.parent / "output-only-capture"
+    for argv in ([cli, "capture", output_only_route, recording, "--seconds", "0.01"],
+                 [cli, "logging", output_only_route], [cli, "decode", output_only_route, "01"]):
+        denied = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=15)
+        assert denied.returncode == 1 and "output-only layout" in denied.stderr, (argv, denied.returncode, denied.stderr)
+    assert not recording.exists() and len(server.requests) == read_requests
+    status = tomllib.loads(subprocess.check_output(
+        [cli, "status", output_only_route, "--verify-product-id"], env=env, timeout=15).decode("utf-8"))
+    assert status["identity"]["product_id"] == "SIM-SENSOR"
+    assert server.requests[read_requests:] == ["/getdatamulti", "/getdatamulti", f"{DEVICE}/iolreadacyclic"]
+    server.parameters[64, 0] = "000A"
+    parameter = tomllib.loads(subprocess.check_output(
+        [cli, "read-parameter", output_only_route, "V_SIM_Threshold"], env=env, timeout=15).decode("utf-8"))
+    assert parameter["raw_hex"] == "000A"
+    recorded = decode_output(output_only_route, "01")
+    assert recorded["iodd_output"]["fields"][0]["value"]["raw"] == "1"
+    confirm_layout = profile.parent / "output-only-confirmed.toml"
+    confirm_layout.write_text(output_only_route.read_text(encoding="utf-8").replace(
+        "confirm_iodd_condition = false", "confirm_iodd_condition = true", 1),
+        encoding="utf-8", newline="\n")
+    server.output = "01"
+    current = run(["process-output"], command="read-current", target=confirm_layout)
+    assert current["iodd_output"]["fields"][0]["value"]["raw"] == "1"
+    _, receipt = apply(["process-output", "--expected", "01", "--field",
+                        "level", "--desired-value", "2"], "readback_matched", target=confirm_layout)
+    assert receipt["readback"] == server.output == "02"
+
     configured = import_for_write(ROOT / "samples/sensor.xml")
     formats = import_for_write(ROOT / "samples/sensor-formats.xml")
     relocated_source = profile.parent / "relocated-index.xml"
@@ -712,7 +753,7 @@ def verify(cli, profile, server):
     request, receipt = apply(packed_record, "readback_matched", target=whole_record)
     assert request["request_data"]["subindex"] == 0
     assert receipt["readback"] == "FFEC810A41000000"
-    print("PASS: checked reads and ISDU writes by index or IODD ID, typed compound member edits, observed, offline, and staged process outputs, exact target checks, exact and StringT readback, and single dispatch on uncertain outcomes")
+    print("PASS: checked reads and ISDU writes by index or IODD ID, typed compound member edits, observed, offline, and staged process outputs including output-only profiles, exact target checks, exact and StringT readback, and single dispatch on uncertain outcomes")
 
 
 def main():
