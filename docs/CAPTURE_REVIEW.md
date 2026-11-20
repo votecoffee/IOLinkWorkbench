@@ -53,7 +53,7 @@ The [HTTP](LOCAL_API.md), [MQTT](MQTT.md) and [shared-memory](SHARED_MEMORY.md) 
 
 ## Octet string columns
 
-Each typed `OctetStringT` column contains one ordered byte list. The CSV writer quotes the list as a single cell, and verification compares it with the bytes selected by the saved mapping. Re-decode can add octet columns to a raw-only recording. Signal review treats octet values as text. The raw payload and source-quality columns carry the original observations.
+Each typed `OctetStringT` column contains one ordered byte list. The CSV writer quotes the list as a single cell, and verification compares it with the bytes selected by the saved mapping. Re-decode can add octet columns to a raw-only recording. Signal review reports `octet_values` and shows the first and last nonblank byte lists. The raw payload and source-quality columns carry the original observations.
 
 ## Standalone input encoding
 

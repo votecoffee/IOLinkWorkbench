@@ -159,12 +159,20 @@ def review_capture(cli, path, rows, report):
     field = signal["field"]
     header = "value." + field["name"] + (" [" + field["unit"] + "]" if field["unit"] else "")
     cells = [row[header] for row in rows]
-    numbers = [float({"false": "0", "true": "1"}.get(cell, cell)) for cell in cells if cell]
+    nonblank = [cell for cell in cells if cell]
+    if field["kind"] == "octet_string":
+        assert signal["octet_values"] == len(nonblank)
+        numbers = []
+    else:
+        assert "octet_values" not in signal
+        numbers = [float({"false": "0", "true": "1"}.get(cell, cell)) for cell in nonblank]
     finite = [value for value in numbers if math.isfinite(value)]
     numeric = signal["numeric"]
     assert numeric["finite_values"] == len(finite)
     assert numeric["blank_values"] == cells.count("")
     assert numeric["non_finite_values"] == len(numbers) - len(finite)
+    assert numeric.get("first_csv_value") == (nonblank[0] if nonblank else None)
+    assert numeric.get("last_csv_value") == (nonblank[-1] if nonblank else None)
     if finite:
         assert numeric["minimum"] == min(finite) and numeric["maximum"] == max(finite)
         assert math.isclose(numeric["mean"], statistics.fmean(finite), rel_tol=1e-12, abs_tol=1e-12)

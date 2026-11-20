@@ -11,7 +11,11 @@ fn number(value: Option<f64>) -> String {
 pub fn show(ui: &mut Ui, review: &Review) {
     let signal = &review.signal;
     ui.separator();
-    ui.heading(format!("{} · {}", signal.field.name, signal.field.unit));
+    if signal.field.unit.is_empty() {
+        ui.heading(&signal.field.name);
+    } else {
+        ui.heading(format!("{} · {}", signal.field.name, signal.field.unit));
+    }
     ui.label(format!(
         "Configured transport · {:?} · recorded route {} · logging {:?}",
         signal.configured_gateway,
@@ -26,19 +30,26 @@ pub fn show(ui: &mut Ui, review: &Review) {
         "Recorded simulation settings · faults {:?} · writer delay {:?} ms",
         signal.simulation_faults, signal.simulated_writer_delay_ms
     ));
-    ui.label(format!(
-        "{} finite values · {} blank cells · {} non-finite cells · {} recorded logger overruns",
-        signal.numeric.finite_values,
-        signal.numeric.blank_values,
-        signal.numeric.non_finite_values,
-        signal.recorded_logger_overruns
-    ));
-    ui.label(format!(
-        "Approximate minimum {} · maximum {} · mean {}",
-        number(signal.numeric.minimum),
-        number(signal.numeric.maximum),
-        number(signal.numeric.mean)
-    ));
+    if let Some(count) = signal.octet_values {
+        ui.label(format!(
+            "{count} byte lists · {} blank cells · {} recorded logger overruns",
+            signal.numeric.blank_values, signal.recorded_logger_overruns
+        ));
+    } else {
+        ui.label(format!(
+            "{} finite values · {} blank cells · {} non-finite cells · {} recorded logger overruns",
+            signal.numeric.finite_values,
+            signal.numeric.blank_values,
+            signal.numeric.non_finite_values,
+            signal.recorded_logger_overruns
+        ));
+        ui.label(format!(
+            "Approximate minimum {} · maximum {} · mean {}",
+            number(signal.numeric.minimum),
+            number(signal.numeric.maximum),
+            number(signal.numeric.mean)
+        ));
+    }
     ui.label(format!(
         "First CSV value {} · last CSV value {}",
         signal
@@ -57,8 +68,10 @@ pub fn show(ui: &mut Ui, review: &Review) {
         ui.label(signal.cycle_context.text());
         ui.small("Comparisons use the saved declaration and last accepted connection status. Recorded spacing distributions are shown separately below.");
     });
-    plot(ui, review);
-    ui.small("Each independent time bin shows finite minimum–maximum and the last finite value. Amber marks bins containing blank/non-finite cells or multiple generations. No lines join bins; gaps and event ordering inside a bin require the original CSV. Hover for bin details.");
+    if signal.octet_values.is_none() {
+        plot(ui, review);
+        ui.small("Each independent time bin shows finite minimum–maximum and the last finite value. Amber marks bins containing blank/non-finite cells or multiple generations. No lines join bins; gaps and event ordering inside a bin require the original CSV. Hover for bin details.");
+    }
     ui.collapsing("Recorded acquisition timing", |ui| {
         let timing = &signal.recorded_timing;
         crate::desktop::logger_metrics::acquisition_window(ui, signal.elapsed_us, timing.local_setup_us);

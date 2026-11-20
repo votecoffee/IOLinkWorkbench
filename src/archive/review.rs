@@ -1,7 +1,7 @@
 use super::{Manifest, Row, Summary};
 use crate::{
     capture::{CSV_METADATA, Spacing},
-    decode::Field,
+    decode::{Field, Kind},
     profile::{Gateway, LogMode, Profile},
 };
 use anyhow::{Context, Result};
@@ -97,6 +97,8 @@ pub struct SignalReview {
     pub field: Field,
     pub numeric_basis: &'static str,
     pub numeric: NumericSummary,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub octet_values: Option<u64>,
     pub buckets_requested: usize,
     pub buckets: Vec<Bucket>,
 }
@@ -135,6 +137,7 @@ impl Collector {
             .get(column)
             .context("capture has no logged typed fields; raw CSV remains available")?;
         let status = manifest.last_status.as_ref();
+        let octets = field.kind == Kind::OctetString;
         Ok(Self {
             column: CSV_METADATA.len() + column,
             signal: SignalReview {
@@ -160,8 +163,13 @@ impl Collector {
                 recorded_timing: RecordedTiming::from_manifest(manifest),
                 available_fields: fields.iter().map(|field| (*field).clone()).collect(),
                 field: (*field).clone(),
-                numeric_basis: "approximate f64 statistics of saved typed CSV cells; Boolean false/true = 0/1; blank and non-finite cells excluded; first/last retain nonblank CSV text; original CSV unchanged",
+                numeric_basis: if octets {
+                    "Ordered byte lists from nonblank CSV cells"
+                } else {
+                    "approximate f64 statistics of saved typed CSV cells; Boolean false/true = 0/1; blank and non-finite cells excluded; first/last retain nonblank CSV text; original CSV unchanged"
+                },
                 numeric: NumericSummary::default(),
+                octet_values: octets.then_some(0),
                 buckets_requested: buckets,
                 buckets: (0..buckets)
                     .map(|bin| Bucket {
@@ -194,6 +202,10 @@ impl Collector {
             .first_csv_value
             .get_or_insert_with(|| cell.to_owned());
         review.numeric.last_csv_value = Some(cell.to_owned());
+        if let Some(count) = &mut review.octet_values {
+            *count += 1;
+            return;
+        }
         let value = match cell {
             "false" => 0.0,
             "true" => 1.0,
