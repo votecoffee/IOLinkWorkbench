@@ -717,6 +717,61 @@ fn show_review(ui: &mut Ui, plan: &Plan) {
         }
         None => {}
     }
+    if let Some(output) = &review.process_output_review {
+        ui.label(format!(
+            "IODD output · {} · {} bits",
+            output.layout_id, output.bit_length
+        ));
+        if let Some(condition) = &output.condition {
+            ui.small(format!("Confirmed layout condition · {condition}"));
+        }
+        if !output.changed_unmapped_bits.is_empty() {
+            let bits = output
+                .changed_unmapped_bits
+                .iter()
+                .map(usize::to_string)
+                .collect::<Vec<_>>();
+            ui.colored_label(
+                WARNING,
+                format!(
+                    "Review changes to unmapped output bits · {}",
+                    bits.join(", ")
+                ),
+            );
+        }
+        let changes = output
+            .fields
+            .iter()
+            .filter(|entry| entry.expected.bits_hex != entry.proposed.bits_hex)
+            .count();
+        ui.collapsing(format!("IODD output fields ({changes} changed)"), |ui| {
+            for entry in &output.fields {
+                let field = &entry.field;
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(format!(
+                        "{} · bit {} · {} bits · {:?} · {:?}",
+                        field.name, field.bit_offset, field.bits, field.kind, field.byte_order
+                    ));
+                    ui.monospace(format!(
+                        "{} → {} {} (raw {} → {})",
+                        entry.expected.value,
+                        entry.proposed.value,
+                        field.unit,
+                        entry.expected.raw,
+                        entry.proposed.raw
+                    ));
+                });
+            }
+            for note in &output.needs_input {
+                ui.colored_label(WARNING, note);
+            }
+        });
+    } else if review.operation == "process_output" {
+        ui.colored_label(
+            WARNING,
+            "No imported output layout. Review the full wire image manually.",
+        );
+    }
     if review.text_readback.is_some() {
         ui.small("Readback accepts the same IODD text with different zero padding.");
     }

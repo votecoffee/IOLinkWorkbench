@@ -48,6 +48,8 @@ No master, sensor or signal has been chosen for this project yet. Before physica
 
 Use an existing configured IO-Link port. Host connection settings edit the local profile only. `set-connection` saves a new host profile; `set-identity` saves expected pins. Use each command's `--help` for explicit values and clears. `set-connection --expected-mode` saves the `connection.ifm_mode` expectation; it checks the observed mode and never sets it. Confirm device identity where exposed with `status PROFILE`; expected pins and selected IODD identity remain separate from observed matches. A Product ID difference requires review. Exact text pins distinguish unset, empty and spaces.
 
+If the selected IODD input layout has a paired output declaration, the applied profile retains it separately from input mappings. Use Device → Writes → Process output for a byte-for-byte preview with named expected and proposed values, declared width, and unmapped bit changes. Output-only descriptions can be inspected with `iodd` or in Device → IODD import. Importing a profile currently requires an input layout.
+
 An explicit parameter or diagnostic read uses its own client, apart from the cyclic loop. Measure gateway-side contention on hardware. For authorized one-shot AL1350 mode, parameter, SystemCommand and process output writes, use [Device → Writes or the CLI preview](WRITES.md).
 
 ## Choose logging and inspect its plan

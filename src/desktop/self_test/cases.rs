@@ -185,6 +185,7 @@ pub(super) fn render(
                 "writes-form",
                 "writes-review",
                 "writes-text-review",
+                "writes-output-review",
                 "device-advanced",
                 "mapping-editor",
                 "parameters-raw",
@@ -302,7 +303,10 @@ pub(super) fn render(
                             _ => Page::Exports,
                         };
                     }
-                    "writes-form" | "writes-review" | "writes-text-review" => {
+                    "writes-form"
+                    | "writes-review"
+                    | "writes-text-review"
+                    | "writes-output-review" => {
                         use iolink_workbench::transport::write::{Operation, Plan};
                         app.profile.connection.gateway = Gateway::IfmAl1350;
                         app.profile.connection.endpoint = "https://127.0.0.1:9".into();
@@ -324,6 +328,30 @@ pub(super) fn render(
                                 "41424344".into(),
                                 "OK",
                             )?),
+                            "writes-output-review" => {
+                                use iolink_workbench::decode::{Field, Kind};
+                                app.profile
+                                    .iodd
+                                    .as_mut()
+                                    .context("missing IODD fixture")?
+                                    .output = Some(iodd::ProcessDataLayout {
+                                    id: "OUT".into(),
+                                    bit_length: 13,
+                                    condition: None,
+                                    fields: vec![Field {
+                                        name: "Enable".into(),
+                                        kind: Kind::Bool,
+                                        bits: 1,
+                                        ..Field::default()
+                                    }],
+                                    needs_input: Vec::new(),
+                                });
+                                app.setup.sync(&app.profile);
+                                Some(Operation::ProcessOutput {
+                                    expected: "0001".into(),
+                                    desired: "0000".into(),
+                                })
+                            }
                             _ => None,
                         };
                         if let Some(operation) = operation {
@@ -489,6 +517,7 @@ pub(super) fn render(
             let output = ctx.run(input, |ctx| app.render(ctx));
             let review_note = match label {
                 "writes-review" => Some("Changed IODD members (1)"),
+                "writes-output-review" => Some("IODD output · OUT · 13 bits"),
                 "writes-text-review" => {
                     Some("Readback accepts the same IODD text with different zero padding.")
                 }
@@ -585,7 +614,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 102);
+        assert_eq!(cases.len(), 103);
         assert!(
             cases
                 .iter()

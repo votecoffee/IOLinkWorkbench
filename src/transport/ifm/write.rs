@@ -11,6 +11,9 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+mod output;
+pub use output::ProcessOutputReview;
+
 const SYSTEM_COMMAND: u16 = 2;
 const MAX_ISDU_BYTES: usize = 232;
 
@@ -236,6 +239,8 @@ pub struct Review {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub isdu_value_review: Option<IsduValueReview>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub process_output_review: Option<ProcessOutputReview>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub text_readback: Option<TextReadback>,
 }
 
@@ -426,6 +431,7 @@ impl Plan {
         let device = format!("{port}/iolinkdevice");
         let mut isdu_value_review = None;
         let mut isdu_comparison = None;
+        let mut process_output_review = None;
         let (kind, address, request_data, expected_value, requested_value, command_meaning) =
             match &operation {
                 Operation::PortMode { expected, desired } => (
@@ -484,6 +490,16 @@ impl Plan {
                         before.len() == after.len(),
                         "process output requires the same full byte width before and after"
                     );
+                    if let Some(layout) =
+                        profile.iodd.as_ref().and_then(|iodd| iodd.output.as_ref())
+                    {
+                        ensure!(
+                            layout.condition.is_none() || profile.confirm_iodd_condition,
+                            "confirm the active IODD layout condition before preparing an output write"
+                        );
+                        process_output_review =
+                            Some(ProcessOutputReview::new(layout, &before, &after)?);
+                    }
                     (
                         "process_output",
                         format!("{device}/pdout/setdata"),
@@ -517,6 +533,7 @@ impl Plan {
             requested_value,
             command_meaning,
             isdu_value_review,
+            process_output_review,
             text_readback: iodd_parameter.and_then(TextReadback::for_parameter),
         };
         let confirmation = format!("{:x}", Sha256::digest(serde_json::to_vec(&review)?));

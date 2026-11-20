@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import tomllib
 from threading import Thread
 
 
@@ -177,6 +178,87 @@ def verify(cli, profile, server):
                         "--firmware", "3.1.42", "--expected-mode", "3"],
                        env=env, check=True, capture_output=True, timeout=15)
         return configured
+
+    output_source = profile.parent / "paired-output.xml"
+    input_xml = (ROOT / "samples/sensor.xml").read_text(encoding="utf-8")
+    condition = '<Condition variableId="V_SIM_Threshold" value="1"/>'
+    output_xml = input_xml.replace(
+        '<ProcessData id="PD">', f'<ProcessData id="PD">{condition}', 1
+    ).replace('</ProcessData>', """
+          <ProcessDataOut id="OUT" bitLength="13">
+            <Datatype xsi:type="RecordT" bitLength="13">
+              <RecordItem subindex="1" bitOffset="3">
+                <SimpleDatatype xsi:type="IntegerT" bitLength="8"/><Name textId="level"/>
+              </RecordItem>
+              <RecordItem subindex="2" bitOffset="0">
+                <SimpleDatatype xsi:type="BooleanT"/><Name textId="switch"/>
+              </RecordItem>
+            </Datatype><Name textId="sensor"/>
+          </ProcessDataOut>
+        </ProcessData>
+        <ProcessData id="PD_STANDALONE">
+          <Condition variableId="V_SIM_Threshold" value="2"/>
+          <ProcessDataOut id="OUT_SINGLE" bitLength="8">
+            <Datatype xsi:type="UIntegerT" bitLength="8"/><Name textId="level"/>
+          </ProcessDataOut>
+        </ProcessData>""", 1).replace("<UserInterface>", """
+        <UserInterface><ProcessDataRefCollection><ProcessDataRef processDataId="OUT">
+          <ProcessDataRecordItemInfo subindex="1" gradient="0.5" offset="1" unitCode="1013"/>
+        </ProcessDataRef></ProcessDataRefCollection>""", 1)
+    output_source.write_text(output_xml, encoding="utf-8", newline="\n")
+    catalog = tomllib.loads(subprocess.check_output([cli, "iodd", output_source], text=True, timeout=15))
+    assert catalog["layouts"][0]["output"]["id"] == "OUT"
+    assert catalog["output_only_layouts"][0]["id"] == "OUT_SINGLE"
+    assert catalog["output_only_layouts"][0]["condition"] == "V_SIM_Threshold = 2"
+    output_imported = profile.parent / "output-imported.toml"
+    subprocess.run([cli, "import", output_source, output_imported, "--variant", "SIM-SENSOR",
+                    "--layout", "IN"], env=env, check=True, capture_output=True, timeout=15)
+    assert tomllib.loads(output_imported.read_text(encoding="utf-8"))["iodd"]["output"]["id"] == "OUT"
+    paired = profile.parent / "output-configured.toml"
+    subprocess.run([cli, "set-connection", output_imported, paired, "--gateway", "ifm-al1350",
+                    "--endpoint", f"http://127.0.0.1:{server.server_port}", "--port", "2",
+                    "--firmware", "3.1.42", "--expected-mode", "3"], env=env, check=True,
+                   capture_output=True, timeout=15)
+    request_count = len(server.requests)
+    paired_output = ["process-output", "--expected", "A7F1", "--desired", "A012"]
+    assert "confirm the active IODD layout condition" in run(paired_output, target=paired, status=1)
+    checked = profile.parent / "output-checked.toml"
+    checked_text = paired.read_text(encoding="utf-8").replace(
+        "confirm_iodd_condition = false", "confirm_iodd_condition = true", 1)
+    checked.write_text(checked_text, encoding="utf-8", newline="\n")
+    assert "requires 2 bytes" in run(["process-output", "--expected", "01", "--desired", "02"],
+                                     target=checked, status=1)
+    assert "changes padding" in run([*paired_output[:-1], "8012"], target=checked, status=1)
+    dry = preview(paired_output, target=checked)
+    review = dry["target_and_request"]["process_output_review"]
+    assert review["layout_id"] == "OUT" and review["bit_length"] == 13
+    assert review["condition"] == "V_SIM_Threshold = 1"
+    assert review["changed_unmapped_bits"] == [1]
+    assert review["fields"][0]["field"]["kind"] == "signed"
+    assert review["fields"][0]["field"]["bit_offset"] == 3
+    assert review["fields"][0]["field"]["scale"] == 0.5
+    assert review["fields"][0]["expected"] == {"bits_hex": "FE", "raw": "-2", "value": "0"}
+    assert review["fields"][0]["proposed"] == {"bits_hex": "2", "raw": "2", "value": "2"}
+    assert review["fields"][1]["expected"]["raw"] == "true"
+    assert review["fields"][1]["proposed"]["raw"] == "false"
+    changed_layout = profile.parent / "output-remapped.toml"
+    changed_layout.write_text(checked_text.replace("scale = 0.5", "scale = 2.0"),
+                              encoding="utf-8", newline="\n")
+    assert "confirmation mismatch" in run(paired_output, confirm=dry["confirmation"],
+                                          target=changed_layout, status=1)
+    malformed = profile.parent / "output-invalid.toml"
+    malformed.write_text(checked_text.replace("bit_offset = 3", "bit_offset = 0"),
+                         encoding="utf-8", newline="\n")
+    assert "overlaps another field" in run(paired_output, target=malformed, status=1)
+    assert len(server.requests) == request_count
+    writes = len(server.writes)
+    server.output = "A7F3"
+    assert "expected current" in run(paired_output, confirm=dry["confirmation"], target=checked, status=1)
+    assert len(server.writes) == writes
+    server.output = "A7F1"
+    _, receipt = apply(paired_output, "readback_matched", target=checked)
+    assert receipt["preview"]["target_and_request"]["process_output_review"] == review
+    assert len(server.writes) == writes + 1 and receipt["readback"] == server.output == "A012"
 
     configured = import_for_write(ROOT / "samples/sensor.xml")
     formats = import_for_write(ROOT / "samples/sensor-formats.xml")
@@ -558,7 +640,7 @@ def verify(cli, profile, server):
     request, receipt = apply(packed_record, "readback_matched", target=whole_record)
     assert request["request_data"]["subindex"] == 0
     assert receipt["readback"] == "FFEC810A41000000"
-    print("PASS: checked reads and ISDU writes by index or IODD ID, typed compound member edits, exact target checks, exact and StringT readback, and single dispatch on uncertain outcomes")
+    print("PASS: checked reads and ISDU writes by index or IODD ID, typed compound member edits, paired process outputs, exact target checks, exact and StringT readback, and single dispatch on uncertain outcomes")
 
 
 def main():

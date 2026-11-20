@@ -1,10 +1,10 @@
 use crate::{
-    decode::{Field, Kind, MAX_INPUT},
+    decode::{ByteOrder, Field, Kind, MAX_INPUT},
     profile::{Identity, Imported},
 };
 use anyhow::{Context, Result, bail, ensure};
 use roxmltree::{Document, Node};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     fs::File,
@@ -44,9 +44,66 @@ pub struct Variant {
 pub struct Layout {
     pub id: String,
     pub input_bytes: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output: Option<ProcessDataLayout>,
     pub condition: Option<String>,
     pub needs_input: Vec<String>,
     pub fields: Vec<Field>,
+}
+
+/// Declared geometry and supported typed mappings for a single process data item.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessDataLayout {
+    pub id: String,
+    pub bit_length: usize,
+    pub condition: Option<String>,
+    pub fields: Vec<Field>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub needs_input: Vec<String>,
+}
+
+impl ProcessDataLayout {
+    pub fn bytes(&self) -> usize {
+        self.bit_length.div_ceil(8)
+    }
+
+    pub(crate) fn validate(&self) -> Result<()> {
+        ensure!(!self.id.trim().is_empty(), "missing process layout ID");
+        ensure!(
+            (1..=MAX_INPUT * 8).contains(&self.bit_length),
+            "{}: invalid process data width",
+            self.id
+        );
+        let mut names = HashSet::new();
+        let mut mapped = [false; MAX_INPUT * 8];
+        for field in &self.fields {
+            field.validate(self.bytes())?;
+            ensure!(
+                field.byte_order == ByteOrder::BigEndian,
+                "IODD process data uses big-endian bit numbering"
+            );
+            ensure!(
+                names.insert(&field.name),
+                "duplicate process field {}",
+                field.name
+            );
+            let start = usize::from(field.bit_offset);
+            let end = start + usize::from(field.bits);
+            ensure!(
+                end <= self.bit_length,
+                "{} extends beyond declared width",
+                field.name
+            );
+            ensure!(
+                !mapped[start..end].contains(&true),
+                "{} overlaps another field",
+                field.name
+            );
+            mapped[start..end].fill(true);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -57,6 +114,8 @@ pub struct Catalog {
     pub communication: Option<Communication>,
     pub variants: Vec<Variant>,
     pub layouts: Vec<Layout>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub output_only_layouts: Vec<ProcessDataLayout>,
     pub parameters: Vec<Parameter>,
     pub standard_parameter_refs: Vec<String>,
     pub schema_validation: Option<schema::Report>,
@@ -121,6 +180,7 @@ impl Catalog {
                 layout: layout.id.clone(),
                 condition: layout.condition.clone(),
                 input_bytes: layout.input_bytes,
+                output: layout.output.clone(),
                 needs_input,
                 fields: layout.fields.clone(),
                 parameters: self.parameters.clone(),
@@ -644,23 +704,13 @@ fn parse_resources(
         parameters::parse(function, &types, &texts, &definitions, units)?;
     let (events, standard_event_refs) = events::parse(function, &texts)?;
     let mut layouts = Vec::new();
+    let mut output_only_layouts = Vec::new();
+    let mut process_ids = HashSet::new();
     for process in child(function, "ProcessDataCollection")
         .into_iter()
         .flat_map(|node| node.children())
         .filter(|node| node.has_tag_name((IODD_NAMESPACE, "ProcessData")))
     {
-        let Some(input) = child(process, "ProcessDataIn") else {
-            continue;
-        };
-        let id = input.attribute("id").context("input layout has no id")?;
-        let bits: usize = input
-            .attribute("bitLength")
-            .context("missing input bitLength")?
-            .parse()?;
-        ensure!(
-            (1..=MAX_INPUT * 8).contains(&bits),
-            "{id}: invalid input width"
-        );
         let condition = child(process, "Condition").map(|n| {
             format!(
                 "{}{} = {}",
@@ -671,133 +721,41 @@ fn parse_resources(
                 n.attribute("value").unwrap_or("?")
             )
         });
-        let mut layout = Layout {
-            id: id.into(),
-            input_bytes: bits.div_ceil(8),
-            condition,
-            fields: Vec::new(),
-            needs_input: Vec::new(),
-        };
-        let dt = datatype(input, &types);
-        let display = display_refs.get(id).copied();
-        let mut missing_unit = false;
-        let mut add = |name: String, result: Result<(Field, bool)>| -> Result<()> {
-            let result = result.and_then(|(field, unit_defined)| {
-                field.validate(layout.input_bytes)?;
-                ensure!(
-                    usize::from(field.bit_offset) + usize::from(field.bits) <= bits,
-                    "extends beyond declared input width"
-                );
-                Ok((field, unit_defined))
-            });
-            match result {
-                Ok((field, unit_defined)) => {
-                    for existing in &layout.fields {
-                        ensure!(
-                            field.bit_offset >= existing.bit_offset + u16::from(existing.bits)
-                                || existing.bit_offset >= field.bit_offset + u16::from(field.bits),
-                            "{id}: fields {} and {} overlap",
-                            existing.name,
-                            field.name
-                        );
-                    }
-                    missing_unit |= field.kind != Kind::Bool && !unit_defined;
-                    if field.unit.starts_with("IODD unit ") {
-                        layout
-                            .needs_input
-                            .push(format!("{name}: resolve {} to a unit symbol", field.unit));
-                    }
-                    layout.fields.push(field);
-                }
-                Err(error) => layout
-                    .needs_input
-                    .push(format!("{name}: {error}; provide a manual field if needed")),
-            }
-            Ok(())
-        };
-        if let Ok(record) = dt.as_ref()
-            && record
-                .attribute((XSI, "type"))
-                .is_some_and(|kind| kind.rsplit(':').next() == Some("RecordT"))
-        {
-            for item in record
-                .children()
-                .filter(|node| node.has_tag_name((IODD_NAMESPACE, "RecordItem")))
-            {
-                let subindex = item.attribute("subindex").unwrap_or("?");
-                let mut name = label(item, &texts, &format!("subindex_{subindex}"));
-                // Keep a stable mapping key even when a vendor repeats a display name.
-                name = format!("{name} [{subindex}]");
-                add(
-                    name.clone(),
-                    (|| {
-                        let bit_offset = item
-                            .attribute("bitOffset")
-                            .context("missing bitOffset")?
-                            .parse()?;
-                        let info = display
-                            .and_then(|reference| {
-                                reference.children().find(|node| {
-                                    node.has_tag_name((IODD_NAMESPACE, "ProcessDataRecordItemInfo"))
-                                        && node.attribute("subindex") == Some(subindex)
-                                })
-                            })
-                            .unwrap_or(item);
-                        field(datatype(item, &types)?, info, name, bit_offset, units)
-                    })(),
-                )?;
-            }
-        } else if dt.as_ref().is_ok_and(|dt| {
-            dt.attribute((XSI, "type"))
-                .is_some_and(|kind| kind.rsplit(':').next() == Some("ArrayT"))
-        }) {
-            let name = label(input, &texts, id);
-            let info = display
-                .and_then(|reference| child(reference, "ProcessDataInfo"))
-                .unwrap_or(input);
-            let expanded = (|| -> Result<_> {
-                let dt = dt?;
-                let (template, unit_defined) =
-                    field(datatype(dt, &types)?, info, name.clone(), 0, units)?;
-                let count = dt
-                    .attribute("count")
-                    .context("array has no count")?
-                    .parse()?;
-                let geometry = array::Geometry::new(u16::from(template.bits), count)?;
-                ensure!(
-                    geometry.bits() as usize <= bits,
-                    "array extends beyond declared input width"
-                );
-                Ok((template, unit_defined, geometry))
-            })();
-            match expanded {
-                Ok((template, unit_defined, geometry)) => {
-                    for subindex in 1..=geometry.count {
-                        let mut field = template.clone();
-                        field.name = format!("{name} [{subindex}]");
-                        field.bit_offset = geometry.offset(subindex);
-                        add(field.name.clone(), Ok((field, unit_defined)))?;
-                    }
-                }
-                Err(error) => add(name, Err(error))?,
-            }
-        } else {
-            let name = label(input, &texts, id);
-            let info = display
-                .and_then(|reference| child(reference, "ProcessDataInfo"))
-                .unwrap_or(input);
-            add(
-                name.clone(),
-                dt.and_then(|dt| field(dt, info, name, 0, units)),
+        let mut read_layout = |node| {
+            let layout = parse_process_item(
+                node,
+                condition.clone(),
+                &types,
+                &texts,
+                &display_refs,
+                units,
             )?;
-        }
-        if missing_unit {
-            layout.needs_input.push(
-                "Review engineering units and scaling where the IODD has no display metadata"
-                    .into(),
+            ensure!(
+                process_ids.insert(layout.id.clone()),
+                "duplicate process layout ID {}",
+                layout.id
             );
+            Ok::<_, anyhow::Error>(layout)
+        };
+        let input = child(process, "ProcessDataIn")
+            .map(&mut read_layout)
+            .transpose()?;
+        let output = child(process, "ProcessDataOut")
+            .map(read_layout)
+            .transpose()?;
+        if let Some(input) = input {
+            let input_bytes = input.bytes();
+            layouts.push(Layout {
+                id: input.id,
+                input_bytes,
+                output,
+                condition: input.condition,
+                needs_input: input.needs_input,
+                fields: input.fields,
+            });
+        } else if let Some(output) = output {
+            output_only_layouts.push(output);
         }
-        layouts.push(layout);
     }
     Ok(Catalog {
         source,
@@ -806,6 +764,7 @@ fn parse_resources(
         communication: communication::parse(root)?,
         variants,
         layouts,
+        output_only_layouts,
         parameters,
         standard_parameter_refs,
         schema_validation: None,
@@ -814,6 +773,159 @@ fn parse_resources(
         events,
         standard_event_refs,
     })
+}
+
+fn parse_process_item<'a, 'input>(
+    node: Node<'a, 'input>,
+    condition: Option<String>,
+    types: &HashMap<&str, Node<'a, 'input>>,
+    texts: &HashMap<&str, &str>,
+    display_refs: &HashMap<&str, Node<'a, 'input>>,
+    units: &resources::Units,
+) -> Result<ProcessDataLayout> {
+    let id = node
+        .attribute("id")
+        .filter(|id| !id.trim().is_empty())
+        .context("process layout has no ID")?;
+    let bits: usize = node
+        .attribute("bitLength")
+        .context("missing process data bitLength")?
+        .parse()?;
+    ensure!(
+        (1..=MAX_INPUT * 8).contains(&bits),
+        "{id}: invalid process data width"
+    );
+    let mut layout = ProcessDataLayout {
+        id: id.into(),
+        bit_length: bits,
+        condition,
+        fields: Vec::new(),
+        needs_input: Vec::new(),
+    };
+    let mapping_hint = if node.has_tag_name((IODD_NAMESPACE, "ProcessDataIn")) {
+        "; provide a manual field if needed"
+    } else {
+        "; review these bits from the device documentation"
+    };
+    let dt = datatype(node, types);
+    let display = display_refs.get(id).copied();
+    let mut missing_unit = false;
+    let mut add = |name: String, result: Result<(Field, bool)>| -> Result<()> {
+        let result = result.and_then(|(field, unit_defined)| {
+            field.validate(layout.bytes())?;
+            ensure!(
+                usize::from(field.bit_offset) + usize::from(field.bits) <= bits,
+                "extends beyond declared process data width"
+            );
+            Ok((field, unit_defined))
+        });
+        match result {
+            Ok((field, unit_defined)) => {
+                for existing in &layout.fields {
+                    ensure!(
+                        field.bit_offset >= existing.bit_offset + u16::from(existing.bits)
+                            || existing.bit_offset >= field.bit_offset + u16::from(field.bits),
+                        "{id}: fields {} and {} overlap",
+                        existing.name,
+                        field.name
+                    );
+                }
+                missing_unit |= field.kind != Kind::Bool && !unit_defined;
+                if field.unit.starts_with("IODD unit ") {
+                    layout
+                        .needs_input
+                        .push(format!("{name}: resolve {} to a unit symbol", field.unit));
+                }
+                layout.fields.push(field);
+            }
+            Err(error) => layout
+                .needs_input
+                .push(format!("{name}: {error}{mapping_hint}")),
+        }
+        Ok(())
+    };
+    if let Ok(record) = dt.as_ref()
+        && record
+            .attribute((XSI, "type"))
+            .is_some_and(|kind| kind.rsplit(':').next() == Some("RecordT"))
+    {
+        for item in record
+            .children()
+            .filter(|node| node.has_tag_name((IODD_NAMESPACE, "RecordItem")))
+        {
+            let subindex = item.attribute("subindex").unwrap_or("?");
+            let mut name = label(item, texts, &format!("subindex_{subindex}"));
+            // Keep a stable mapping key even when a vendor repeats a display name.
+            name = format!("{name} [{subindex}]");
+            add(
+                name.clone(),
+                (|| {
+                    let bit_offset = item
+                        .attribute("bitOffset")
+                        .context("missing bitOffset")?
+                        .parse()?;
+                    let info = display
+                        .and_then(|reference| {
+                            reference.children().find(|node| {
+                                node.has_tag_name((IODD_NAMESPACE, "ProcessDataRecordItemInfo"))
+                                    && node.attribute("subindex") == Some(subindex)
+                            })
+                        })
+                        .unwrap_or(item);
+                    field(datatype(item, types)?, info, name, bit_offset, units)
+                })(),
+            )?;
+        }
+    } else if dt.as_ref().is_ok_and(|dt| {
+        dt.attribute((XSI, "type"))
+            .is_some_and(|kind| kind.rsplit(':').next() == Some("ArrayT"))
+    }) {
+        let name = label(node, texts, id);
+        let info = display
+            .and_then(|reference| child(reference, "ProcessDataInfo"))
+            .unwrap_or(node);
+        let expanded = (|| -> Result<_> {
+            let dt = dt?;
+            let (template, unit_defined) =
+                field(datatype(dt, types)?, info, name.clone(), 0, units)?;
+            let count = dt
+                .attribute("count")
+                .context("array has no count")?
+                .parse()?;
+            let geometry = array::Geometry::new(u16::from(template.bits), count)?;
+            ensure!(
+                geometry.bits() as usize <= bits,
+                "array extends beyond declared process data width"
+            );
+            Ok((template, unit_defined, geometry))
+        })();
+        match expanded {
+            Ok((template, unit_defined, geometry)) => {
+                for subindex in 1..=geometry.count {
+                    let mut field = template.clone();
+                    field.name = format!("{name} [{subindex}]");
+                    field.bit_offset = geometry.offset(subindex);
+                    add(field.name.clone(), Ok((field, unit_defined)))?;
+                }
+            }
+            Err(error) => add(name, Err(error))?,
+        }
+    } else {
+        let name = label(node, texts, id);
+        let info = display
+            .and_then(|reference| child(reference, "ProcessDataInfo"))
+            .unwrap_or(node);
+        add(
+            name.clone(),
+            dt.and_then(|dt| field(dt, info, name, 0, units)),
+        )?;
+    }
+    if missing_unit {
+        layout.needs_input.push(
+            "Review engineering units and scaling where the IODD has no display metadata".into(),
+        );
+    }
+    Ok(layout)
 }
 
 #[cfg(test)]

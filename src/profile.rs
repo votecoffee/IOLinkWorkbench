@@ -164,6 +164,8 @@ pub struct Imported {
     pub condition: Option<String>,
     pub input_bytes: usize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<crate::iodd::ProcessDataLayout>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub communication: Option<crate::iodd::Communication>,
     #[serde(default)]
     pub needs_input: Vec<String>,
@@ -386,6 +388,13 @@ impl Profile {
         );
         let mut names = HashSet::new();
         if let Some(imported) = &self.iodd {
+            if let Some(output) = &imported.output {
+                output.validate().context("invalid IODD output layout")?;
+                ensure!(
+                    output.condition == imported.condition,
+                    "IODD input and output layout conditions differ"
+                );
+            }
             if let Some(communication) = &imported.communication {
                 communication.validate()?;
             }

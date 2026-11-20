@@ -53,6 +53,8 @@ For a matched IODD parameter, the offline preview compares the supplied expected
 
 For a one-member whole-image edit, keep the write at subindex 0 and supply the complete expected bytes. Use Edit one member or CLI `--member-subindex` with `--desired-value`. Inspect the resulting complete wire image and changed member before approval.
 
+For a paired IODD output layout, an offline Process output preview compares typed expected and proposed values and flags changed bits without a mapping. Use the complete gateway output images at the declared width and preserve padding. Confirm a conditional layout against the device before preview. Output-only IODD layouts are inspectable; profile import requires an input layout. Re-import older profiles to use output metadata.
+
 For a single supported `StringT` value, the preview includes the IODD encoding and length for readback. Preflight compares exact bytes. After acknowledgement, `text_readback_matched` identifies equal decoded text with different zero padding and retains the exact returned bytes.
 
 Typed integer ISDU drafts support 2- to 64-bit values in 1-, 2-, 4- or 8-byte containers. A standalone typed Boolean true encodes as `FF`. Generate a new preview for typed true operations reviewed before v0.73.0. Existing compact representations still decode.

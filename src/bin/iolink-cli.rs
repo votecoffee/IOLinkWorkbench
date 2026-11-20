@@ -47,7 +47,7 @@ enum Command {
         #[arg(long, default_value_t = 1000)]
         max_age_ms: u64,
     },
-    /// List device variants, process input layouts, and fields needing review.
+    /// List device variants, process input and output layouts, and fields needing review.
     Iodd {
         path: PathBuf,
         #[command(flatten)]

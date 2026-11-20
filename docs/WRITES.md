@@ -93,6 +93,20 @@ The CLI dispatches at most one write for each invocation. It makes a fresh readb
 
 Monitoring, capture and optional data feeds use read-only paths. The reviewed write workflow covers mode changes, individual readable ISDU parameters, one-shot documented SystemCommands, and a single full output image. Cyclic output ownership, write-only vendor parameters, typed output encoding, and Data Storage workflows remain follow-on work.
 
+## Review process outputs
+
+Use **Device → Writes → Process output** or the CLI to review two complete gateway images. Read the current image with **Read current value** or `read-current … process-output`, then use those exact bytes as the expected image. Prepare the desired image using the device's documentation.
+
+When the selected input layout has `ProcessDataOut` in the same IODD `ProcessData` entry, Workbench saves that output declaration in the profile. In the preview, expand **IODD output fields** for names, offsets, widths, signedness, byte order, raw values and scaled displays. CLI preview and receipt JSON include `target_and_request.process_output_review`. Changes to bits without a typed mapping are listed for manual review. Both images must match the declared byte width, and padding outside the declared bit length must be preserved.
+
+For a conditional layout, confirm the active condition against the device and record confirmation in Mappings or set `confirm_iodd_condition = true` in the saved profile. Preview checks the recorded confirmation. The live check compares the exact gateway image and verifies the existing identity and mode pins.
+
+The confirmation binds the full expected and desired images and the available typed review. Profiles without output metadata still use raw review. Earlier Workbench releases can read unchanged input-only profiles. Use this or a newer release to open a profile with the new `iodd.output` metadata. Inspect output-only layouts with `iolink-cli iodd` or in the GUI IODD preview. Importing into a profile currently requires a process input layout. [IO Device Description Specification and Schemas V1.1.5, released package](https://io-link.com/downloads)
+
+```powershell
+.\iolink-cli.exe write $profile --master-serial $serial process-output --expected 0102 --desired 0304
+```
+
 ## Verification
 
-`python tools/verify_writes.py PATH_TO_CLI` uses an isolated loopback peer. It checks all three current-value reads, ISDU addresses by index and IODD ID, interpretation with raw-byte retention, all four write paths, offline typed and raw ISDU previews including temporal values, whole-image member edits, identity and value mismatches, exact and padding-aware readback, and a lost write reply with one dispatch. `cargo test --locked --bin iolink-workbench desktop::writes::tests` exercises the filtered IODD picker, address changes, offline GUI drafts, an interpreted current read alongside a held acquisition owner, approval guards, and close behavior with a held loopback write reply. Real firmware, machine conditions and actuator effects await physical qualification.
+`python tools/verify_writes.py PATH_TO_CLI` uses an isolated loopback peer. It checks all three current-value reads, ISDU addresses by index and IODD ID, interpretation with raw-byte retention, all four write paths, offline typed and raw ISDU previews including temporal values, whole-image member edits, paired output import and review, output width and padding checks, identity and value mismatches, exact and padding-aware readback, and a lost write reply with one dispatch. `cargo test --locked --bin iolink-workbench desktop::writes::tests` exercises the filtered IODD picker, address changes, offline GUI drafts, an interpreted current read alongside a held acquisition owner, approval guards, and close behavior with a held loopback write reply. Real firmware, machine conditions and actuator effects await physical qualification.

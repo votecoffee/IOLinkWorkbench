@@ -525,6 +525,23 @@ impl Editor {
                     layout.input_bytes,
                     layout.fields.len()
                 ));
+                if let Some(output) = &layout.output {
+                    ui.small(format!(
+                        "Paired output · {} · {} bits",
+                        output.id, output.bit_length
+                    ));
+                }
+            }
+            if !catalog.output_only_layouts.is_empty() {
+                ui.collapsing("Output-only layouts", |ui| {
+                    for layout in &catalog.output_only_layouts {
+                        ui.label(format!("{} · {} bits", layout.id, layout.bit_length));
+                        if let Some(condition) = &layout.condition {
+                            ui.small(condition);
+                        }
+                    }
+                    ui.small("Applying an IODD profile requires an input layout.");
+                });
             }
         }
         if changed {

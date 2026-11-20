@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- The selected IODD input layout retains its paired process output declaration. Offline full-image output previews show typed expected and proposed values and changes to unmapped bits. The preview checks byte width, padding and recorded layout confirmation. Output-only layouts appear in IODD inspection, and profile import still requires an input layout.
+
 - A typed member edit can build a complete record or array write at subindex 0, including for IODDs with direct subindex access disabled. The proposed image keeps every bit outside the selected member.
 
 - ISDU previews show expected and proposed IODD values together, with before-and-after member bytes for whole records and arrays. The comparison appears in CLI preview and receipt JSON.
