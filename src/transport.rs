@@ -148,18 +148,28 @@ pub(crate) fn read_isdu_observation(
     index: u16,
     subindex: u8,
 ) -> Result<(Status, Vec<u8>)> {
+    let (status, reply) = read_isdu_attempt(profile, index, subindex)?;
+    Ok((status, reply?))
+}
+
+/// Keep the accepted connection observation if the subsequent ISDU request fails.
+pub(crate) fn read_isdu_attempt(
+    profile: &Profile,
+    index: u16,
+    subindex: u8,
+) -> Result<(Status, Result<Vec<u8>>)> {
     profile.validate()?;
     match profile.connection.gateway {
         Gateway::Simulator => {
             let status = simulator::Simulator::new(profile, false).connect()?;
             profile.expected_identity.verify(&status.identity)?;
-            Ok((status, simulator::read_isdu(index, subindex)?))
+            Ok((status, simulator::read_isdu(index, subindex)))
         }
         Gateway::IfmAl1350 => {
             let mut client = ifm::Client::new(&profile.connection)?;
             let status = client.connect()?;
             profile.expected_identity.verify(&status.identity)?;
-            Ok((status, client.read_isdu(index, subindex)?))
+            Ok((status, client.read_isdu(index, subindex)))
         }
     }
 }

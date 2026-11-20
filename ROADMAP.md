@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Save explicit Device Status and Detailed Device Status reads as a JSON snapshot with per-query bytes, errors and connection context. GUI and CLI review use the embedded IODD event catalog and retain partial results and changed-master/device observations.
+
 - Logging → Multiple ports reviews saved profiles, runs independent port captures, and shows live port observations and individual saved results. The header controls stop and flush across pages.
 
 - CLI capture can run independent cyclic sessions for up to four explicitly configured ports on one master. Per-port CSV, reconnect and timing reports are published alongside a batch outcome. Simulator, AL1350 loopback and isolated Windows interruption tests cover independent drains and partial failures.

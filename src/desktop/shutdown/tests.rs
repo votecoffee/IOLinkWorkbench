@@ -68,7 +68,8 @@ fn every_worker_domain_delays_close_and_completes_with_its_tab_hidden() {
     ];
     release.extend(app.saved_capture.gates_for_test());
     release.push(app.saved_parameter.gate_for_test());
-    assert_eq!(app.pending_jobs(), 6);
+    release.push(app.saved_diagnostics.gate_for_test());
+    assert_eq!(app.pending_jobs(), 7);
     assert_eq!(app.advance_close(false), CloseAction::Idle);
     assert_eq!(app.advance_close(true), CloseAction::Wait);
     assert!(app.stop.requested());
@@ -78,7 +79,7 @@ fn every_worker_domain_delays_close_and_completes_with_its_tab_hidden() {
     for (index, complete) in release.into_iter().enumerate() {
         complete();
         let output = frame(&mut app, &ctx);
-        let remaining = 5 - index;
+        let remaining = 6 - index;
         assert_eq!(app.pending_jobs(), remaining);
         if remaining != 0 {
             assert!(command(&output, false) && !command(&output, true));

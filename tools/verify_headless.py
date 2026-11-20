@@ -33,7 +33,9 @@ class Gateway(BaseHTTPRequestHandler):
     block_parameter = False
     block_index = 64
     fail_detailed = False
+    detailed_payload = "E48DFE000000"
     change_serial_after_status = False
+    change_master_after_status = False
     payload = "03C9"
     threshold_payload = "01F4"
     octet_payload = "0080FF2C"
@@ -105,7 +107,7 @@ class Gateway(BaseHTTPRequestHandler):
                     response["code"] = 500
             response["data"] = {"value": {
                 (19, 0): "53494D2D53454E534F52", (48, 0): "2A", (64, 0): self.threshold_payload, (65, 0): "666978747572652073656E736F72",
-                (36, 0): "02", (37, 0): "E48DFE000000",
+                (36, 0): "02", (37, 0): self.detailed_payload,
                 (66, 0): "FFEC010A54455354", (66, 1): "FFEC", (66, 2): "01", (66, 3): "0A", (66, 4): "54455354",
                 (67, 0): "02C495F0", (67, 1): "02", (67, 2): "FC", (67, 3): "04", (67, 4): "F9", (67, 5): "05", (67, 6): "FF", (67, 7): "00",
                 (71, 0): "9DFF440080000000", (72, 0): "FFFFFFFD40000000",
@@ -124,6 +126,8 @@ class Gateway(BaseHTTPRequestHandler):
                 response["code"] = 500
             if index == 36 and self.change_serial_after_status:
                 self.data[self.device + "/serial"] = "CHANGED-SENSOR"
+            if index == 36 and self.change_master_after_status:
+                self.data["/deviceinfo/serialnumber"] = "CHANGED-MASTER"
         else:
             self.violations.append(request)
             response["code"] = 400
@@ -605,6 +609,88 @@ def verify_port_statuses_and_captures(cli, output):
         finally:
             server.shutdown()
             worker.join()
+
+
+def verify_diagnostic_snapshots(cli, profile, output, loopback=False):
+    output.mkdir()
+    source = profile.read_bytes()
+    path = output / "diagnostics.json"
+    before_reads = Gateway.isdu_reads
+    report = tomllib.loads(run(cli, "read-diagnostics", profile, "--snapshot", path))
+    assert Gateway.isdu_reads == before_reads + (2 if loopback else 0)
+    pinned = path.read_bytes()
+    document = json.loads(pinned)
+    assert document["format_version"] == 1
+    assert [(read["index"], read["subindex"]) for read in document["reads"]] == [(36, 0), (37, 0)]
+    assert [read["raw_hex"] for read in document["reads"]] == ["02", "E48DFE000000"]
+    for original, read in zip(report["reads"], document["reads"]):
+        for key in ("host_read_utc", "read_duration_us", "raw_hex"):
+            assert original[key] == read[key]
+        assert read["observation"]["route"] == ("AL1350 loopback fixture" if loopback else "synthetic simulator")
+        assert read["observation"]["identity"]["device_id"] == 1
+
+    before_requests = Gateway.requests
+    summary = tomllib.loads(run(cli, "review-diagnostics", path))
+    assert summary["observed_identities_equal"] and not summary["observed_master_conflict"]
+    assert summary["device_status"] == report["device_status"] and summary["detailed_status"] == report["detailed_status"]
+    run(cli, "read-diagnostics", profile, "--snapshot", path, expected=1)
+    assert Gateway.requests == before_requests and path.read_bytes() == pinned and profile.read_bytes() == source
+    run(cli, "review-parameter", path, expected=1)
+
+    offline = output / "offline.json"
+    document["profile"]["connection"]["endpoint"] = "http://127.0.0.1:1"
+    document["profile"]["iodd"]["source"] = "Z:/missing/device.zip"
+    offline.write_text(json.dumps(document), encoding="utf-8")
+    assert tomllib.loads(run(cli, "review-diagnostics", offline))["iodd_source"] == "Z:/missing/device.zip"
+    malformed = output / "malformed.json"
+    document["reads"][1]["raw_hex"] = "FF"
+    malformed.write_text(json.dumps(document), encoding="utf-8")
+    review = tomllib.loads(run(cli, "review-diagnostics", malformed, expected=1))
+    assert review["detailed_status"]["raw_hex"] == "FF" and review["detailed_status"]["decode_error"]
+    wrong = output / "wrong-port.json"
+    document["reads"][0]["observation"]["port"] = 2
+    wrong.write_text(json.dumps(document), encoding="utf-8")
+    assert not run(cli, "review-diagnostics", wrong, expected=1)
+    assert Gateway.requests == before_requests
+
+    if loopback:
+        partial_path = output / "partial.json"
+        Gateway.fail_detailed = True
+        try:
+            partial = tomllib.loads(run(cli, "read-diagnostics", profile, "--snapshot", partial_path, expected=1))
+        finally:
+            Gateway.fail_detailed = False
+        assert partial["device_status"]["value"] == 2 and "detailed_status" not in partial
+        assert partial["reads"][1]["read_error"] and partial["reads"][1]["status"]["port"] == 1
+        before_requests = Gateway.requests
+        restored = tomllib.loads(run(cli, "review-diagnostics", partial_path, expected=1))
+        assert restored["reads"][1]["read_error"] == partial["reads"][1]["read_error"]
+        assert restored["reads"][1]["observation"]["master_serial"] == "FIXTURE-MASTER"
+        assert "detailed_status" not in restored and Gateway.requests == before_requests
+
+        empty_path = output / "empty-reply.json"
+        Gateway.detailed_payload = ""
+        try:
+            empty = tomllib.loads(run(cli, "read-diagnostics", profile, "--snapshot", empty_path, expected=1))
+        finally:
+            Gateway.detailed_payload = "E48DFE000000"
+        assert empty["detailed_status"]["raw_hex"] == "" and empty["detailed_status"]["decode_error"]
+        before_requests = Gateway.requests
+        restored = tomllib.loads(run(cli, "review-diagnostics", empty_path, expected=1))
+        assert restored["detailed_status"] == empty["detailed_status"] and Gateway.requests == before_requests
+
+        changed_path = output / "changed-master.json"
+        Gateway.change_master_after_status = True
+        try:
+            changed = tomllib.loads(run(cli, "read-diagnostics", profile, "--snapshot", changed_path, expected=1))
+        finally:
+            Gateway.change_master_after_status = False
+            Gateway.data["/deviceinfo/serialnumber"] = "FIXTURE-MASTER"
+        assert changed["observed_identities_equal"] and changed["observed_master_conflict"]
+        before_requests = Gateway.requests
+        changed = tomllib.loads(run(cli, "review-diagnostics", changed_path, expected=1))
+        assert changed["observed_master_conflict"] and Gateway.requests == before_requests
+        assert [read["observation"]["master_serial"] for read in changed["reads"]] == ["FIXTURE-MASTER", "CHANGED-MASTER"]
 
 
 def verify_parameter_snapshots(cli, profile, output, loopback=False):
@@ -1599,6 +1685,7 @@ def main():
     assert malformed["detailed_status"]["raw_hex"] == "E48DFE00" and malformed["detailed_status"]["decode_error"]
     explicit = tomllib.loads(run(cli, "read-diagnostics", imported))
     assert explicit["observed_identities_equal"] and all(read["status"]["route"] == "synthetic simulator" for read in explicit["reads"])
+    verify_diagnostic_snapshots(cli, imported, scratch / "sim-diagnostic-snapshots")
     resolved = scratch / "resolved.toml"
     definitions = ROOT / "samples" / "synthetic-standard-definitions.xml"
     run(cli, "import", scratch / "iodd.zip", resolved, "--variant", "SIM-SENSOR",
@@ -1880,18 +1967,20 @@ kind = "bool"
             verify_parameter_snapshots(cli, format_fixture, scratch / "ifm-parameter-snapshots", loopback=True)
             parallel_parameter_read(cli, parameter_fixture, scratch / "ifm-parallel-parameter")
             parallel_parameter_read(cli, parameter_fixture, scratch / "ifm-parallel-diagnostics", diagnostics=True)
-            Gateway.fail_detailed = True
-            partial = tomllib.loads(run(cli, "read-diagnostics", parameter_fixture, expected=1))
-            assert partial["device_status"]["value"] == 2 and "detailed_status" not in partial
-            assert partial["reads"][1]["read_error"]
-            Gateway.fail_detailed = False
+            verify_diagnostic_snapshots(cli, parameter_fixture, scratch / "ifm-diagnostic-snapshots", loopback=True)
+            changed_identity_path = scratch / "changed-device.json"
             Gateway.change_serial_after_status = True
-            changed_identity = tomllib.loads(run(cli, "read-diagnostics", parameter_fixture, expected=1))
+            try:
+                changed_identity = tomllib.loads(run(cli, "read-diagnostics", parameter_fixture, "--snapshot", changed_identity_path, expected=1))
+            finally:
+                Gateway.change_serial_after_status = False
+                Gateway.data[Gateway.device + "/serial"] = "FIXTURE-SENSOR"
             assert not changed_identity["observed_identities_equal"]
             assert changed_identity["reads"][0]["status"]["identity"]["serial"] == "FIXTURE-SENSOR"
             assert changed_identity["reads"][1]["status"]["identity"]["serial"] == "CHANGED-SENSOR"
-            Gateway.change_serial_after_status = False
-            Gateway.data[Gateway.device + "/serial"] = "FIXTURE-SENSOR"
+            before_requests = Gateway.requests
+            changed = tomllib.loads(run(cli, "review-diagnostics", changed_identity_path, expected=1))
+            assert not changed["observed_identities_equal"] and Gateway.requests == before_requests
             before = Gateway.isdu_reads
             run(cli, "read-parameter", parameter_fixture, "V_SIM_Command", expected=1)
             assert Gateway.isdu_reads == before and not Gateway.violations
@@ -1933,7 +2022,7 @@ kind = "bool"
 
     print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
-          "named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
+          "named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review of complete, partial and changed-target snapshots, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 
 

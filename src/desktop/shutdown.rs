@@ -32,6 +32,7 @@ impl App {
             + usize::from(self.setup.busy())
             + self.saved_capture.pending_jobs()
             + usize::from(self.saved_parameter.busy())
+            + usize::from(self.saved_diagnostics.busy())
     }
 
     pub(super) fn advance_close(&mut self, requested: bool) -> CloseAction {

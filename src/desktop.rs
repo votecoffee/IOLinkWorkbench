@@ -153,7 +153,9 @@ struct App {
     offline_parameter: parameters::Offline,
     parameter_snapshot_path: String,
     saved_parameter: parameters::Saved,
+    diagnostic_snapshot_path: String,
     offline_diagnostics: diagnostics::Offline,
+    saved_diagnostics: diagnostics::Saved,
 }
 
 struct Recording {
@@ -207,7 +209,9 @@ impl App {
             offline_parameter: parameters::Offline::default(),
             parameter_snapshot_path: ".local/parameter.json".into(),
             saved_parameter: parameters::Saved::default(),
+            diagnostic_snapshot_path: ".local/diagnostics.json".into(),
             offline_diagnostics: diagnostics::Offline::default(),
+            saved_diagnostics: diagnostics::Saved::default(),
         }
     }
 
@@ -282,6 +286,7 @@ impl App {
         let mut capture_failed = false;
         self.saved_capture.update(ctx);
         self.saved_parameter.update();
+        self.saved_diagnostics.update();
         self.setup.update(ctx, &mut self.message);
         if let Some(live) = self.queue.pop() {
             self.live = live;

@@ -53,3 +53,108 @@ impl Offline {
         }
     }
 }
+
+pub(super) struct Saved {
+    path: String,
+    worker: Option<super::Worker<(bool, String)>>,
+    result: Option<anyhow::Result<(bool, String)>>,
+}
+
+impl Default for Saved {
+    fn default() -> Self {
+        Self {
+            path: ".local/diagnostics.json".into(),
+            worker: None,
+            result: None,
+        }
+    }
+}
+
+impl Saved {
+    pub(super) fn stage_render_fixture(&mut self) {
+        self.path = ".local/synthetic-diagnostics.json".into();
+        self.result = Some(Ok((
+            false,
+            "37:0 · synthetic fixture reply unavailable".into(),
+        )));
+    }
+
+    pub fn busy(&self) -> bool {
+        self.worker.is_some()
+    }
+
+    pub fn update(&mut self) {
+        if let Some(result) = super::completed(&mut self.worker) {
+            self.result = Some(result);
+        }
+    }
+
+    pub fn stage_path(&mut self, path: &str) {
+        if !self.busy() && self.path != path {
+            self.path = path.into();
+            self.result = None;
+        }
+    }
+
+    pub fn show(&mut self, ui: &mut Ui) {
+        ui.heading("Saved diagnostic snapshot");
+        ui.small(
+            "Open a saved read to review its raw ISDU replies, device identity and events offline.",
+        );
+        let busy = self.busy();
+        if ui
+            .add_enabled(
+                !busy,
+                egui::TextEdit::singleline(&mut self.path)
+                    .hint_text("Diagnostic snapshot JSON path"),
+            )
+            .changed()
+        {
+            self.result = None;
+        }
+        if ui
+            .add_enabled(
+                !busy && !self.path.trim().is_empty(),
+                egui::Button::new("Open diagnostic snapshot"),
+            )
+            .clicked()
+        {
+            let path = std::path::PathBuf::from(self.path.trim());
+            match super::background("offline-diagnostic-snapshot", move || {
+                let review = diagnostics::Snapshot::load(&path)?.review()?;
+                Ok((review.ok(), review.text()))
+            }) {
+                Ok(worker) => {
+                    self.worker = Some(worker);
+                    self.result = None;
+                }
+                Err(error) => self.result = Some(Err(error.into())),
+            }
+        }
+        if self.busy() {
+            ui.label("Reading snapshot…");
+        }
+        if let Some(result) = &self.result {
+            match result {
+                Ok((ok, text)) => {
+                    if !ok {
+                        ui.colored_label(WARNING, "Snapshot needs review");
+                    }
+                    ui.monospace(text);
+                }
+                Err(error) => {
+                    ui.colored_label(WARNING, format!("{error:#}"));
+                }
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn gate_for_test(&mut self) -> super::TestCompletion {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        self.worker = Some(receiver);
+        Box::new(move || {
+            let _ = sender.send(Ok((true, "Synthetic saved diagnostic review".into())));
+        })
+    }
+}

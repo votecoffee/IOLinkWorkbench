@@ -229,6 +229,7 @@ pub(super) fn render(
                 "offline-parameter",
                 "offline-snapshot",
                 "offline-events",
+                "offline-diagnostic-snapshot",
                 "profiles-dialog",
                 "profiles-files",
                 "drop-preview",
@@ -445,6 +446,11 @@ pub(super) fn render(
                         app.tab = Tab::Offline;
                         app.workspace.offline = OfflinePage::Events;
                     }
+                    "offline-diagnostic-snapshot" => {
+                        app.tab = Tab::Offline;
+                        app.workspace.offline = OfflinePage::DiagnosticSnapshots;
+                        app.saved_diagnostics.stage_render_fixture();
+                    }
                     "profiles-dialog" => app.workspace.profile_dialog = true,
                     "profiles-files" => {
                         app.workspace.profile_dialog = true;
@@ -595,6 +601,7 @@ pub(super) fn render(
                 ),
                 "offline-process-output" => Some("true (raw true, bits 0x1)"),
                 "acyclic-profile" => Some("Acyclic IODD layout"),
+                "offline-diagnostic-snapshot" => Some("37:0 · synthetic fixture reply unavailable"),
                 "port-capture-review" => Some("Start capture set"),
                 "port-capture-results" => Some("Synthetic device identity mismatch"),
                 "writes-text-review" => {
@@ -693,7 +700,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 108);
+        assert_eq!(cases.len(), 109);
         assert!(
             cases
                 .iter()

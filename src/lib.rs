@@ -8,6 +8,7 @@ pub mod mqtt;
 pub mod parameter_snapshot;
 pub mod profile;
 pub mod shared_memory;
+mod snapshot_file;
 mod telemetry;
 pub mod timing;
 pub mod transport;

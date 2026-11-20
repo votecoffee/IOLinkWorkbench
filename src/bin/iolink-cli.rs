@@ -156,7 +156,14 @@ enum Command {
     /// List saved IODD event definitions and unresolved standard event references.
     Events { profile: PathBuf },
     /// Explicitly read optional Device Status (36:0) and Detailed Device Status (37:0).
-    ReadDiagnostics { profile: PathBuf },
+    ReadDiagnostics {
+        profile: PathBuf,
+        /// Save the raw replies, errors, and connection context to a new JSON file.
+        #[arg(long)]
+        snapshot: Option<PathBuf>,
+    },
+    /// Review a saved diagnostic snapshot offline using its embedded profile.
+    ReviewDiagnostics { snapshot: PathBuf },
     /// Decode a recorded Detailed Device Status payload without opening a transport.
     DecodeDiagnostics {
         profile: PathBuf,
@@ -480,12 +487,31 @@ fn main() -> Result<()> {
                 })?
             );
         }
-        Command::ReadDiagnostics { profile } => {
-            let report = diagnostics::read(&Profile::load(&profile)?)?;
-            print!("{}", toml::to_string_pretty(&report)?);
+        Command::ReadDiagnostics { profile, snapshot } => {
+            let profile = Profile::load(&profile)?;
+            let report = if let Some(path) = snapshot {
+                diagnostics::check_destination(&path)?;
+                let (snapshot, report) = diagnostics::read_snapshot(&profile)?;
+                print!("{}", toml::to_string_pretty(&report)?);
+                snapshot.save(&path)?;
+                eprintln!("Saved diagnostic snapshot {}", path.display());
+                report
+            } else {
+                let report = diagnostics::read(&profile)?;
+                print!("{}", toml::to_string_pretty(&report)?);
+                report
+            };
             ensure!(
                 report.ok(),
-                "diagnostic read is incomplete or observed identity fields changed; retained results are printed above"
+                "diagnostic read needs review; retained results are printed above"
+            );
+        }
+        Command::ReviewDiagnostics { snapshot } => {
+            let review = diagnostics::Snapshot::load(&snapshot)?.review()?;
+            print!("{}", toml::to_string_pretty(&review)?);
+            ensure!(
+                review.ok(),
+                "saved diagnostic snapshot needs review; retained results are printed above"
             );
         }
         Command::DecodeDiagnostics {

@@ -11,7 +11,7 @@ The workspace follows EthernetIP Workbench's Device → Inputs → Logging patte
 | Parameters | Search declared IODD parameters or read a documented numeric ISDU address |
 | Integration | Optional local HTTP, MQTT and Windows shared-memory settings, on separate pages |
 | Diagnostics | Observed connection/identity, finalized timing and explicit device-event reads, on separate pages |
-| Offline | Saved capture review/comparison, process bytes, parameter bytes, saved parameter snapshots and event-code decoding, on separate pages |
+| Offline | Saved capture review/comparison, process and parameter bytes, saved parameter and diagnostic snapshots, and event-code decoding |
 
 ## First session
 
@@ -77,7 +77,7 @@ In **Parameters → IODD reads**, search by name, IODD ID, or exact index. Index
 
 IODD reads, Raw ISDU, Verify Product ID and Device events each keep their own last result. Every result shows the original query. Changing the selected parameter or address leaves the previous result labeled and points out the difference. Applying a new profile clears the results.
 
-One acyclic read can run at a time while cyclic acquisition continues. Switch pages while it runs and return to its page to review the result. **Diagnostics → Device events** shows the diagnostic reply above the expandable **IODD event definitions**.
+One acyclic read can run at a time while cyclic acquisition continues. Switch pages while it runs and return to its page to review the result. **Diagnostics → Device events** shows the diagnostic reply above the expandable **IODD event definitions**. Expand **Read and save a snapshot**, enter a new JSON path, and choose **Read and save diagnostic snapshot**. Use **Review saved diagnostics…** to stage that path and open **Offline → Diagnostic snapshots**. Choose **Open diagnostic snapshot** to review the saved bytes, errors and each read's master/port/device context. Event labels come from the file's embedded profile.
 
 ## Saved capture pages
 

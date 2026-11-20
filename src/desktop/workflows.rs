@@ -393,14 +393,53 @@ impl App {
         ui.heading("Device events");
         ui.small("Read Device Status and Detailed Device Status as one-time snapshots.");
         let available = self.acyclic_controls(ui);
-        if ui
+        let read = ui
             .add_enabled(available, egui::Button::new("Read device diagnostics"))
-            .clicked()
-        {
+            .clicked();
+        let save = ui
+            .collapsing("Read and save a snapshot", |ui| {
+                ui.add_enabled_ui(available, |ui| {
+                    path_entry(
+                        ui,
+                        &mut self.diagnostic_snapshot_path,
+                        "New diagnostic snapshot JSON path",
+                    );
+                });
+                ui.add_enabled(
+                    available && !self.diagnostic_snapshot_path.trim().is_empty(),
+                    egui::Button::new("Read and save diagnostic snapshot"),
+                )
+                .clicked()
+            })
+            .body_returned
+            .unwrap_or(false);
+        if read || save {
+            let output = save.then(|| PathBuf::from(self.diagnostic_snapshot_path.trim()));
             let profile = self.profile.clone();
             self.start_acyclic(acyclic::Query::Events, move || {
-                Ok(iolink_workbench::diagnostics::read(&profile)?.text())
+                use iolink_workbench::diagnostics;
+                let Some(path) = output else {
+                    return Ok(diagnostics::read(&profile)?.text());
+                };
+                diagnostics::check_destination(&path)?;
+                let (snapshot, report) = diagnostics::read_snapshot(&profile)?;
+                let mut text = report.text();
+                match snapshot.save(&path) {
+                    Ok(()) => {
+                        text.push_str(&format!("\n\nSaved diagnostic snapshot {}", path.display()))
+                    }
+                    Err(error) => {
+                        text.push_str(&format!("\n\nDiagnostic snapshot save failed · {error:#}"))
+                    }
+                }
+                Ok(text)
             });
+        }
+        if ui.button("Review saved diagnostics…").clicked() {
+            self.saved_diagnostics
+                .stage_path(&self.diagnostic_snapshot_path);
+            self.workspace.offline = workspace::OfflinePage::DiagnosticSnapshots;
+            self.tab = Tab::Offline;
         }
         self.acyclic_result(ui, acyclic::Kind::Events);
         if let Some(imported) = &self.profile.iodd {

@@ -223,7 +223,7 @@ fn snapshot_json_rejects_unknown_fields_duplicates_truncation_and_oversized_inpu
         std::fs::write(&path, bad)?;
         assert!(Snapshot::load(&path).is_err());
     }
-    std::fs::write(&path, vec![b' '; MAX_BYTES + 1])?;
+    std::fs::write(&path, vec![b' '; 16 * 1024 * 1024 + 1])?;
     assert!(
         Snapshot::load(&path)
             .unwrap_err()

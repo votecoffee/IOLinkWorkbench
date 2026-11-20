@@ -3,17 +3,14 @@ use crate::{
     decode,
     iodd::DecodedParameter,
     profile::{Gateway, Identity, Profile},
+    snapshot_file,
     transport::{self, ParameterReading, Status},
 };
-use anyhow::{Context, Result, ensure};
+use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
-use std::{
-    fs::File,
-    io::{Read, Write},
-    path::Path,
-};
+use std::path::Path;
 
-const MAX_BYTES: usize = 16 * 1024 * 1024;
+pub use crate::snapshot_file::check_destination;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -35,7 +32,7 @@ pub struct Observation {
 }
 
 impl Observation {
-    fn new(gateway: Gateway, status: Status) -> Self {
+    pub(crate) fn new(gateway: Gateway, status: Status) -> Self {
         Self {
             gateway,
             route: status.route.into(),
@@ -51,6 +48,21 @@ impl Observation {
             port_cycle_raw: status.port_cycle_raw,
             port_cycle_us: status.port_cycle_us,
         }
+    }
+
+    pub(crate) fn validate_for(&self, profile: &Profile) -> Result<()> {
+        ensure!(
+            self.gateway == profile.connection.gateway && self.port == profile.connection.port,
+            "snapshot gateway or port differs from the saved profile"
+        );
+        ensure!(
+            !self.route.trim().is_empty()
+                && !self.model.trim().is_empty()
+                && !self.firmware.trim().is_empty(),
+            "snapshot master context is incomplete"
+        );
+        profile.expected_identity.verify(&self.identity)?;
+        Ok(())
     }
 }
 
@@ -298,32 +310,6 @@ pub fn read(profile: &Profile, id: &str, subindex: u8) -> Result<(Snapshot, Para
     Ok((snapshot, reading))
 }
 
-/// Preflight without any network access. Final creation still uses an atomic no-clobber save.
-pub fn check_destination(path: &Path) -> Result<()> {
-    ensure!(
-        !path.try_exists()?,
-        "snapshot destination already exists: {}",
-        path.display()
-    );
-    ensure!(
-        path.file_name().is_some(),
-        "snapshot destination needs a file name"
-    );
-    let parent = parent(path);
-    ensure!(
-        parent.is_dir(),
-        "snapshot parent folder does not exist: {}",
-        parent.display()
-    );
-    Ok(())
-}
-
-fn parent(path: &Path) -> &Path {
-    path.parent()
-        .filter(|path| !path.as_os_str().is_empty())
-        .unwrap_or(Path::new("."))
-}
-
 impl Snapshot {
     pub fn validate(&self) -> Result<()> {
         ensure!(
@@ -341,26 +327,8 @@ impl Snapshot {
             parameter.index == self.index,
             "snapshot query index differs from the saved IODD"
         );
-        ensure!(
-            self.observation.gateway == self.profile.connection.gateway
-                && self.observation.port == self.profile.connection.port,
-            "snapshot gateway or port differs from the saved profile"
-        );
-        ensure!(
-            !self.observation.route.trim().is_empty()
-                && !self.observation.model.trim().is_empty()
-                && !self.observation.firmware.trim().is_empty(),
-            "snapshot master context is incomplete"
-        );
-        self.profile
-            .expected_identity
-            .verify(&self.observation.identity)?;
-        let utc = chrono::DateTime::parse_from_rfc3339(&self.host_read_utc)
-            .context("invalid snapshot host UTC")?;
-        ensure!(
-            utc.offset().local_minus_utc() == 0,
-            "snapshot host read time must be UTC"
-        );
+        self.observation.validate_for(&self.profile)?;
+        snapshot_file::check_utc(&self.host_read_utc)?;
         let bytes = decode::parse_hex_bounded(&self.raw_hex, 232)?;
         ensure!(
             !bytes.is_empty() && decode::hex(&bytes) == self.raw_hex,
@@ -404,16 +372,7 @@ impl Snapshot {
     }
 
     pub fn load(path: &Path) -> Result<Self> {
-        let mut bytes = Vec::new();
-        File::open(path)?
-            .take((MAX_BYTES + 1) as u64)
-            .read_to_end(&mut bytes)?;
-        ensure!(
-            bytes.len() <= MAX_BYTES,
-            "parameter snapshot exceeds 16 MiB"
-        );
-        let snapshot: Self =
-            serde_json::from_slice(&bytes).context("invalid parameter snapshot JSON")?;
+        let snapshot: Self = snapshot_file::load(path, "parameter snapshot")?;
         snapshot.validate()?;
         Ok(snapshot)
     }
@@ -421,20 +380,7 @@ impl Snapshot {
     /// Publish a complete file atomically. Existing destinations are never replaced.
     pub fn save(&self, path: &Path) -> Result<()> {
         self.validate()?;
-        check_destination(path)?;
-        let mut bytes = serde_json::to_vec_pretty(self)?;
-        bytes.push(b'\n');
-        ensure!(
-            bytes.len() <= MAX_BYTES,
-            "parameter snapshot exceeds 16 MiB"
-        );
-        let mut temporary = tempfile::NamedTempFile::new_in(parent(path))?;
-        temporary.write_all(&bytes)?;
-        temporary.as_file().sync_all()?;
-        temporary
-            .persist_noclobber(path)
-            .with_context(|| format!("save snapshot {}", path.display()))?;
-        Ok(())
+        snapshot_file::save(self, path, "parameter snapshot")
     }
 }
 

@@ -145,6 +145,80 @@ fn simulator_diagnostics_are_explicit_snapshots_and_identity_failures_remain_err
 }
 
 #[test]
+fn diagnostic_snapshot_reopens_raw_context_and_decodes_again_without_the_iodd_file() -> Result<()> {
+    let mut profile = profile()?;
+    profile.connection.port = 3;
+    let (mut snapshot, original) = read_snapshot(&profile)?;
+    assert!(original.ok());
+    snapshot.profile.iodd.as_mut().unwrap().source = "Z:/missing/device.zip".into();
+    let temp = tempfile::tempdir()?;
+    let path = temp.path().join("diagnostics.json");
+    snapshot.save(&path)?;
+    let pinned = fs::read(&path)?;
+    let restored = Snapshot::load(&path)?.review()?;
+    assert!(restored.ok());
+    assert_eq!(
+        restored.iodd_source.as_deref(),
+        Some("Z:/missing/device.zip")
+    );
+    assert_eq!(
+        restored.reads[0].host_read_utc,
+        original.reads[0].host_read_utc
+    );
+    assert_eq!(
+        restored.reads[1].read_duration_us,
+        original.reads[1].read_duration_us
+    );
+    assert_eq!(restored.reads[1].observation.as_ref().unwrap().port, 3);
+    assert_eq!(restored.device_status.as_ref().unwrap().raw_hex, "02");
+    let detailed = restored.detailed_status.as_ref().unwrap();
+    assert_eq!(detailed.raw_hex, "E48DFE000000");
+    assert_eq!(
+        detailed.events[0].definition.as_ref().unwrap().name,
+        "Synthetic range warning"
+    );
+    assert!(snapshot.save(&path).is_err() && fs::read(&path)? == pinned);
+    assert!(super::check_destination(&temp.path().join("missing/diagnostics.json")).is_err());
+    Ok(())
+}
+
+#[test]
+fn diagnostic_snapshot_retains_partial_and_malformed_payloads_and_rejects_mixed_context()
+-> Result<()> {
+    let profile = profile()?;
+    let (initial, _) = read_snapshot(&profile)?;
+    let mut partial = initial.clone();
+    partial.reads[1].raw_hex = None;
+    partial.reads[1].read_error = Some("fixture timeout".into());
+    let review = partial.review()?;
+    assert!(!review.ok() && review.detailed_status.is_none() && review.device_status.is_some());
+    assert!(review.reads[1].observation.is_some());
+    assert!(review.text().contains("fixture timeout"));
+
+    let mut malformed = initial.clone();
+    malformed.reads[1].raw_hex = Some(String::new());
+    let review = malformed.review()?;
+    assert!(!review.ok() && review.detailed_status.unwrap().decode_error.is_some());
+
+    let mut changed = initial.clone();
+    changed.reads[1].observation.as_mut().unwrap().firmware = "synthetic-2".into();
+    let review = changed.review()?;
+    assert!(review.observed_master_conflict && !review.ok());
+    assert_eq!(review.observed_identities_equal, Some(true));
+
+    let mut wrong_port = initial.clone();
+    wrong_port.reads[1].observation.as_mut().unwrap().port = 2;
+    assert!(wrong_port.review().is_err());
+    let mut wrong_order = initial.clone();
+    wrong_order.reads.swap(0, 1);
+    assert!(wrong_order.review().is_err());
+    let mut contradictory = initial;
+    contradictory.reads[1].read_error = Some("also had a timeout".into());
+    assert!(contradictory.review().is_err());
+    Ok(())
+}
+
+#[test]
 fn duplicate_event_codes_or_invalid_types_are_rejected() -> Result<()> {
     let temp = tempfile::tempdir()?;
     let path = temp.path().join("bad.xml");

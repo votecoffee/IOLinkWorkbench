@@ -8,6 +8,12 @@ use anyhow::Result;
 use serde::Serialize;
 use std::time::Instant;
 
+mod snapshot;
+pub use crate::snapshot_file::check_destination;
+pub use snapshot::{Review, SavedRead, Snapshot, read_snapshot};
+
+const SNAPSHOT_KIND: &str = "explicit acyclic snapshots; source event history/loss unknown";
+
 #[derive(Debug, Serialize)]
 pub struct DeviceStatus {
     pub raw_hex: String,
@@ -220,10 +226,13 @@ pub struct Observation {
 
 fn observe(profile: &Profile, index: u16) -> Observation {
     let start = Instant::now();
-    let response = transport::read_isdu_observation(profile, index, 0);
-    let (status, bytes, read_error) = match response {
-        Ok((status, bytes)) => (Some(status), Some(bytes), None),
-        Err(error) => (None, None, Some(format!("{error:#}"))),
+    let (status, reply) = match transport::read_isdu_attempt(profile, index, 0) {
+        Ok((status, reply)) => (Some(status), reply),
+        Err(error) => (None, Err(error)),
+    };
+    let (bytes, read_error) = match reply {
+        Ok(bytes) => (Some(bytes), None),
+        Err(error) => (None, Some(format!("{error:#}"))),
     };
     Observation {
         index,
@@ -241,6 +250,8 @@ fn observe(profile: &Profile, index: u16) -> Observation {
 pub struct Report {
     pub observation_kind: &'static str,
     pub observed_identities_equal: Option<bool>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub observed_master_conflict: bool,
     pub device_status: Option<DeviceStatus>,
     pub detailed_status: Option<DetailedStatus>,
     pub reads: Vec<Observation>,
@@ -249,18 +260,13 @@ pub struct Report {
 impl Report {
     pub fn ok(&self) -> bool {
         self.reads.len() == 2
-            && self.device_status.is_some()
-            && self.detailed_status.is_some()
             && self.reads.iter().all(|read| read.read_error.is_none())
-            && self.observed_identities_equal != Some(false)
-            && self
-                .device_status
-                .as_ref()
-                .is_none_or(|status| status.decode_error.is_none())
-            && self
-                .detailed_status
-                .as_ref()
-                .is_none_or(|status| status.decode_error.is_none())
+            && diagnostic_result_ok(
+                self.device_status.as_ref(),
+                self.detailed_status.as_ref(),
+                self.observed_identities_equal,
+                self.observed_master_conflict,
+            )
     }
 
     pub fn text(&self) -> String {
@@ -280,23 +286,54 @@ impl Report {
                 text.push_str(&format!("\nRead error · {error}"));
             }
         }
-        if self.observed_identities_equal == Some(false) {
-            text.push_str("\nReview · observed identity fields changed between the two reads");
-        }
-        if let Some(status) = &self.device_status {
-            text.push_str(&format!(
-                "\n36:0 raw {} · {}",
-                status.raw_hex,
-                status.meaning.unwrap_or("unavailable")
-            ));
-            if let Some(error) = &status.decode_error {
-                text.push_str(&format!("\nDecode review · {error}"));
-            }
-        }
-        if let Some(status) = &self.detailed_status {
-            text.push_str(&format!("\n\n{}", status.text()));
-        }
+        append_results(
+            &mut text,
+            self.device_status.as_ref(),
+            self.detailed_status.as_ref(),
+            self.observed_identities_equal,
+            self.observed_master_conflict,
+        );
         text
+    }
+}
+
+fn diagnostic_result_ok(
+    device_status: Option<&DeviceStatus>,
+    detailed_status: Option<&DetailedStatus>,
+    identities_equal: Option<bool>,
+    master_conflict: bool,
+) -> bool {
+    identities_equal != Some(false)
+        && !master_conflict
+        && device_status.is_some_and(|status| status.decode_error.is_none())
+        && detailed_status.is_some_and(|status| status.decode_error.is_none())
+}
+
+fn append_results(
+    text: &mut String,
+    device_status: Option<&DeviceStatus>,
+    detailed_status: Option<&DetailedStatus>,
+    identities_equal: Option<bool>,
+    master_conflict: bool,
+) {
+    if identities_equal == Some(false) {
+        text.push_str("\nReview · observed identity fields changed between the two reads");
+    }
+    if master_conflict {
+        text.push_str("\nReview · observed master context changed between the two reads");
+    }
+    if let Some(status) = device_status {
+        text.push_str(&format!(
+            "\n36:0 raw {} · {}",
+            status.raw_hex,
+            status.meaning.unwrap_or("unavailable")
+        ));
+        if let Some(error) = &status.decode_error {
+            text.push_str(&format!("\nDecode review · {error}"));
+        }
+    }
+    if let Some(status) = detailed_status {
+        text.push_str(&format!("\n\n{}", status.text()));
     }
 }
 
@@ -314,9 +351,12 @@ pub fn read(profile: &Profile) -> Result<Report> {
         .bytes
         .as_deref()
         .map(|bytes| decode_detailed(profile, bytes));
+    let observed_master_conflict =
+        transport::ports::master_conflict(reads.iter().filter_map(|read| read.status.as_ref()));
     Ok(Report {
-        observation_kind: "explicit acyclic snapshots; source event history/loss unknown",
+        observation_kind: SNAPSHOT_KIND,
         observed_identities_equal,
+        observed_master_conflict,
         device_status,
         detailed_status,
         reads,

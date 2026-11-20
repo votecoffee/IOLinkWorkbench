@@ -60,6 +60,15 @@ If the selected IODD input layout has a paired output declaration, the applied p
 
 An explicit parameter or diagnostic read uses its own client, apart from the cyclic loop. Save named reads with `read-parameter --snapshot` and use `compare-parameters LEFT.json RIGHT.json` to compare exact bytes and both connection observations offline. The reads must share an ISDU address. Measure gateway-side contention on hardware. For authorized one-shot AL1350 mode, parameter, SystemCommand and process output writes, use [Device → Writes or the CLI preview](WRITES.md).
 
+### Save a diagnostic read
+
+```powershell
+.\iolink-cli.exe read-diagnostics PROFILE.toml --snapshot .\.local\diagnostics.json
+.\iolink-cli.exe review-diagnostics .\.local\diagnostics.json
+```
+
+Use a new file in an existing parent folder. The two independent 36:0 and 37:0 queries retain their own raw reply or error, host UTC and monotonic duration, and any accepted connection observation. The saved profile supplies event definitions offline. A partially successful read or a change in master or device identity remains reviewable. Exit 1 indicates a read, decode, context or save failure. Continue to treat source event history and loss as unknown.
+
 ## Choose logging and inspect its plan
 
 ```powershell

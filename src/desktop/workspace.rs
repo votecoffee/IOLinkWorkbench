@@ -36,6 +36,7 @@ pub(super) enum OfflinePage {
     Parameter,
     Snapshot,
     Events,
+    DiagnosticSnapshots,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub(super) enum DiagnosticsPage {
@@ -313,6 +314,7 @@ impl App {
                         (OfflinePage::Parameter, "Parameter bytes"),
                         (OfflinePage::Snapshot, "Parameter snapshot"),
                         (OfflinePage::Events, "Event codes"),
+                        (OfflinePage::DiagnosticSnapshots, "Diagnostic snapshots"),
                     ],
                 );
                 if self.workspace.offline == OfflinePage::Captures {
@@ -427,6 +429,7 @@ impl App {
             }
             OfflinePage::Snapshot => self.saved_parameter.show(ui),
             OfflinePage::Events => self.offline_diagnostics.show(ui, &self.profile),
+            OfflinePage::DiagnosticSnapshots => self.saved_diagnostics.show(ui),
         }
     }
 
