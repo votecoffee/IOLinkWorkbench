@@ -81,6 +81,69 @@ fn paste(app: &mut App, ctx: &Context, size: egui::Vec2, hint: &str, value: &str
 }
 
 #[test]
+fn copied_input_keeps_receipt_quality_bytes_and_mapping_when_the_profile_changes() -> Result<()> {
+    use iolink_workbench::transport::{Input, Payload, Validity};
+    let ctx = Context::default();
+    let size = egui::vec2(790.0, 530.0);
+    let mut app = App::new();
+    app.profile.connection.simulate_snapshots = true;
+    let (status, _) = capture::probe(&app.profile)?;
+    assert_eq!(status.freshness, Freshness::Snapshots);
+    app.live = Live {
+        status: Some(status),
+        generation: 3,
+        input: Some(Input {
+            received: Instant::now() - Duration::from_secs(1),
+            payload: Payload::new(&[0x03, 0xe9])?,
+            validity: Validity::Invalid,
+            counter: None,
+            source_time_us: None,
+            source_age_us: None,
+            diagnostic_code: None,
+        }),
+        ..Default::default()
+    };
+    app.tab = Tab::Inputs;
+    let has = |app: &mut App, snippet: &str| {
+        draw(app, &ctx, size)
+            .iter()
+            .any(|(text, _)| text.contains(snippet))
+    };
+    assert!(has(&mut app, "RAW  03E9"));
+    assert!(!has(&mut app, "50.0"));
+    click(&mut app, &ctx, size, "Inspect bytes offline");
+    assert_eq!(app.tab, Tab::Offline);
+    assert_eq!(app.workspace.offline, OfflinePage::Process);
+    assert_eq!(app.pending_jobs(), 0);
+    assert!(has(
+        &mut app,
+        "Validity at receipt invalid · staleness at receipt unknown"
+    ));
+    assert!(has(
+        &mut app,
+        "Host poll · source age and update count unknown"
+    ));
+    assert!(has(&mut app, "generation 3"));
+    assert!(has(&mut app, "50.0"));
+    assert_eq!(app.live.input.unwrap().validity, Validity::Invalid);
+
+    app.profile.name = "Different mapping".into();
+    app.profile.fields[0].scale = 1.0;
+    app.setup.sync(&app.profile);
+    app.profile_changed();
+    assert!(has(&mut app, "Copied mapping · Synthetic level sensor"));
+    assert!(has(&mut app, "RAW  03E9"));
+    assert!(has(&mut app, "50.0"));
+    click(&mut app, &ctx, size, "Pasted bytes");
+    assert!(has(&mut app, "RAW  FFF9"));
+    assert!(has(&mut app, "Different mapping"));
+    click(&mut app, &ctx, size, "From Inputs");
+    assert!(has(&mut app, "RAW  03E9"));
+    assert_eq!(app.pending_jobs(), 0);
+    Ok(())
+}
+
+#[test]
 fn capture_folder_check_is_read_only_and_start_rechecks_its_destination() -> Result<()> {
     let _serial = WORKER_TEST_LOCK.lock().unwrap();
     let scratch = tempfile::tempdir()?;
@@ -1051,6 +1114,16 @@ fn stop_and_flush_from_another_tab_can_review_the_recording() -> Result<()> {
         std::thread::sleep(Duration::from_millis(5));
     }
     assert!(app.live.counts.received > 0);
+    app.tab = Tab::Inputs;
+    click(&mut app, &ctx, size, "Inspect bytes offline");
+    assert_eq!(app.tab, Tab::Offline);
+    let received = app.live.counts.received;
+    while app.live.counts.received <= received && Instant::now() < deadline {
+        draw(&mut app, &ctx, size);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(app.live.counts.received > received);
+    assert!(app.active_recording.is_some() && !app.stop.requested());
     app.tab = Tab::Logging;
     let found = draw(&mut app, &ctx, size);
     assert!(
@@ -1082,6 +1155,7 @@ fn stop_and_flush_from_another_tab_can_review_the_recording() -> Result<()> {
     app.setup.sync(&app.profile);
     let joined = destination.path().join("must-not-be-written.csv");
     app.tab = Tab::Offline;
+    click(&mut app, &ctx, size, "Saved captures");
     paste(&mut app, &ctx, size, "Capture folder", "another-capture");
     paste(
         &mut app,

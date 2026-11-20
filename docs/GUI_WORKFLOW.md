@@ -28,6 +28,12 @@ Unapplied changes remain visible in the header even when their page is hidden. *
 
 The footer shows the latest session message; hover to read it in full. **Diagnostics → Connection & identity** also shows the full message. Quality/loss alerts remain above the tabs. Per-session feed choices are summarized in Integration and the connection review; they are not saved profile keys.
 
+## Inspect a live payload offline
+
+In **Inputs**, choose **Inspect bytes offline** beside the raw input. **Offline → Process bytes → From Inputs** shows one fixed copy of the bytes, receipt quality, and the mapping used at copy time. You can inspect held or invalid bytes and see their original Inputs state. For host polls, source age and update count remain unknown.
+
+Switch to **Pasted bytes** to keep working with your existing entry under the current mapping. A new copy replaces only the **From Inputs** sample. The copied sample stays in memory for this app session. Monitoring or CSV recording continues while you inspect it.
+
 ## Review the route before starting
 
 **Connect…** opens the route review. Both this dialog and **Logging** check the configured AL1350 endpoint, the HTTPS requirement for configured credentials, and confirmation of any conditional physical IODD layout. If a check fails, use **Go to connection settings** or **Review IODD layout** to resolve it. You can continue preparing the CSV options.
@@ -85,4 +91,4 @@ Selecting another IODD clears the previous inspection, variant/layout and ZIP-me
 
 In-process egui tests check page isolation and toolbar bounds at **790×530** and **1130×790**, review/profile navigation, starter selection and guarded replacement, failed-load and source-file preservation, overview routing, synthetic file-drop routing and explicit load/inspect/apply, Unicode paths, rejected multi-file/unsupported drops, hover geometry, hidden-draft recovery, acyclic result attribution after selection and page changes, and stopping an actual simulator capture from another tab and reopening its finalized folder for verification, signal review and re-decoding across page changes. Synthetic pointer events stay inside an isolated egui context; no desktop input is sent.
 
-The capability-checked native verifier paints 97 built-in profile/page/dialog and observation cases at **1130×790** into a hidden OpenGL framebuffer. It sends no input and reads no pixels. These checks establish layout geometry, workflow behavior and draw submission. Visible appearance, Explorer/OS drop delivery, window-manager interaction, DPI and physical-device acceptance remain separate. The preview case supplies synthetic hover metadata without desktop input or file access.
+The capability-checked native verifier paints 98 built-in profile/page/dialog and observation cases at **1130×790** into a hidden OpenGL framebuffer. It sends no input and reads no pixels. These checks establish layout geometry, workflow behavior and draw submission. Visible appearance, Explorer/OS drop delivery, window-manager interaction, DPI and physical-device acceptance remain separate. The preview case supplies synthetic hover metadata without desktop input or file access.

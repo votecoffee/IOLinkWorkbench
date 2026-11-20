@@ -72,7 +72,16 @@ impl App {
                 "Host display age limit {} ms · includes GUI update allowance; source quality above is from receipt",
                 observation.display_limit.as_millis()
             ));
-            ui.monospace(format!("RAW  {}", decode::hex(input.payload.bytes())));
+            let inspect = ui
+                .horizontal_wrapped(|ui| {
+                    ui.monospace(format!("RAW  {}", decode::hex(input.payload.bytes())));
+                    ui.add_enabled(
+                        !input.payload.bytes().is_empty(),
+                        egui::Button::new("Inspect bytes offline"),
+                    )
+                    .clicked()
+                })
+                .inner;
             if observation.show_typed() {
                 match self.profile.decode(input.payload.bytes()) {
                     Ok(rows) => {
@@ -96,6 +105,12 @@ impl App {
                 ui.collapsing("Bit layout, scaling and raw values", |ui| {
                     payload_view(ui, &self.profile, input.payload.bytes(), true);
                 });
+            }
+            if inspect {
+                self.payload_inspector
+                    .copy(input, observation, &self.live, &self.profile);
+                self.workspace.offline = workspace::OfflinePage::Process;
+                self.tab = Tab::Offline;
             }
         }
         let counts = self.live.counts;

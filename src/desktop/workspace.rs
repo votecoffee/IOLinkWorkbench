@@ -314,6 +314,8 @@ impl App {
             },
             (self.tab == Tab::Offline && self.workspace.offline == OfflinePage::Captures)
                 .then_some(self.saved_capture.page),
+            (self.tab == Tab::Offline && self.workspace.offline == OfflinePage::Process)
+                .then_some(self.payload_inspector.page),
         ))
     }
 
@@ -359,7 +361,7 @@ impl App {
                     !self.setup.pending() && !self.setup.busy(),
                 );
             }
-            OfflinePage::Process => self.offline_process(ui),
+            OfflinePage::Process => self.payload_inspector.show(ui, &self.profile),
             OfflinePage::Parameter => {
                 if let Some(selection) = self.offline_parameter.show(
                     ui,

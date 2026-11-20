@@ -358,6 +358,26 @@ pub(super) fn render(
         let (app, gate) = observation_fixture(state, snapshots)?;
         views.push((name, "Inputs", app, gate, Some(state)));
     }
+    {
+        let (mut app, gate) = observation_fixture(State::Stopped, true)?;
+        let view = Observation::at(&app.live, false, Instant::now(), &app.profile.connection)
+            .context("synthetic copied observation")?;
+        app.payload_inspector.copy(
+            app.live.input.context("synthetic copied bytes")?,
+            view,
+            &app.live,
+            &app.profile,
+        );
+        app.tab = Tab::Offline;
+        app.workspace.offline = super::super::workspace::OfflinePage::Process;
+        views.push((
+            "observation-copied-snapshot",
+            "Process bytes",
+            app,
+            gate,
+            None,
+        ));
+    }
     let mut cases = Vec::new();
     for (name, label, mut app, _gate, expected_observation) in views {
         let gated_session = app.worker.is_some();
@@ -473,7 +493,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 97);
+        assert_eq!(cases.len(), 98);
         assert!(
             cases
                 .iter()

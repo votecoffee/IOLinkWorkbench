@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Inputs can copy the displayed raw bytes into the offline decoder together with receipt quality and the original mapping. The copied sample and pasted draft have separate views.
+
 - Logging can check a proposed output folder and show its resolved path before recording. Start checks it again and rejects an unavailable destination before dispatch.
 
 - Drop a finalized capture's capture.toml or a re-decoded bundle's receipt.toml in the saved capture workspace to select its folder for explicit verification.

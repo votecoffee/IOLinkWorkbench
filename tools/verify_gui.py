@@ -67,7 +67,8 @@ def verify(gui, output):
         "offline-compare", "offline-signal", "offline-raw-signal", "offline-exports", "offline-process", "offline-parameter", "offline-snapshot", "offline-events",
         "profiles-dialog", "profiles-files", "drop-preview", "drop-saved-preview", "latest-recording", "connection-dialog", "connection-needs-endpoint", "connection-feed-settings"))
     expected.update((name, "Inputs") for name in OBSERVATIONS)
-    assert len(cases) == len(expected) == 97 and {(case["profile"], case["tab"]) for case in cases} == expected
+    expected.add(("observation-copied-snapshot", "Process bytes"))
+    assert len(cases) == len(expected) == 98 and {(case["profile"], case["tab"]) for case in cases} == expected
     for case in cases:
         assert case["passes"] == 2 and case["shapes"] > 0 and case["meshes"] > 0 and case["triangles"] > 0
         assert (case["width"], case["height"]) == (1130, 790)

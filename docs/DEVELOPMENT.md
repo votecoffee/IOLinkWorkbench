@@ -59,6 +59,8 @@ In the saved capture workspace, a drop of capture.toml or receipt.toml stages th
 
 GUI destination checks run on Check folder or Start, using the same resolved path for the status and writer. Keep filesystem inspection out of ordinary rendering. Defer creation of the default parent to the worker and preserve the writer's exclusive directory creation for collisions after the check.
 
+Inspect bytes offline copies the same observation and applied profile used by the rendered Inputs frame. Its state is independent of the sampler, live readout and pasted payload draft. Preserve receipt metadata and label copy-time age separately from current live age.
+
 ## Local validation
 
 GUI `start_block_reason` supplies both button availability and the start method's preflight check. Keep owned cyclic results (including ready but unread completions), closing and pending profile work fenced before state/output preparation. Prepare fresh stop/display queues locally and commit them only after worker launch succeeds; independent acyclic/review jobs must not become sampler admission locks. Run `desktop::self_test::start_tests` for guard-denied dispatch, completion ownership, draft/inspection guards and consecutive simulator capture/byte-preservation checks. See [session startup](GUI_LIFECYCLE.md#starting-a-session).

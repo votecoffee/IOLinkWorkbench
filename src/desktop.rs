@@ -22,6 +22,7 @@ mod logger_metrics;
 mod logging_fields;
 mod observation;
 mod parameters;
+mod payload_inspector;
 mod saved_capture;
 pub mod self_test;
 mod session_review;
@@ -142,7 +143,7 @@ struct App {
     stop: Stop,
     closing: bool,
     message: String,
-    offline_hex: String,
+    payload_inspector: payload_inspector::Inspector,
     saved_capture: saved_capture::Verifier,
     parameter_picker: parameters::Picker,
     offline_parameter: parameters::Offline,
@@ -194,7 +195,7 @@ impl App {
             stop: Stop::default(),
             closing: false,
             message: String::new(),
-            offline_hex: "FFF9".into(),
+            payload_inspector: payload_inspector::Inspector::default(),
             saved_capture: saved_capture::Verifier::default(),
             parameter_picker: parameters::Picker::default(),
             offline_parameter: parameters::Offline::default(),
@@ -347,26 +348,6 @@ impl App {
                         .into();
             }
             Err(error) => self.message = error.to_string(),
-        }
-    }
-
-    pub(super) fn offline_process(&mut self, ui: &mut Ui) {
-        ui.heading("Offline payload decoder");
-        ui.label(format!(
-            "{} · {} expected bytes",
-            self.profile.name, self.profile.input_bytes
-        ));
-        ui.add(
-            egui::TextEdit::multiline(&mut self.offline_hex)
-                .code_editor()
-                .desired_rows(2)
-                .desired_width(f32::INFINITY),
-        );
-        match decode::parse_hex(&self.offline_hex) {
-            Ok(payload) => payload_view(ui, &self.profile, &payload, true),
-            Err(error) => {
-                ui.colored_label(WARNING, error.to_string());
-            }
         }
     }
 }
