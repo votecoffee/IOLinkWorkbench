@@ -414,7 +414,7 @@ def verify_display_preferences(cli, source, output):
     return preferred
 
 
-def verify_port_statuses(cli, output):
+def verify_port_statuses_and_captures(cli, output):
     output.mkdir()
     source = (ROOT / "samples/simulator.toml").read_text(encoding="utf-8")
 
@@ -437,6 +437,54 @@ def verify_port_statuses(cli, output):
     assert [entry["port"] for entry in simulated["ports"]] == [2, 1]
     assert all(entry["status"]["route"] == "synthetic simulator" for entry in simulated["ports"])
 
+    def capture_set(destination, profiles, expected=0, *options):
+        pinned = {path: path.read_bytes() for path in profiles}
+        batch = tomllib.loads(run(cli, "capture-ports", destination, *profiles, *options, expected=expected))
+        assert batch == tomllib.loads((destination / "capture-set.toml").read_text(encoding="utf-8"))
+        assert batch["format_version"] == 1 and not batch["stopped_by_request"]
+        assert {path: path.read_bytes() for path in profiles} == pinned
+        assert [entry["port"] for entry in batch["ports"]] == [
+            tomllib.loads(content.decode("utf-8"))["connection"]["port"] for content in pinned.values()
+        ]
+        return batch
+
+    def port_capture(destination, entry):
+        path = destination / entry["directory"]
+        assert entry["directory"] == f"port-{entry['port']}" and entry["report_saved"]
+        report = tomllib.loads((path / "capture.toml").read_text(encoding="utf-8"))
+        assert entry["received"] == report["counts"]["received"] and entry["csv_rows_flushed"] == report["csv_rows_flushed"]
+        rows = []
+        for part in sorted(path.glob("capture-*.csv")):
+            with part.open(encoding="utf-8", newline="") as stream:
+                rows.extend(csv.DictReader(stream))
+        assert len(rows) == report["csv_rows_flushed"]
+        if entry["success"]:
+            verified = tomllib.loads(run(cli, "verify-capture", path))
+            assert verified["rows_checked"] == len(rows) and report["csv_rows_unconfirmed"] == 0
+            assert report["counts"]["logger_overruns"] == verified["missing_sample_indexes"]
+        return report, rows
+
+    slow, fast = simulations
+    slow.write_text(slow.read_text(encoding="utf-8")
+                    .replace("poll_us = 1000", "poll_us = 30000\nsimulate_snapshots = true")
+                    .replace('[logging]\n', '[logging]\nqueue_capacity = 128\n'), encoding="utf-8")
+    fast.write_text(fast.read_text(encoding="utf-8")
+                    .replace('[logging]\n', '[logging]\nqueue_capacity = 4\nrotate_rows = 7\n'), encoding="utf-8")
+    destination = output / "simulator-set"
+    batch = capture_set(destination, simulations, 0, "--seconds", ".62", "--simulate-faults",
+                        "--simulate-writer-delay-ms", "15")
+    assert batch["gateway"] == "simulator" and not batch["observed_master_conflict"]
+    delayed, delayed_rows = port_capture(destination, batch["ports"][0])
+    pressured, pressured_rows = port_capture(destination, batch["ports"][1])
+    assert delayed_rows and all(row["row_kind"] == "host_poll" for row in delayed_rows)
+    assert delayed["source_update_loss"] == "unknown" and "source_gaps_observed" not in delayed
+    assert delayed["counts"]["logger_overruns"] == 0 and delayed["requested_poll_us"] == 30000
+    assert pressured["counts"]["logger_overruns"] > 0 and pressured["counts"]["stale"] > 0
+    assert pressured["counts"]["reconnects"] > 0 and pressured["csv_parts"] > 1
+    assert pressured["logger_metrics"]["queue_high_water_observed"] == 4
+    assert "source_gaps_observed" in pressured and all(row["row_kind"] == "source_update" for row in pressured_rows)
+    assert delayed["last_status"]["route"] == pressured["last_status"]["route"] == "synthetic simulator"
+
     class PortGateway(BaseHTTPRequestHandler):
         def log_message(self, *_args):
             pass
@@ -448,7 +496,12 @@ def verify_port_statuses(cli, output):
             paths = request["data"]["datatosend"]
             port = next(n for n in range(1, 5) if f"/iolinkmaster/port[{n}]/mode" in paths)
             prefix = f"/iolinkmaster/port[{port}]"
-            if port in (1, 2) and self.server.barrier is not None:
+            pdin = prefix + "/iolinkdevice/pdin"
+            polling = pdin in paths
+            if polling and port in (1, 2) and self.server.poll_barrier is not None and port not in self.server.entered_polls:
+                self.server.entered_polls.add(port)
+                self.server.poll_barrier.wait(timeout=3)
+            if not polling and port in (1, 2) and self.server.barrier is not None:
                 self.server.barrier.wait(timeout=3)
             data = dict(Gateway.data)
             data[Gateway.port + "/iolinkdevice/deviceid"] = 2 if port == 3 else 1
@@ -457,6 +510,7 @@ def verify_port_statuses(cli, output):
             if port == self.server.different_master_port:
                 data["/deviceinfo/serialnumber"] = "OTHER-MASTER"
             allowed = {key.replace(Gateway.port, prefix): value for key, value in data.items()}
+            allowed[pdin] = {1: "0002", 2: "0005", 3: "0006", 4: "0009"}[port]
             assert all(key in allowed for key in paths), paths
             response = {
                 "code": 200, "cid": request["cid"],
@@ -472,6 +526,8 @@ def verify_port_statuses(cli, output):
     with ThreadingHTTPServer(("127.0.0.1", 0), PortGateway) as server:
         server.requests = []
         server.barrier = threading.Barrier(2)
+        server.poll_barrier = None
+        server.entered_polls = set()
         server.different_master_port = None
         host = f"http://127.0.0.1:{server.server_port}"
         ports = [profile(f"port-{port}", port, host + ("/" if port == 2 else "")) for port in range(1, 5)]
@@ -503,6 +559,48 @@ def verify_port_statuses(cli, output):
             report = tomllib.loads(run(cli, "status-ports", *ports[:2], expected=1))
             assert report["observed_master_conflict"]
             assert len(server.requests) == 7
+
+            before_capture = len(server.requests)
+            invalid = output / "must-not-create"
+            for selection in [(ports[0], ports[0]), (ports[0], slow), (ports[0], other_origin), tuple(conflicting)]:
+                run(cli, "capture-ports", invalid, *selection, "--seconds", ".1", expected=1)
+                assert not invalid.exists()
+            run(cli, "capture-ports", invalid, *ports[:2], "--seconds", ".1", "--simulate-faults", expected=1)
+            assert not invalid.exists()
+            existing = output / "already-there"
+            existing.mkdir()
+            sentinel = existing / "keep.txt"
+            sentinel.write_bytes(b"existing user bytes")
+            run(cli, "capture-ports", existing, *ports[:2], "--seconds", ".1", expected=1)
+            assert list(existing.iterdir()) == [sentinel] and sentinel.read_bytes() == b"existing user bytes"
+            assert len(server.requests) == before_capture
+
+            server.different_master_port = None
+            server.poll_barrier = threading.Barrier(2)
+            destination = output / "gateway-set"
+            batch = capture_set(destination, [ports[1], ports[2], ports[0]], 1, "--seconds", ".45")
+            assert batch["gateway"] == "ifm_al1350" and not batch["observed_master_conflict"]
+            assert [entry["success"] for entry in batch["ports"]] == [True, False, True]
+            assert server.entered_polls == {1, 2}
+            for entry in batch["ports"]:
+                report, rows = port_capture(destination, entry)
+                if entry["port"] == 3:
+                    assert not rows and "identity mismatch" in report["terminal_error"]
+                    assert report["rejected_status"]["identity"]["device_id"] == 2
+                else:
+                    assert report["last_status"]["route"] == "AL1350 loopback fixture"
+                    assert report["last_status"]["port_cycle_us"] == 1200 * entry["port"]
+                    assert report["source_update_loss"] == "unknown" and "source_gaps_observed" not in report
+                    assert rows and {row["raw_hex"] for row in rows} == {"0002" if entry["port"] == 1 else "0005"}
+                    assert all(row["row_kind"] == "host_poll" and not row["source_counter"] for row in rows)
+
+            server.different_master_port = 2
+            server.poll_barrier = None
+            destination = output / "gateway-conflict"
+            batch = capture_set(destination, ports[:2], 1, "--seconds", ".22")
+            assert batch["observed_master_conflict"] and all(entry["success"] for entry in batch["ports"])
+            for entry in batch["ports"]:
+                port_capture(destination, entry)
         finally:
             server.shutdown()
             worker.join()
@@ -1440,7 +1538,7 @@ def main():
     verify_defaults(cli, scratch / "defaults")
     verify_temporal_defaults(cli, scratch / "temporal-defaults")
     verify_connection_settings(cli, scratch / "connection-settings")
-    verify_port_statuses(cli, scratch / "port-statuses")
+    verify_port_statuses_and_captures(cli, scratch / "multi-port")
     verify_identity_settings(cli, scratch / "identity-settings")
     verify_mapping_settings(cli, scratch / "mapping-settings")
     verify_logging_settings(cli, scratch / "logging-settings")
@@ -1834,7 +1932,7 @@ kind = "bool"
 
     print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
-          "named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status reads and partial reports, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
+          "named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit/partial diagnostics, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 
 

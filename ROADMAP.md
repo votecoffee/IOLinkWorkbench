@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- CLI capture can run independent cyclic sessions for up to four explicitly configured ports on one master. Per-port CSV, reconnect and timing reports are published alongside a batch outcome. Simulator, AL1350 loopback and isolated Windows interruption tests cover independent drains and partial failures.
+
 - Standalone IODD integer output editing regenerates sign or zero padding in the applicable wire container. Checked and offline reads retain mismatched padding and flag it for review.
 
 - Saved parameter snapshots compare exact bytes and retain independent decoded values, identity and diagnostics. Matching composite definitions and observed device types permit per-member comparisons.
@@ -142,7 +144,7 @@
 - Maintain operational/developer documentation, AGENTS.md and the Codex skill as public workflows evolve. See [interface design and acceptance criteria](docs/INTERFACES.md); C FFI remains future work.
 
 - Add one documented source-counter or timestamp transport once selected hardware exposes it. Qualify timestamp clock, counter wrap, update semantics and firmware-specific behavior.
-- Add independent cyclic sessions with per-port status, reconnect and capture accounting. Concurrent status checks already work through the CLI. Add a GUI view once the multi-port workflow is defined.
+- Add a GUI view for selecting per-port profiles, starting and stopping a capture set, and inspecting individual port status and saved results. The CLI supports concurrent status and cyclic capture.
 - Expand IODD handling for profile snippets and remaining IODD Checker semantic rules. Checksum consistency is implemented; official Checker execution and vendor authenticity remain separate. Add representative sanitized fixtures for supported device families.
 - Add event-history acquisition only when a selected transport documents event delivery, ordering, and loss semantics. Current explicit diagnostics are snapshots with unknown source event loss.
 - Expand remaining datatype-specific displays and profile-specific decoding. IODD RecordT/ArrayT elements are simple datatypes; unsupported complex elements stay on the raw/manual path.

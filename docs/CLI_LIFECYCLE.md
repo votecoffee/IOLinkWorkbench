@@ -10,6 +10,8 @@ Let the process finish before reviewing its output. For a normal interrupted cap
 
 This behavior applies after capture's interrupt handler has been registered. Console-window close, logoff/OS shutdown, forced termination, a crash, and interruption before handler registration are outside the clean-drain guarantee. A terminal or launcher can also change Ctrl+C routing or inheritance. The native checks below exercise Windows control events, not keyboard or terminal interaction.
 
+For `capture-ports`, one interrupt requests stop for every worker. Each writer drains independently and saves its own port report. The command then saves and prints `capture-set.toml`, which records the batch stop and per-port outcomes. Exit 130 indicates an interrupted batch whose ports finalized successfully. A port failure or conflicting master observations take precedence and return 1. An already completed port retains the stop state recorded in its own report.
+
 ## Developer verification
 
 From a Windows source checkout with Python 3.11+ and a built CLI:
@@ -20,12 +22,14 @@ python tools/verify_cli_shutdown.py target/x86_64-pc-windows-msvc/release/iolink
 
 An optional `--output NEW_DIRECTORY` chooses a new evidence location; the default is under ignored `.local/`. The executable argument can also point to an extracted portable CLI. The helper uses original synthetic profiles/replies and no vendor files or physical endpoints. It preserves input profiles and existing rotation destinations. Failed runs retain private files for inspection and do not publish a passing receipt.
 
-Four process-level cases cover:
+The process-level cases cover:
 
 - Ctrl+C with row rotation: exit 130, identical stdout/saved report, zero unconfirmed rows, and complete offline CSV verification.
 - Repeated Ctrl+Break with a deliberately slow writer and full bounded queue: exit 130, counted overruns, accepted-row drain and verified rotated CSV.
 - Ctrl+Break during an unanswered loopback HTTP poll: the request reaches its configured timeout, the report retains the disconnect/error, and the empty finalized CSV verifies. Snapshot source loss remains unknown.
 - Ctrl+Break before an injected rotation failure during drain: exit 1 takes precedence over interruption, flushed/unconfirmed/overrun accounting balances, and the existing destination stays unchanged. This failing fixture is not labeled a verified capture.
+- Ctrl+Break during two simultaneous port captures: both rotated CSV bundles finish and verify, the batch report agrees with stdout, and the command returns 130.
+- Ctrl+Break after one port has rejected a mismatched device: exit 1 preserves the failed port's report, and both healthy ports stop and flush successfully.
 
 The controller creates a separate console with hidden startup settings. The worker checks that console contains only itself before launch and exactly itself plus the test CLI before each event, and checks that its console window is hidden. Ctrl+C broadcasts only within that isolated console; Ctrl+Break addresses a newly created CLI process group. A kill-on-close Windows job contains the worker and its children, including timeout/failure cleanup. Only successful normal process completion counts as a passing case. No desktop input, screenshots, pixel readback or existing console attachment is used.
 

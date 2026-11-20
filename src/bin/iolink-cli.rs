@@ -235,6 +235,18 @@ enum Command {
         #[arg(default_value_t = 0)]
         subindex: u8,
     },
+    /// Capture one to four explicitly profiled ports of the same master concurrently.
+    CapturePorts {
+        output: PathBuf,
+        #[arg(required = true, num_args = 1..=4)]
+        profiles: Vec<PathBuf>,
+        #[arg(long, default_value_t = 10.0)]
+        seconds: f64,
+        #[arg(long)]
+        simulate_faults: bool,
+        #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u64).range(0..=100))]
+        simulate_writer_delay_ms: u64,
+    },
     /// Capture a single port to a new directory and write a timing report.
     Capture {
         profile: PathBuf,
@@ -303,6 +315,21 @@ impl IoddOptions {
             unit_definitions: self.unit_definitions.as_deref(),
         }
     }
+}
+
+fn capture_duration(seconds: f64) -> Result<Duration> {
+    ensure!(
+        seconds.is_finite() && (0.01..=86400.0).contains(&seconds),
+        "--seconds must be 0.01–86400"
+    );
+    Ok(Duration::from_secs_f64(seconds))
+}
+
+fn interruptible_stop() -> Result<Stop> {
+    let stop = Stop::default();
+    let interrupt = stop.clone();
+    ctrlc::set_handler(move || interrupt.request())?;
+    Ok(stop)
 }
 
 fn main() -> Result<()> {
@@ -753,6 +780,38 @@ fn main() -> Result<()> {
                 println!("utf8 = {text:?}");
             }
         }
+        Command::CapturePorts {
+            output,
+            profiles,
+            seconds,
+            simulate_faults,
+            simulate_writer_delay_ms,
+        } => {
+            let duration = capture_duration(seconds)?;
+            let profiles = profiles
+                .iter()
+                .map(|path| Profile::load(path))
+                .collect::<Result<Vec<_>>>()?;
+            let stop = interruptible_stop()?;
+            let report = capture::run_ports(
+                &profiles,
+                &capture::PortOptions {
+                    output,
+                    duration,
+                    simulate_faults,
+                    simulated_writer_delay: Duration::from_millis(simulate_writer_delay_ms),
+                },
+                &stop,
+            )?;
+            print!("{}", toml::to_string_pretty(&report)?);
+            ensure!(
+                report.all_successful(),
+                "the port capture set contains a failure or conflicting master observations; see the report"
+            );
+            if report.stopped_by_request {
+                std::process::exit(130);
+            }
+        }
         Command::Capture {
             profile,
             output,
@@ -767,10 +826,7 @@ fn main() -> Result<()> {
             mqtt,
             shared_memory,
         } => {
-            ensure!(
-                seconds.is_finite() && (0.01..=86400.0).contains(&seconds),
-                "--seconds must be 0.01–86400"
-            );
+            let duration = capture_duration(seconds)?;
             let mut profile = Profile::load(&profile)?;
             profile.require_process_input()?;
             if let Some(capacity) = queue_capacity {
@@ -783,14 +839,12 @@ fn main() -> Result<()> {
             } else if !fields.is_empty() {
                 profile.set_log_selection(LogSelection::Fields(fields))?;
             }
-            let stop = Stop::default();
-            let interrupt = stop.clone();
-            ctrlc::set_handler(move || interrupt.request())?;
+            let stop = interruptible_stop()?;
             let report = capture::run(
                 &profile,
                 &Options {
                     output: Some(output),
-                    duration: Some(Duration::from_secs_f64(seconds)),
+                    duration: Some(duration),
                     simulate_faults,
                     simulated_writer_delay: Duration::from_millis(simulate_writer_delay_ms),
                     local_api: api.config(),

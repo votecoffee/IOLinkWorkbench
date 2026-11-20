@@ -77,12 +77,12 @@ class Windows:
         window = self.kernel.GetConsoleWindow()
         require(not window or not self.user.IsWindowVisible(window), "Test console must stay hidden")
 
-    def signal(self, run, event):
-        require(run.process.poll() is None, "Test CLI exited before interruption")
-        self.console({os.getpid(), run.process.pid})
+    def signal(self, process, event):
+        require(process.poll() is None, "Test CLI exited before interruption")
+        self.console({os.getpid(), process.pid})
         # CTRL+C cannot target a group: broadcast only in this private console.
         # CTRL+BREAK targets the newly created CLI process group.
-        self.checked(self.kernel.GenerateConsoleCtrlEvent(event, run.process.pid if event else 0))
+        self.checked(self.kernel.GenerateConsoleCtrlEvent(event, process.pid if event else 0))
 
     def job(self):
         class Basic(ctypes.Structure):
@@ -126,8 +126,9 @@ class Run:
             while time.monotonic() < deadline:
                 require(self.process.poll() is None, read_text(self.errpath))
                 for line in read_text(self.errpath).splitlines():
-                    if "Local API listening at " in line:
-                        self.url = line.split("Local API listening at ", 1)[1].split()[0]
+                    address, separator, _ = line.partition("Local API listening at ")[2].partition(" (read-only, session ")
+                    if separator:
+                        self.url = address
                 if self.url and output.joinpath("profile.toml").exists():
                     break
                 time.sleep(.005)
@@ -238,6 +239,61 @@ class HeldGateway(BaseHTTPRequestHandler):
             pass  # Expected when the bounded client request times out.
 
 
+def interrupt_port_set(win, cli, output, profiles, expected):
+    outpath = output.with_suffix(".stdout.toml")
+    errpath = output.with_suffix(".stderr.log")
+    originals = [digest(profile) for profile in profiles]
+    with outpath.open("xb") as stdout, errpath.open("xb") as stderr:
+        process = subprocess.Popen(
+            [str(cli), "capture-ports", str(output), *map(str, profiles), "--seconds", "60"],
+            stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr, env=environment(),
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+        try:
+            ready = [output / f"port-{number}" / "capture-0002.csv" for number in (1, 2)]
+            if expected == 1:
+                ready.append(output / "port-3" / "capture.toml")
+            deadline = time.monotonic() + 8
+            while not all(marker.is_file() for marker in ready):
+                require(process.poll() is None, read_text(errpath))
+                require(time.monotonic() < deadline, "Ports did not reach the required input and failure states")
+                time.sleep(.005)
+            win.signal(process, 1)
+            code = process.wait(timeout=12)
+            require(code == expected, f"Port set exit {code}, expected {expected}: {read_text(errpath)}")
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)
+    batch_file = output / "capture-set.toml"
+    batch = tomllib.loads(read_text(batch_file))
+    require(batch == tomllib.loads(read_text(outpath)), "Port set stdout and saved reports differ")
+    require(batch["stopped_by_request"], "Port set interruption was not recorded")
+    require([digest(profile) for profile in profiles] == originals, "A source profile changed")
+    require([entry["port"] for entry in batch["ports"]] == [2, 1] + ([3] if expected == 1 else []),
+            "Port set changed the selection order")
+    ports = []
+    for entry in batch["ports"]:
+        capture_path = output / entry["directory"]
+        report_path = capture_path / "capture.toml"
+        report = tomllib.loads(read_text(report_path))
+        if entry["port"] == 3:
+            require(not entry["success"] and entry["report_saved"] and not entry["received"]
+                    and "identity mismatch" in report["terminal_error"], "Rejected port evidence was lost")
+        else:
+            require(entry["success"] and entry["report_saved"] and report["stopped_by_request"]
+                    and report["csv_parts"] > 1 and report["csv_rows_unconfirmed"] == 0,
+                    "Healthy port failed to drain its rotated CSV")
+            checked = subprocess.run(
+                [str(cli), "verify-capture", str(capture_path)], capture_output=True,
+                timeout=12, env=environment(), creationflags=subprocess.CREATE_NO_WINDOW)
+            require(checked.returncode == 0, checked.stderr.decode("utf-8", errors="replace"))
+            require(tomllib.loads(checked.stdout.decode("utf-8"))["rows_checked"] == entry["csv_rows_flushed"],
+                    "Port set and verified CSV counts differ")
+        ports.append({"port": entry["port"], "success": entry["success"],
+                      "report_sha256": digest(report_path), "rows_flushed": entry["csv_rows_flushed"]})
+    return {"exit_code": code, "batch_sha256": digest(batch_file), "ports": ports}
+
+
 def worker(cli, output, token):
     require(token and os.environ.pop(TOKEN_ENV, None) == token, "Launch through the isolated-console verifier")
     require(sys.stdin.buffer.readline() == b"job-ready\n", "Verifier job containment was not established")
@@ -257,7 +313,7 @@ def worker(cli, output, token):
     profile.write_bytes(base.encode())
     with Run(cli, profile, output / "ctrl-c-rotation", 0) as run:
         run.ready(lambda counts: counts["received"] >= 30)
-        win.signal(run, 0)
+        win.signal(run.process, 0)
         cases["ctrl_c_rotation"], report = run.finish()
         require(report["csv_parts"] > 1 and not report["counts"]["logger_overruns"], "Rotation fixture did not cover clean flush")
 
@@ -265,9 +321,9 @@ def worker(cli, output, token):
     profile.write_bytes(base.replace("queue_capacity = 128", "queue_capacity = 16").encode())
     with Run(cli, profile, output / "repeated-break-pressure", 1, ["--simulate-writer-delay-ms", 25]) as run:
         run.ready(lambda counts: counts["received"] >= 80 and counts["logger_overruns"] > 0)
-        win.signal(run, 1)
+        win.signal(run.process, 1)
         time.sleep(.025)
-        win.signal(run, 1)
+        win.signal(run.process, 1)
         cases["repeated_break_backpressure"], report = run.finish()
         require(report["counts"]["logger_overruns"] > 0 and report["logger_metrics"]["queue_high_water_observed"] == 16,
                 "Backpressure fixture did not fill the queue")
@@ -286,7 +342,7 @@ def worker(cli, output, token):
         with Run(cli, profile, output / "break-held-request", 1) as run:
             require(HeldGateway.entered.wait(timeout=5), "Loopback request did not enter the hold")
             started = time.monotonic()
-            win.signal(run, 1)
+            win.signal(run.process, 1)
             time.sleep(.075)
             require(run.process.poll() is None, "Request completed before its timeout")
             cases["break_held_request"], report = run.finish()
@@ -310,11 +366,22 @@ def worker(cli, output, token):
         with obstacle.open("xb") as stream:
             stream.write(sentinel)
         run.ready(lambda counts: counts["received"] >= 12)
-        win.signal(run, 1)
+        win.signal(run.process, 1)
         cases["break_writer_failure"], report = run.finish(expected=1)
         require(report.get("writer_error") and report["csv_rows_unconfirmed"] > 0 and report["csv_rows_flushed"] == 5,
                 "Writer failure was hidden by interruption")
         require(obstacle.read_bytes() == sentinel, "Existing rotation destination was changed")
+
+    profiles = []
+    for port in (2, 1, 3):
+        profile = output / f"batch-port-{port}.toml"
+        settings = base.replace("port = 1", f"port = {port}")
+        if port == 3:
+            settings += "\n[expected_identity]\ndevice_id = 99\n"
+        profile.write_bytes(settings.encode())
+        profiles.append(profile)
+    cases["break_port_set"] = interrupt_port_set(win, cli, output / "break-port-set", profiles[:2], 130)
+    cases["break_partial_port_set"] = interrupt_port_set(win, cli, output / "break-partial-port-set", profiles, 1)
 
     win.console({os.getpid()})
     version = subprocess.check_output([str(cli), "--version"], env=environment(),

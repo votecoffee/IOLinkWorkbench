@@ -35,7 +35,7 @@ For GUI navigation, read `docs/GUI_WORKFLOW.md`. Device, Inputs, Logging, Mappin
 
 ## Non-obvious constraints
 
-`status-ports PROFILE1 [PROFILE2 …]` reads up to four explicitly profiled ports of one AL1350 origin or simulator route in parallel. It reports each independent status or failure and retains observations when a device pin differs. Cyclic capture still selects one port.
+`status-ports PROFILE1 [PROFILE2 …]` reads up to four explicitly profiled ports of one AL1350 origin or simulator route in parallel. It reports each independent status or failure and retains observations when a device pin differs. Use `capture-ports OUTPUT PROFILE1 [PROFILE2 …] --seconds N` for independent cyclic sessions with per-port queues, clocks and CSV bundles. Each output `port-N` folder works with existing offline review commands. `capture-set.toml` records each outcome after worker completion. Ctrl+C or Ctrl+Break requests a drain for the set.
 
 No master/sensor/signal has been selected in the initial project. ifm AL1350 IoT Core 3.1.x is a documented adapter target, not physical acceptance. Confirm selected hardware's firmware/interface/Windows support and license before adding an SDK or claiming compatibility.
 

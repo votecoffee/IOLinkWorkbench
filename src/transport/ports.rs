@@ -34,28 +34,51 @@ impl PortStatusReport {
 /// Each result has its own host timestamps. Reports retain the profile order.
 pub fn read_port_statuses(profiles: &[Profile]) -> Result<PortStatusReport> {
     let gateway = validate_selection(profiles)?;
-    let ports = thread::scope(|scope| {
+    let ports: Vec<_> = run_port_workers(profiles, "status", read_port)
+        .into_iter()
+        .zip(profiles)
+        .map(|(result, profile)| {
+            result.unwrap_or_else(|error| failed_worker(profile, format!("{error:#}")))
+        })
+        .collect();
+    Ok(PortStatusReport {
+        gateway,
+        observed_master_conflict: master_conflict(
+            ports.iter().filter_map(|port| port.status.as_ref()),
+        ),
+        ports,
+    })
+}
+
+/// Launch every selected port before joining results in selection order.
+pub(crate) fn run_port_workers<T: Send>(
+    profiles: &[Profile],
+    operation_name: &str,
+    operation: impl Fn(&Profile) -> T + Sync,
+) -> Vec<Result<T>> {
+    thread::scope(|scope| {
         let workers: Vec<_> = profiles
             .iter()
             .map(|profile| {
                 thread::Builder::new()
-                    .name(format!("status-port-{}", profile.connection.port))
-                    .spawn_scoped(scope, || read_port(profile))
+                    .name(format!("{operation_name}-port-{}", profile.connection.port))
+                    .spawn_scoped(scope, || operation(profile))
             })
             .collect();
         workers
             .into_iter()
-            .zip(profiles)
-            .map(|(worker, profile)| match worker {
-                Ok(worker) => worker.join().unwrap_or_else(|_| {
-                    failed_worker(profile, "port status worker stopped unexpectedly".into())
-                }),
-                Err(error) => failed_worker(profile, format!("start port status worker: {error}")),
+            .map(|worker| {
+                worker
+                    .context("start port worker")?
+                    .join()
+                    .map_err(|_| anyhow::anyhow!("port worker stopped unexpectedly"))
             })
-            .collect::<Vec<_>>()
-    });
-    let mut statuses = ports.iter().filter_map(|port| port.status.as_ref());
-    let observed_master_conflict = statuses.next().is_some_and(|first| {
+            .collect()
+    })
+}
+
+pub(crate) fn master_conflict<'a>(mut statuses: impl Iterator<Item = &'a Status>) -> bool {
+    statuses.next().is_some_and(|first| {
         let mut serial = first.master_serial.as_deref();
         statuses.any(|other| {
             let conflict = other
@@ -66,15 +89,10 @@ pub fn read_port_statuses(profiles: &[Profile]) -> Result<PortStatusReport> {
             serial = serial.or(other.master_serial.as_deref());
             conflict || first.model != other.model || first.firmware != other.firmware
         })
-    });
-    Ok(PortStatusReport {
-        gateway,
-        observed_master_conflict,
-        ports,
     })
 }
 
-fn validate_selection(profiles: &[Profile]) -> Result<Gateway> {
+pub(crate) fn validate_selection(profiles: &[Profile]) -> Result<Gateway> {
     ensure!(
         (1..=4).contains(&profiles.len()),
         "select one to four port profiles"
