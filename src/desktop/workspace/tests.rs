@@ -1098,6 +1098,7 @@ fn stop_and_flush_from_another_tab_can_review_the_recording() -> Result<()> {
     let destination = tempfile::tempdir()?;
     let path = destination.path().join("capture");
     let mut app = App::new();
+    app.profile.logging.rotate_rows = 2;
     app.profile
         .set_log_selection(iolink_workbench::profile::LogSelection::Fields(vec![
             "switch".into(),
@@ -1109,11 +1110,11 @@ fn stop_and_flush_from_another_tab_can_review_the_recording() -> Result<()> {
     let ctx = Context::default();
     let size = egui::vec2(790.0, 530.0);
     let deadline = Instant::now() + Duration::from_secs(10);
-    while app.live.counts.received == 0 && Instant::now() < deadline {
+    while app.live.counts.received < 3 && Instant::now() < deadline {
         draw(&mut app, &ctx, size);
         std::thread::sleep(Duration::from_millis(5));
     }
-    assert!(app.live.counts.received > 0);
+    assert!(app.live.counts.received >= 3);
     app.tab = Tab::Inputs;
     click(&mut app, &ctx, size, "Inspect bytes offline");
     assert_eq!(app.tab, Tab::Offline);
@@ -1134,7 +1135,7 @@ fn stop_and_flush_from_another_tab_can_review_the_recording() -> Result<()> {
     assert!(
         !found
             .iter()
-            .any(|(text, _)| text == "Review latest recording")
+            .any(|(text, _)| text == "Verify latest recording")
     );
     app.tab = Tab::Integration;
     click(&mut app, &ctx, size, "Stop and flush");
@@ -1148,20 +1149,24 @@ fn stop_and_flush_from_another_tab_can_review_the_recording() -> Result<()> {
     assert!(report.success() && report.csv_rows_flushed > 0 && report.csv_rows_unconfirmed == 0);
     let rows = report.csv_rows_flushed;
     let parts = report.csv_parts;
+    assert!(parts > 1);
     // The operator can review the stored selection while a different selection is applied.
     app.profile
         .set_log_selection(iolink_workbench::profile::LogSelection::All)?;
     assert_eq!(app.profile.log_fields()[0].name, "level");
     app.setup.sync(&app.profile);
-    let joined = destination.path().join("must-not-be-written.csv");
+    let joined = destination.path().join("combined.csv");
     app.tab = Tab::Offline;
     click(&mut app, &ctx, size, "Saved captures");
-    paste(&mut app, &ctx, size, "Capture folder", "another-capture");
+    drop_paths(&mut app, &ctx, size, &[&path.join("capture.toml")]);
+    assert_eq!(app.saved_capture.page, saved_capture::Page::Verify);
+    assert_eq!(app.pending_jobs(), 0);
+    click(&mut app, &ctx, size, "Exports");
     paste(
         &mut app,
         &ctx,
         size,
-        "Optional new CSV filename",
+        "New combined CSV filename",
         &joined.display().to_string(),
     );
     // A later monitor session supersedes the timing report, but not the last saved recording.
@@ -1178,27 +1183,11 @@ fn stop_and_flush_from_another_tab_can_review_the_recording() -> Result<()> {
     assert_eq!(next.parent(), path.parent());
     assert_ne!(next, path);
     assert!(!next.exists());
-    click(&mut app, &ctx, size, "Review latest recording");
+    click(&mut app, &ctx, size, "Verify latest recording");
     assert_eq!(app.tab, Tab::Offline);
     assert_eq!(app.workspace.offline, OfflinePage::Captures);
-    assert_eq!(
-        app.pending_jobs(),
-        0,
-        "Selecting a recording must not dispatch verification"
-    );
+    assert_eq!(app.saved_capture.page, saved_capture::Page::Verify);
     assert!(!joined.exists());
-    assert!(
-        draw(&mut app, &ctx, size)
-            .iter()
-            .any(|(text, _)| text == "Verify capture")
-    );
-    assert!(
-        app.saved_capture
-            .select_directory(&destination.path().join("other-capture"))
-    );
-    drop_paths(&mut app, &ctx, size, &[&path.join("capture.toml")]);
-    assert_eq!(app.pending_jobs(), 0);
-    click(&mut app, &ctx, size, "Verify capture");
     click(&mut app, &ctx, size, "Signal");
     while app.pending_jobs() > 0 && Instant::now() < deadline {
         draw(&mut app, &ctx, size);
@@ -1245,9 +1234,24 @@ fn stop_and_flush_from_another_tab_can_review_the_recording() -> Result<()> {
     assert_eq!(app.pending_jobs(), 0);
     assert!(
         !joined.exists(),
-        "An unrelated combined CSV destination must not carry over"
+        "Verification must not publish a pending export"
     );
     click(&mut app, &ctx, size, "Exports");
+    let manifest_before = fs::read(path.join("capture.toml"))?;
+    click(&mut app, &ctx, size, "Verify and save combined CSV");
+    while app.pending_jobs() > 0 && Instant::now() < deadline {
+        draw(&mut app, &ctx, size);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let mut csv = csv::Reader::from_path(&joined)?;
+    let fields = csv.headers()?;
+    assert_eq!(fields.get(fields.len() - 2), Some("value.switch"));
+    assert_eq!(fields.get(fields.len() - 1), Some("value.level [mm]"));
+    assert_eq!(
+        csv.records().collect::<csv::Result<Vec<_>>>()?.len() as u64,
+        rows
+    );
+    assert_eq!(fs::read(path.join("capture.toml"))?, manifest_before);
     let exported = destination.path().join("redecoded");
     paste(
         &mut app,

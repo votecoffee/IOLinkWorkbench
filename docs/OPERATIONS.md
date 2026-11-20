@@ -18,7 +18,7 @@ Run these commands from the extracted package directory. Use new output names: p
 
 These commands use a synthetic device. They establish software behavior, not physical timing or identity. The GUI starts offline with a typed simulator. Device → Overview links the setup tasks; Profiles… separates bundled starting profiles from Open & save. Starting or loading a profile returns to the overview without connecting. Device edits the applied host profile, Inputs displays monitoring, Logging starts CSV acquisition, and the review tools reopen saved evidence without connecting.
 
-Drag one TOML profile or IODD XML/ZIP onto the GUI to select its path; loading or inspection still requires an explicit click. Pending edits and active setup owners block drops. After stopping CSV recording, use Review latest recording to select its folder in Offline, then choose Verify capture. Signal, Exports and Compare captures have their own pages. See the [GUI workflow](GUI_WORKFLOW.md) for file selection, the tab map, persistent controls, review/profile windows and first session.
+Drag one TOML profile or IODD XML/ZIP onto the GUI to select its path; loading or inspection still requires an explicit click. Pending edits and active setup owners block drops. After stopping CSV recording, use **Verify latest recording** to open its folder and check it in Offline. Signal, Exports and Compare captures have their own pages. To join CSV parts, enter a new filename on Exports and choose **Verify and save combined CSV**. See the [GUI workflow](GUI_WORKFLOW.md) for file selection, the tab map, persistent controls, review/profile windows and first session.
 
 ## Descriptions, identity and manual mapping
 

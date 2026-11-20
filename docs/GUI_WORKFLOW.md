@@ -22,7 +22,7 @@ The workspace follows EthernetIP Workbench's Device → Inputs → Logging patte
 5. Choose **Connect…**, review the actual route, port, poll interval, expected identity and enabled feeds, then **Start monitor**. The app opens **Inputs**. Inspect **Diagnostics → Connection & identity** for observations. Import and configured expectations do not verify the device.
 6. To log, finish the current monitor session with **Stop and flush**, then choose **Record CSV…**. Select a new folder, duration and CSV fields in **Logging**, then **Start CSV capture**. Zero duration means manual stop. Recording can also start directly while idle.
 7. Switch tabs freely during acquisition. **Stop and flush** remains in the header and ends the IO-Link acquisition session, draining any CSV writer. Wait for completion before starting another session. Unlike EthernetIP Workbench, this application does not attach a CSV recorder to a separately retained connection.
-8. Choose **Review latest recording** in **Logging** or **Offline → Saved captures**. This selects the last finalized CSV folder from this app session. On **Verify**, choose **Verify capture**. After verification, **Choose a signal** opens the Signal page. Select a saved field and choose **Review field**. You can also enter any finalized capture folder.
+8. Choose **Verify latest recording** in **Logging** or **Offline → Saved captures**. This opens the Verify page and checks the last finalized CSV folder from this app session. **Choose a signal** opens the Signal page after verification. Select a saved field and choose **Review field**. For an earlier recording, enter its folder and choose **Verify capture**.
 
 Unapplied changes remain visible in the header even when their page is hidden. **Review pending edits** returns to the correct draft. Setup, mapping and profile-file changes are disabled during acquisition or an active parameter read; integration changes apply to the next session. Independent parameter reads and saved reviews keep their existing background ownership and do not become sampling locks.
 
@@ -68,9 +68,9 @@ One acyclic read can run at a time while cyclic acquisition continues. Switch pa
 
 | Page | Use it for |
 |---|---|
-| Verify | Check the saved files and inspect recorded timing, identity and interface metrics. Fill in Combined CSV to choose **Verify and save combined CSV**. |
+| Verify | Check the saved files and inspect recorded timing, identity and interface metrics. |
 | Signal | Review a logged value with its plot and statistics. The picker lists verified fields and units in CSV order. |
-| Exports | Re-decode with the applied profile, or verify an existing re-decoded bundle. |
+| Exports | Combine verified CSV parts into one new file, re-decode with the applied profile, or verify an existing re-decoded bundle. |
 | Compare captures | Verify two independently selected folders and compare their recorded context and metrics. |
 
 The field picker starts with the first logged column. Before verification, type a field name or leave the field blank to use that first column. Signal review checks the capture again as it builds the plot. A verified capture without typed columns offers **Open re-decode options**.
@@ -89,6 +89,6 @@ Selecting another IODD clears the previous inspection, variant/layout and ZIP-me
 
 ## Verification scope
 
-In-process egui tests check page isolation and toolbar bounds at **790×530** and **1130×790**, review/profile navigation, starter selection and guarded replacement, failed-load and source-file preservation, overview routing, synthetic file-drop routing and explicit load/inspect/apply, Unicode paths, rejected multi-file/unsupported drops, hover geometry, hidden-draft recovery, acyclic result attribution after selection and page changes, and stopping an actual simulator capture from another tab and reopening its finalized folder for verification, signal review and re-decoding across page changes. Synthetic pointer events stay inside an isolated egui context; no desktop input is sent.
+In-process egui tests check page isolation and toolbar bounds at **790×530** and **1130×790**, review/profile navigation, starter selection and guarded replacement, failed-load and source-file preservation, overview routing, synthetic file-drop routing and explicit load/inspect/apply, Unicode paths, rejected multi-file/unsupported drops, hover geometry, hidden-draft recovery, and acyclic result attribution after selection and page changes. The rotated simulator capture test stops recording from another tab, verifies the latest capture with a pending export path, then reviews a signal, combines the CSV parts and re-decodes across page changes. Synthetic pointer events stay inside an isolated egui context.
 
 The capability-checked native verifier paints 98 built-in profile/page/dialog and observation cases at **1130×790** into a hidden OpenGL framebuffer. It sends no input and reads no pixels. These checks establish layout geometry, workflow behavior and draw submission. Visible appearance, Explorer/OS drop delivery, window-manager interaction, DPI and physical-device acceptance remain separate. The preview case supplies synthetic hover metadata without desktop input or file access.

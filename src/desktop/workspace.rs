@@ -401,11 +401,11 @@ impl App {
             if ui
                 .add_enabled(
                     self.saved_capture.can_select_directory(),
-                    egui::Button::new("Review latest recording"),
+                    egui::Button::new("Verify latest recording"),
                 )
                 .on_disabled_hover_text("Wait for the active capture review to finish")
                 .clicked()
-                && self.saved_capture.select_directory(&recording.directory)
+                && self.saved_capture.verify_directory(&recording.directory)
             {
                 self.tab = Tab::Offline;
                 self.workspace.offline = OfflinePage::Captures;

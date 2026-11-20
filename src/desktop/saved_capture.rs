@@ -12,6 +12,7 @@ mod interfaces;
 mod review;
 
 enum ExportOutcome {
+    Combined(Box<archive::Summary>),
     Written(Box<archive::Redecode>),
     Verified(Box<archive::ExportVerification>),
 }
@@ -117,6 +118,21 @@ impl Verifier {
         self.page = Page::Verify;
         self.set_directory(path.into());
         true
+    }
+
+    pub(super) fn verify_directory(&mut self, directory: &Path) -> bool {
+        if !self.select_directory(directory) {
+            return false;
+        }
+        self.start_verification();
+        true
+    }
+
+    fn start_verification(&mut self) {
+        let directory = PathBuf::from(self.directory.trim());
+        self.verify.start("verify-saved-capture", move || {
+            archive::review_interfaces(&directory, None)
+        });
     }
 
     pub(super) fn select_bundle(&mut self, directory: &Path) -> bool {
@@ -231,28 +247,15 @@ impl Verifier {
 
     fn show_verify(&mut self, ui: &mut Ui, editable: bool) {
         ui.small("Drop capture.toml from Explorer to select its folder.");
-        ui.add_enabled_ui(editable, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.label("Combined CSV");
-                path_entry(ui, &mut self.joined_csv, "Optional new CSV filename");
-            });
-            let action = if self.joined_csv.trim().is_empty() {
-                "Verify capture"
-            } else {
-                "Verify and save combined CSV"
-            };
-            if ui
-                .add_enabled(!self.directory.trim().is_empty(), egui::Button::new(action))
-                .clicked()
-            {
-                let directory = PathBuf::from(self.directory.trim());
-                let destination = self.joined_csv.trim();
-                let joined_csv = (!destination.is_empty()).then(|| PathBuf::from(destination));
-                self.verify.start("verify-saved-capture", move || {
-                    archive::review_interfaces(&directory, joined_csv.as_deref())
-                });
-            }
-        });
+        if ui
+            .add_enabled(
+                editable && !self.directory.trim().is_empty(),
+                egui::Button::new("Verify capture"),
+            )
+            .clicked()
+        {
+            self.start_verification();
+        }
         self.verify.show_error(ui);
         if let Some(verified) = self.verify.value() {
             ui.colored_label(ACCENT, "CSV data matches the saved report");
@@ -337,6 +340,23 @@ impl Verifier {
         mapping_available: bool,
     ) {
         ui.add_enabled_ui(editable, |ui| {
+            ui.strong("Combine CSV parts");
+            ui.horizontal_wrapped(|ui| {
+                path_entry(ui, &mut self.joined_csv, "New combined CSV filename");
+                let ready = !self.directory.trim().is_empty() && !self.joined_csv.trim().is_empty();
+                if ui
+                    .add_enabled(ready, egui::Button::new("Verify and save combined CSV"))
+                    .clicked()
+                {
+                    let directory = PathBuf::from(self.directory.trim());
+                    let destination = PathBuf::from(self.joined_csv.trim());
+                    self.exports.start("combine-saved-capture", move || {
+                        let verified = archive::review_interfaces(&directory, Some(&destination))?;
+                        Ok(ExportOutcome::Combined(Box::new(verified.capture)))
+                    });
+                }
+            });
+            ui.separator();
             ui.strong("Re-decode with applied profile mapping");
             ui.label(format!(
                 "Mapping · {} · {} bytes · {} selected fields",
@@ -410,6 +430,7 @@ impl Verifier {
         });
         self.exports.show_error(ui);
         match self.exports.value() {
+            Some(ExportOutcome::Combined(summary)) => show_summary(ui, summary),
             Some(ExportOutcome::Written(receipt)) => show_export(ui, receipt),
             Some(ExportOutcome::Verified(check)) => show_export_check(ui, check),
             None => {}
