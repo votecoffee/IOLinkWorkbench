@@ -314,9 +314,9 @@ pub(super) fn render(
                                 "SYNTHETIC-MASTER",
                                 Operation::Isdu {
                                     index: 66,
-                                    subindex: 3,
-                                    expected: "FF".into(),
-                                    desired: "0A".into(),
+                                    subindex: 0,
+                                    expected: "FFEC010A41000000".into(),
+                                    desired: "FFEC000A42000000".into(),
                                 },
                             )?);
                         }

@@ -2,7 +2,7 @@
 use super::{Client, InputTransport, label, number};
 use crate::{
     decode::{MAX_INPUT, hex, parse_hex_bounded},
-    iodd::{Access, AssessmentStatus, DecodedParameter, Parameter},
+    iodd::{Access, DecodedParameter, Parameter},
     profile::{Connection, Gateway, Identity, Profile},
 };
 use anyhow::{Context, Result, ensure};
@@ -140,10 +140,11 @@ pub enum IsduValueReview {
         parameter_id: String,
         name: String,
         datatype: String,
+        interpretation: Box<DecodedParameter>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        interpretation: Option<Box<DecodedParameter>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        manual_review: Option<&'static str>,
+        manual_review: Option<String>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        preserved_read_only: Vec<u8>,
     },
 }
 
@@ -258,15 +259,16 @@ impl Plan {
                     expected,
                     desired,
                 } => {
-                    let before = hex(&parse_hex_bounded(expected, MAX_ISDU_BYTES)?);
+                    let before = parse_hex_bounded(expected, MAX_ISDU_BYTES)?;
                     let proposed = parse_hex_bounded(desired, MAX_ISDU_BYTES)?;
-                    isdu_value_review = Some(review_isdu_value(iodd_parameter, &proposed)?);
+                    isdu_value_review =
+                        Some(review_isdu_value(iodd_parameter, &before, &proposed)?);
                     let after = hex(&proposed);
                     (
                         "isdu",
                         format!("{device}/iolwriteacyclic"),
                         json!({"index": index, "subindex": subindex, "value": after}),
-                        Some(json!(before)),
+                        Some(json!(hex(&before))),
                         json!(after),
                         None,
                     )
@@ -516,59 +518,23 @@ fn writable_parameter(profile: &Profile, index: u16, subindex: u8) -> Result<Opt
     Ok(Some(selected))
 }
 
-fn review_isdu_value(parameter: Option<&Parameter>, proposed: &[u8]) -> Result<IsduValueReview> {
+fn review_isdu_value(
+    parameter: Option<&Parameter>,
+    expected: &[u8],
+    proposed: &[u8],
+) -> Result<IsduValueReview> {
     let Some(parameter) = parameter else {
         return Ok(IsduValueReview::NoIoddParameter);
     };
-    let (interpretation, manual_review) = if parameter.record.is_some() || parameter.array.is_some()
-    {
-        ensure!(
-            parameter.width().map(|bits| usize::from(bits).div_ceil(8)) == Some(proposed.len()),
-            "proposed ISDU payload width differs from the IODD for {}",
-            parameter.name
-        );
-        (
-            None,
-            Some("Review the complete record or array and its member values manually."),
-        )
-    } else {
-        let decoded = parameter.decode(proposed);
-        ensure!(
-            decoded.raw_value.is_some() || decoded.decode_error.is_none(),
-            "proposed ISDU payload for {}: {}",
-            parameter.name,
-            decoded.decode_error.as_deref().unwrap_or_default()
-        );
-        let assessment = decoded.value_assessment.as_ref().map(|value| value.status);
-        ensure!(
-            assessment != Some(AssessmentStatus::OutsideDefinition),
-            "proposed ISDU value for {} is outside the IODD choices or ranges",
-            parameter.name
-        );
-        ensure!(
-            assessment != Some(AssessmentStatus::NotComparable),
-            "proposed ISDU value for {} cannot be compared with the IODD choices or ranges",
-            parameter.name
-        );
-        let manual_review = if decoded.raw_value.is_none() {
-            Some("Review the raw bytes against the device documentation for this datatype.")
-        } else if matches!(
-            assessment,
-            Some(AssessmentStatus::DefinitionNeedsReview | AssessmentStatus::NotEvaluated)
-        ) {
-            Some("Review the declared choices or ranges manually.")
-        } else if decoded.decode_error.is_some() {
-            Some("Review the IODD display interpretation manually.")
-        } else {
-            None
-        };
-        (Some(Box::new(decoded)), manual_review)
-    };
+    let reviewed = parameter
+        .review_write(expected, proposed)
+        .with_context(|| format!("ISDU write review for {}", parameter.name))?;
     Ok(IsduValueReview::Iodd {
         parameter_id: parameter.id.clone(),
         name: parameter.name.clone(),
         datatype: parameter.datatype.clone(),
-        interpretation,
-        manual_review,
+        interpretation: Box::new(reviewed.decoded),
+        manual_review: reviewed.manual_review,
+        preserved_read_only: reviewed.preserved_read_only,
     })
 }

@@ -411,21 +411,29 @@ fn show_review(ui: &mut Ui, plan: &Plan) {
             datatype,
             interpretation,
             manual_review,
+            preserved_read_only,
             ..
         }) => {
-            let value = interpretation
-                .as_ref()
-                .and_then(|decoded| decoded.raw_value.as_deref());
-            ui.label(match value {
+            ui.label(match interpretation.raw_value.as_deref() {
                 Some(value) => format!("IODD · {name} · {datatype} · {value}"),
                 None => format!("IODD · {name} · {datatype}"),
             });
+            if !preserved_read_only.is_empty() {
+                let subindexes = preserved_read_only
+                    .iter()
+                    .map(u8::to_string)
+                    .collect::<Vec<_>>();
+                ui.label(format!(
+                    "Read-only subindexes preserved · {}",
+                    subindexes.join(", ")
+                ));
+            }
             if let Some(note) = manual_review {
-                ui.colored_label(WARNING, *note);
+                ui.colored_label(WARNING, note);
             }
-            if let Some(decoded) = interpretation {
-                ui.collapsing("IODD value details", |ui| ui.monospace(decoded.text()));
-            }
+            ui.collapsing("IODD value details", |ui| {
+                ui.monospace(interpretation.text())
+            });
         }
         None => {}
     }

@@ -159,10 +159,10 @@ def verify(cli, profile, server):
     assert receipt["readback"] == server.output == "0304"
     assert "same full byte width" in run([*output[:-1], "03"], status=1)
 
-    def import_for_write(name):
-        imported = profile.parent / f"{name}-imported.toml"
-        configured = profile.parent / f"{name}-configured.toml"
-        subprocess.run([cli, "import", ROOT / f"samples/{name}.xml", imported, "--variant", "SIM-SENSOR"],
+    def import_for_write(source):
+        imported = profile.parent / f"{source.stem}-imported.toml"
+        configured = profile.parent / f"{source.stem}-configured.toml"
+        subprocess.run([cli, "import", source, imported, "--variant", "SIM-SENSOR"],
                        env=env, check=True, capture_output=True, timeout=15)
         subprocess.run([cli, "set-connection", imported, configured, "--gateway", "ifm-al1350",
                         "--endpoint", f"http://127.0.0.1:{server.server_port}", "--port", "2",
@@ -170,11 +170,30 @@ def verify(cli, profile, server):
                        env=env, check=True, capture_output=True, timeout=15)
         return configured
 
-    configured = import_for_write("sensor")
-    formats = import_for_write("sensor-formats")
+    configured = import_for_write(ROOT / "samples/sensor.xml")
+    formats = import_for_write(ROOT / "samples/sensor-formats.xml")
+    array_source = profile.parent / "writable-array.xml"
+    array_text = (ROOT / "samples/sensor-array.xml").read_text(encoding="utf-8")
+    array_source.write_text(array_text.replace('accessRights="ro"', 'accessRights="rw"')
+                            .replace('upperValue="7"', 'upperValue="5"')
+                            .replace('subindexAccessSupported="true"', 'subindexAccessSupported="false"'),
+                            encoding="utf-8", newline="\n")
+    arrays = import_for_write(array_source)
+    write_only_source = profile.parent / "record-with-write-only.xml"
+    record_text = (ROOT / "samples/sensor-formats.xml").read_text(encoding="utf-8")
+    write_only_source.write_text(record_text.replace('subindex="2" bitOffset="40"',
+                                 'subindex="2" bitOffset="40" accessRightRestriction="wo"'),
+                                 encoding="utf-8", newline="\n")
+    write_only_record = import_for_write(write_only_source)
+    unknown_width_source = profile.parent / "record-with-unknown-width.xml"
+    unknown_width_source.write_text(record_text.replace('fixedLength="4" encoding="US-ASCII"',
+                                                       'encoding="US-ASCII"'),
+                                    encoding="utf-8", newline="\n")
+    unknown_width_record = import_for_write(unknown_width_source)
     member = ["isdu", "--index", "66", "--subindex", "3", "--expected", "FF", "--desired", "0A"]
     signed = ["isdu", "--index", "64", "--expected", "0001", "--desired", "FFFE"]
-    compound = ["isdu", "--index", "66", "--expected", "0000000000000000", "--desired", "0000000A41000000"]
+    compound = ["isdu", "--index", "66", "--expected", "FFEC010A41000000", "--desired", "FFEC000A42000000"]
+    array = ["isdu", "--index", "67", "--expected", "A2C49570", "--desired", "A2C495F0"]
     before = len(server.requests)
     assert "does not declare this parameter read/write" in run(
         ["isdu", "--index", "65", "--expected", "01", "--desired", "02"], status=1, target=configured)
@@ -183,9 +202,29 @@ def verify(cli, profile, server):
     assert "outside the IODD choices or ranges" in run([*member[:-1], "0B"], status=1, target=formats)
     assert "width differs from the IODD" in run([*signed[:-1], "FE"], status=1, target=formats)
     assert "width differs from the IODD" in run([*compound[:-1], "00"], status=1, target=formats)
+    assert "expected compound payload width differs" in run(
+        [*compound[:4], "00", *compound[5:]], status=1, target=formats)
+    assert "changes read-only subindex 1" in run([*compound[:-1], "FFED000A42000000"], status=1, target=formats)
+    assert "outside declared writable members" in run([*compound[:-1], "FFEC020A42000000"], status=1, target=formats)
+    assert "outside the IODD choices or ranges" in run([*compound[:-1], "FFEC000B42000000"], status=1, target=formats)
+    assert "is not US-ASCII" in run([*compound[:-1], "FFEC000AFF000000"], status=1, target=formats)
+    assert "subindex 2 is write-only" in run(compound, status=1, target=write_only_record)
+    assert "IODD width is unavailable for subindex 4" in run(compound, status=1, target=unknown_width_record)
     compound_review = preview(compound, target=formats)["target_and_request"]["isdu_value_review"]
-    assert compound_review["datatype"] == "RecordT" and "manual_review" in compound_review
-    assert "interpretation" not in compound_review
+    assert compound_review["datatype"] == "RecordT" and "manual_review" not in compound_review
+    assert compound_review["preserved_read_only"] == [1]
+    fields = compound_review["interpretation"]["record_items"]
+    assert [(field["subindex"], field["value"]["raw_value"]) for field in fields] == [
+        (1, "-20"), (2, "false"), (3, "10"), (4, "B")]
+    assert "does not permit access to this subindex" in run(
+        [*array[:3], "--subindex", "6", "--expected", "07", "--desired", "0F"], status=1, target=arrays)
+    assert "outside declared writable members" in run([*array[:-1], "02C495F0"], status=1, target=arrays)
+    assert "outside the IODD choices or ranges" in run([*array[:-1], "A2C49560"], status=1, target=arrays)
+    array_review = preview(array, target=arrays)["target_and_request"]["isdu_value_review"]
+    assert array_review["datatype"] == "ArrayT" and "manual_review" not in array_review
+    assert [(field["bit_offset"], field["value"]["raw_value"])
+            for field in array_review["interpretation"]["array_items"]] == [
+                (24, "2"), (20, "-4"), (16, "4"), (12, "-7"), (8, "5"), (4, "-1"), (0, "0")]
     signed_review = preview(signed, target=formats)["target_and_request"]["isdu_value_review"]
     assert signed_review["datatype"] == "IntegerT" and signed_review["interpretation"]["raw_value"] == "-2"
     assert "manual_review" not in signed_review
@@ -201,7 +240,20 @@ def verify(cli, profile, server):
     assert value_review["interpretation"]["raw_value"] == "10"
     assert value_review["interpretation"]["value_assessment"]["status"] == "allowed"
     assert receipt["readback"] == server.parameters[66, 3] == "0A"
-    print("PASS: checked reads, offline plans and IODD value review, exact target checks, four write paths, readback, and single dispatch on uncertain outcomes")
+
+    compound_plan = preview(compound, target=formats)
+    server.parameters[66, 0] = "FFED010A41000000"
+    writes = len(server.writes)
+    assert "write blocked before dispatch" in run(
+        compound, confirm=compound_plan["confirmation"], status=1, target=formats)
+    assert len(server.writes) == writes
+    server.parameters[66, 0] = compound[4]
+    _, receipt = apply(compound, "readback_matched", target=formats)
+    assert receipt["readback"] == server.parameters[66, 0] == compound[-1]
+    server.parameters[67, 0] = array[4]
+    _, receipt = apply(array, "readback_matched", target=arrays)
+    assert receipt["readback"] == server.parameters[67, 0] == array[-1]
+    print("PASS: checked reads, offline IODD value and compound member review, exact target checks, four write paths, readback, and single dispatch on uncertain outcomes")
 
 
 def main():

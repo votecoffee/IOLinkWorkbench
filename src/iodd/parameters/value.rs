@@ -1,5 +1,6 @@
-use super::{Access, DisplayValue, Parameter};
-use crate::decode::hex;
+use super::{Access, AssessmentStatus, DisplayValue, Parameter};
+use crate::decode::{extract_bits, hex};
+use anyhow::{Context, Result, bail, ensure};
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -25,6 +26,12 @@ pub struct RecordValue {
     pub name: String,
     pub bit_offset: u16,
     pub value: DecodedParameter,
+}
+
+pub(crate) struct WriteValueReview {
+    pub decoded: DecodedParameter,
+    pub manual_review: Option<String>,
+    pub preserved_read_only: Vec<u8>,
 }
 
 impl DecodedParameter {
@@ -97,9 +104,122 @@ impl DecodedParameter {
         }
         text
     }
+
+    fn review_write_value(&self) -> Result<Option<&'static str>> {
+        if self.raw_value.is_none() {
+            if let Some(error) = &self.decode_error {
+                bail!("{error}");
+            }
+            return Ok(Some(
+                "Review the raw bytes against the device documentation for this datatype.",
+            ));
+        }
+        match self.value_assessment.as_ref().map(|value| value.status) {
+            Some(AssessmentStatus::OutsideDefinition) => {
+                bail!("value is outside the IODD choices or ranges")
+            }
+            Some(AssessmentStatus::NotComparable) => {
+                bail!("value cannot be compared with the IODD choices or ranges")
+            }
+            Some(AssessmentStatus::DefinitionNeedsReview | AssessmentStatus::NotEvaluated) => {
+                Ok(Some("Review the declared choices or ranges manually."))
+            }
+            _ if self.decode_error.is_some() => {
+                Ok(Some("Review the IODD display interpretation manually."))
+            }
+            _ => Ok(None),
+        }
+    }
 }
 
 impl Parameter {
+    /// Review a write image offline. A compound image may change only declared writable bits.
+    pub(crate) fn review_write(
+        &self,
+        expected: &[u8],
+        proposed: &[u8],
+    ) -> Result<WriteValueReview> {
+        let decoded = self.decode(proposed);
+        if !matches!(self.datatype.as_str(), "RecordT" | "ArrayT") {
+            return Ok(WriteValueReview {
+                manual_review: decoded.review_write_value()?.map(str::to_owned),
+                decoded,
+                preserved_read_only: Vec::new(),
+            });
+        }
+
+        ensure!(
+            self.record.is_some() || self.array.is_some(),
+            "IODD compound layout is unavailable"
+        );
+        let length = self.width().map(|bits| usize::from(bits).div_ceil(8));
+        ensure!(
+            length == Some(proposed.len()),
+            "proposed compound payload width differs from the IODD"
+        );
+        ensure!(
+            length == Some(expected.len()),
+            "expected compound payload width differs from the IODD"
+        );
+        if let Some(error) = &decoded.decode_error {
+            bail!("{error}");
+        }
+
+        let mut writable = vec![0u8; proposed.len()];
+        let mut preserved_read_only = Vec::new();
+        let mut manual_members = Vec::new();
+        for item in decoded.record_items.iter().chain(&decoded.array_items) {
+            let member = self.target(item.subindex)?;
+            let subindex = item.subindex;
+            ensure!(
+                member.access != Access::WriteOnly,
+                "subindex {subindex} is write-only and cannot be verified by readback"
+            );
+            let width = member
+                .width()
+                .with_context(|| format!("IODD width is unavailable for subindex {subindex}"))?;
+            if member.access == Access::ReadOnly {
+                ensure!(
+                    extract_bits(expected, item.bit_offset, width)?
+                        == extract_bits(proposed, item.bit_offset, width)?,
+                    "proposed value changes read-only subindex {subindex}"
+                );
+                preserved_read_only.push(subindex);
+            } else {
+                if item
+                    .value
+                    .review_write_value()
+                    .with_context(|| format!("subindex {subindex} ({})", item.name))?
+                    .is_some()
+                {
+                    manual_members.push(subindex.to_string());
+                }
+                let length = writable.len();
+                for bit in item.bit_offset..item.bit_offset + width {
+                    writable[length - 1 - usize::from(bit / 8)] |= 1 << (bit % 8);
+                }
+            }
+        }
+        ensure!(
+            expected
+                .iter()
+                .zip(proposed)
+                .zip(&writable)
+                .all(|((&before, &after), &mask)| (before ^ after) & !mask == 0),
+            "proposed payload changes bits outside declared writable members"
+        );
+        Ok(WriteValueReview {
+            decoded,
+            manual_review: (!manual_members.is_empty()).then(|| {
+                format!(
+                    "Review the IODD details for subindexes {} manually.",
+                    manual_members.join(", ")
+                )
+            }),
+            preserved_read_only,
+        })
+    }
+
     /// Decode an acyclic payload without any transport access. Raw bytes survive errors.
     pub fn decode(&self, payload: &[u8]) -> DecodedParameter {
         if payload.is_empty() || payload.len() > 232 {

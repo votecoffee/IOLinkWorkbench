@@ -2,7 +2,7 @@
 
 ## Windows preview
 
-- ISDU write previews show the IODD interpretation of proposed bytes. They reject supported datatype and value-domain failures offline and flag manual review for unsupported, ambiguous, compound and raw addresses. Bench qualification remains open.
+- ISDU write previews show the IODD interpretation of proposed bytes, including whole records and packed arrays. They reject supported datatype and value-domain failures offline and require bits outside declared writable members to match the expected image. Unsupported or ambiguous value definitions remain flagged for manual review. Bench qualification remains open.
 
 - Inputs can copy the displayed raw bytes into the offline decoder together with receipt quality and the original mapping. The copied sample and pasted draft have separate views.
 
