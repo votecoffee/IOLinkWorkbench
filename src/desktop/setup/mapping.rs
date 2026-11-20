@@ -99,6 +99,8 @@ impl Form {
                         );
                         ui.selectable_value(&mut field.kind, Kind::Utf8String, "UTF-8 string");
                         ui.selectable_value(&mut field.kind, Kind::AsciiString, "US-ASCII string");
+                        ui.selectable_value(&mut field.kind, Kind::Time, "TimeT (64 bits)");
+                        ui.selectable_value(&mut field.kind, Kind::TimeSpan, "TimeSpanT (64 bits)");
                     });
                 ui.end_row();
                 ui.label("Byte order");

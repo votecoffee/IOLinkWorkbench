@@ -107,6 +107,8 @@ pub struct SignalReview {
     pub octet_values: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub strings: Option<StringSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temporal_values: Option<u64>,
     pub buckets_requested: usize,
     pub buckets: Vec<Bucket>,
 }
@@ -176,6 +178,9 @@ impl Collector {
                     Kind::Utf8String | Kind::AsciiString => {
                         "Quoted text and encoding errors from nonblank CSV cells"
                     }
+                    Kind::Time | Kind::TimeSpan => {
+                        "Exact decimal device ticks from saved CSV cells, at 4294967296 ticks/s"
+                    }
                     _ => {
                         "approximate f64 statistics of saved typed CSV cells; Boolean false/true = 0/1; blank and non-finite cells excluded; first/last retain nonblank CSV text; original CSV unchanged"
                     }
@@ -183,6 +188,7 @@ impl Collector {
                 numeric: NumericSummary::default(),
                 octet_values: octets.then_some(0),
                 strings: field.kind.is_text().then(StringSummary::default),
+                temporal_values: field.kind.is_temporal().then_some(0),
                 buckets_requested: buckets,
                 buckets: (0..buckets)
                     .map(|bin| Bucket {
@@ -216,6 +222,10 @@ impl Collector {
             .get_or_insert_with(|| cell.to_owned());
         review.numeric.last_csv_value = Some(cell.to_owned());
         if let Some(count) = &mut review.octet_values {
+            *count += 1;
+            return;
+        }
+        if let Some(count) = &mut review.temporal_values {
             *count += 1;
             return;
         }

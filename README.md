@@ -152,6 +152,8 @@ The bundled **sensor-checksum.xml** and **sensor-checksum-de.xml** are original 
 
 **Cyclic text.** Fixed-length IODD `StringT` fields support UTF-8 and US-ASCII. Typed views, CSV, and saved-capture review distinguish quoted text, including empty text, from malformed data. The raw bytes and neighboring typed fields remain available when a text field has an encoding error. [Text mapping and profile compatibility](docs/OPERATIONS.md#cyclic-text)
 
+**Cyclic time.** IODD `TimeT` and `TimeSpanT` fields display UTC timestamps or signed durations. Their typed CSV columns store exact 64-bit ticks for offline verification and re-decode. Device time is separate from acquisition timing. [Temporal mapping and profile compatibility](docs/OPERATIONS.md#cyclic-timet-and-timespant)
+
 **Standalone Boolean input.** The IODD mapping uses the full wire byte. `00` is false, `FF` is true, and other nonzero bytes decode as true with an encoding warning. Packed Booleans use one bit. [Input mapping and profile compatibility](docs/OPERATIONS.md#standalone-boolean-input)
 
 **Standalone integer input.** A single IODD signed or unsigned integer can use a 1-, 2-, 4-, or 8-byte wire container. Workbench recognizes padded geometry when the declared input length matches the logical value width or its smallest applicable wire container. A 17-bit value then expects four wire bytes. Decoding uses the declared low bits and flags incorrect sign or zero padding while retaining the original payload and validity. Saved-capture review counts affected valid CSV rows. Re-import the IODD to enable this on an older profile. [IO-Link Interface and System Specification, Annex F.2](https://io-link.com/fileadmin/user_upload/Downloads/Package_2024/IOL-Interface-Spec_10002_V114_Jun24.pdf)

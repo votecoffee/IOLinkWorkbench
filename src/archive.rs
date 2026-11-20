@@ -319,7 +319,7 @@ fn check_values(
     }
     for (column, field) in fields.iter().enumerate() {
         let expected = if typed {
-            field.decode(&payload)?.value
+            field.csv_value(&payload)?
         } else {
             String::new()
         };

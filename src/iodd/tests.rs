@@ -410,6 +410,60 @@ fn string_process_data_uses_declared_encoding_and_isolates_bad_members() -> Resu
 }
 
 #[test]
+fn temporal_process_data_imports_records_arrays_and_standalone_fields() -> Result<()> {
+    use crate::profile::Profile;
+    let original =
+        r#"<ProcessDataIn id="IN" bitLength="16"><DatatypeRef datatypeId="PD"/></ProcessDataIn>"#;
+    let record = r#"<ProcessDataIn id="IN" bitLength="128"><Datatype xsi:type="RecordT" bitLength="128"><RecordItem subindex="1" bitOffset="64"><SimpleDatatype xsi:type="TimeT"/><Name textId="clock"/></RecordItem><RecordItem subindex="2" bitOffset="0"><SimpleDatatype xsi:type="TimeSpanT"/><Name textId="duration"/></RecordItem></Datatype><Name textId="record"/></ProcessDataIn>"#;
+    let import = |layout: &str| -> Result<Profile> {
+        let catalog = parse(
+            &SENSOR.replace(original, layout),
+            "synthetic device time".into(),
+        )?;
+        let (identity, imported) = catalog.select(Some("SIM-SENSOR"), None)?;
+        let mut profile = Profile::default();
+        profile.apply_iodd(identity, imported);
+        Profile::parse(&toml::to_string(&profile)?)
+    };
+    let profile = import(record)?;
+    let payload = crate::decode::parse_hex("0000000000000001FFFFFFFFFFFFFFFF")?;
+    let decoded = profile.decode(&payload)?;
+    assert_eq!(decoded[0].0.kind, Kind::Time);
+    assert_eq!(decoded[0].2.value, "2036-02-07 06:28:16.000 UTC");
+    assert_eq!(decoded[0].2.raw, "1");
+    assert_eq!(decoded[1].0.kind, Kind::TimeSpan);
+    assert_eq!(decoded[1].2.raw, "-1");
+
+    let misaligned = import(&record.replace("bitOffset=\"64\"", "bitOffset=\"63\""))?;
+    let mapped = misaligned.iodd.as_ref().unwrap();
+    assert_eq!(mapped.fields.len(), 1);
+    assert!(
+        mapped
+            .needs_input
+            .iter()
+            .any(|note| note.contains("byte-aligned"))
+    );
+
+    let array = r#"<ProcessDataIn id="IN" bitLength="128"><Datatype xsi:type="ArrayT" count="2"><SimpleDatatype xsi:type="TimeSpanT"/></Datatype><Name textId="intervals"/></ProcessDataIn>"#;
+    let profile = import(array)?;
+    let decoded = profile.decode(&payload)?;
+    assert_eq!(
+        (decoded[0].2.raw.as_str(), decoded[1].2.raw.as_str()),
+        ("1", "-1")
+    );
+
+    let standalone = r#"<ProcessDataIn id="IN" bitLength="64"><Datatype xsi:type="TimeT"/><Name textId="clock"/></ProcessDataIn>"#;
+    let profile = import(standalone)?;
+    assert_eq!(profile.decode(&payload[..8])?[0].0.bits, 64);
+    assert!(
+        import(&standalone.replace("64", "72"))?
+            .effective_fields()
+            .is_empty()
+    );
+    Ok(())
+}
+
+#[test]
 fn typed_output_field_edits_keep_wire_width_and_neighboring_bits() -> Result<()> {
     let mut layout = ProcessDataLayout {
         id: "OUT".into(),

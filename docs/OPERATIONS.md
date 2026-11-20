@@ -48,6 +48,12 @@ Select the acyclic-only layout in **Device → IODD import**. The CLI uses the I
 
 The saved profile retains identity, parameter and event definitions with zero input bytes. Use **Parameters** for ISDU reads and snapshots, **Diagnostics → Device events** for diagnostic reads, and **Device → Writes** for reviewed ISDU operations. Process input acquisition and process output operations require corresponding cyclic data. Acyclic-only profiles require v0.83.0 or later.
 
+### Cyclic TimeT and TimeSpanT
+
+The importer maps `TimeT` and `TimeSpanT` as eight-byte big-endian fields, including byte-aligned record members and array elements. The live and offline decoders show UTC or a signed duration, with the wire hex and exact tick count. `TimeT` uses the IO-Link era rule at seconds word `0x9DFF4400`. The display truncates to milliseconds and a negative sub-millisecond duration keeps its negative sign. Device clock validity and further era rollovers require external context. [IO-Link Interface and System Specification, Annex F.2.8–F.2.9](https://io-link.com/fileadmin/user_upload/Downloads/Package_2024/IOL-Interface-Spec_10002_V114_Jun24.pdf)
+
+CSV stores exact decimal ticks at 4,294,967,296 ticks per second for both types. These are payload values. Host receive timestamps, gateway source metadata and timing reports follow their separate acquisition rules. For manual input use **TimeT** or **TimeSpanT**, or `set-field --kind time` or `--kind time-span` with 64 bits and a byte-aligned offset. Reviewed writes to temporal outputs use complete hex images. Reimport earlier IODDs to add these mappings. Temporal field profiles require v0.94.0 or later.
+
 ### Cyclic text
 
 Fixed-length `StringT` input and output fields use the IODD encoding and byte-aligned layout. The supported encodings are UTF-8 and US-ASCII, including within records and arrays. Workbench strips trailing NUL padding from the typed text and retains all original bytes. A nonzero byte after the first NUL or a sequence outside the specified encoding produces an error for that field. [IO-Link Interface and System Specification, Annex F.2.6](https://io-link.com/fileadmin/user_upload/Downloads/Package_2024/IOL-Interface-Spec_10002_V114_Jun24.pdf)

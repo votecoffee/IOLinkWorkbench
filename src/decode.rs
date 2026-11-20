@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Write;
 
 pub const MAX_INPUT: usize = 32;
+pub(crate) mod temporal;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -23,6 +24,8 @@ pub enum Kind {
     OctetString,
     Utf8String,
     AsciiString,
+    Time,
+    TimeSpan,
 }
 
 impl Kind {
@@ -36,6 +39,18 @@ impl Kind {
 
     pub fn is_byte_sequence(self) -> bool {
         self.is_text() || self == Self::OctetString
+    }
+
+    fn temporal_datatype(self) -> Option<&'static str> {
+        match self {
+            Self::Time => Some("TimeT"),
+            Self::TimeSpan => Some("TimeSpanT"),
+            _ => None,
+        }
+    }
+
+    pub fn is_temporal(self) -> bool {
+        self.temporal_datatype().is_some()
     }
 }
 
@@ -113,6 +128,15 @@ impl Field {
                 self.name
             );
         }
+        if self.kind.is_temporal() {
+            ensure!(
+                self.bits == 64
+                    && self.bit_offset.is_multiple_of(8)
+                    && self.byte_order == ByteOrder::BigEndian,
+                "{}: temporal fields require 64 bits with byte-aligned big-endian offsets",
+                self.name
+            );
+        }
         ensure!(
             self.kind != Kind::Bool || matches!(self.bits, 1 | 8),
             "{}: bool needs one bit or one byte",
@@ -161,11 +185,32 @@ impl Field {
         Ok(value)
     }
 
+    fn aligned_bytes<'a>(&self, payload: &'a [u8]) -> Result<&'a [u8]> {
+        self.validate(payload.len())?;
+        let end = payload.len() - usize::from(self.bit_offset / 8);
+        Ok(&payload[end - usize::from(self.bits / 8)..end])
+    }
+
+    pub(crate) fn csv_value(&self, payload: &[u8]) -> Result<String> {
+        if let Some(datatype) = self.kind.temporal_datatype() {
+            return temporal::raw_ticks(datatype, self.aligned_bytes(payload)?);
+        }
+        Ok(self.decode(payload)?.value)
+    }
+
     pub fn decode(&self, payload: &[u8]) -> Result<Value> {
+        if let Some(datatype) = self.kind.temporal_datatype() {
+            let bytes = self.aligned_bytes(payload)?;
+            let decoded = temporal::decode(datatype, bytes)?;
+            return Ok(Value {
+                raw: decoded.raw_ticks,
+                bits_hex: hex(bytes),
+                value: decoded.value,
+                encoding_error: None,
+            });
+        }
         if self.kind.is_byte_sequence() {
-            self.validate(payload.len())?;
-            let end = payload.len() - usize::from(self.bit_offset / 8);
-            let bytes = &payload[end - usize::from(self.bits / 8)..end];
+            let bytes = self.aligned_bytes(payload)?;
             let bits_hex = hex(bytes);
             let (value, encoding_error) = if self.kind == Kind::OctetString {
                 (octet_sequence(bytes), None)
@@ -201,6 +246,7 @@ impl Field {
             Kind::OctetString | Kind::Utf8String | Kind::AsciiString => {
                 bail!("string fields have no numeric value")
             }
+            Kind::Time | Kind::TimeSpan => bail!("use the fixed-point temporal decoder"),
         };
         let unscaled = self.scale == 1.0 && self.offset == 0.0;
         let value = match self.decimals.map(usize::from) {
@@ -329,6 +375,67 @@ pub(crate) fn insert_bits(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn temporal_fields_format_device_time_and_log_exact_ticks() -> Result<()> {
+        let mut field = Field {
+            name: "Device time".into(),
+            bits: 64,
+            kind: Kind::Time,
+            bit_offset: 8,
+            ..Field::default()
+        };
+        let timestamp = 0x9DFF_4400_8000_0000u64;
+        let mut image = [0; 9];
+        image[..8].copy_from_slice(&timestamp.to_be_bytes());
+        image[8] = 1;
+        let value = field.decode(&image)?;
+        assert_eq!(value.value, "1984-01-01 00:00:00.500 UTC");
+        assert_eq!(value.bits_hex, "9DFF440080000000");
+        assert_eq!(value.raw, timestamp.to_string());
+        assert_eq!(field.csv_value(&image)?, value.raw);
+
+        field.kind = Kind::TimeSpan;
+        image[..8].copy_from_slice(&(-1i64).to_be_bytes());
+        assert_eq!(field.decode(&image)?.value, "-00:00:00.000");
+        assert_eq!(field.csv_value(&image)?, "-1");
+        image[..8].copy_from_slice(&i64::MIN.to_be_bytes());
+        assert_eq!(field.csv_value(&image)?, i64::MIN.to_string());
+        assert!(field.csv_value(&image[..8]).is_err());
+        assert!(
+            Field {
+                bit_offset: 1,
+                ..field.clone()
+            }
+            .validate(9)
+            .is_err()
+        );
+        assert!(
+            Field {
+                bits: 56,
+                ..field.clone()
+            }
+            .validate(9)
+            .is_err()
+        );
+        assert!(
+            Field {
+                byte_order: ByteOrder::LittleEndian,
+                ..field.clone()
+            }
+            .validate(9)
+            .is_err()
+        );
+        assert!(
+            Field {
+                scale: 0.5,
+                ..field
+            }
+            .validate(9)
+            .is_err()
+        );
+        Ok(())
+    }
 
     #[test]
     fn fixed_text_keeps_raw_bytes_and_distinguishes_empty_and_malformed_values() -> Result<()> {

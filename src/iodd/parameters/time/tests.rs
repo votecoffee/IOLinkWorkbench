@@ -1,5 +1,6 @@
 use super::*;
 use crate::{iodd, profile::Profile, transport};
+use anyhow::Result;
 
 const XML: &str = include_str!("../../../../samples/sensor-time.xml");
 

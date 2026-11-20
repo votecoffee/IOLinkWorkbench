@@ -222,6 +222,9 @@ impl Draft {
                 FieldKind::OctetString | FieldKind::Utf8String | FieldKind::AsciiString => {
                     "Edit string fields with a complete output image"
                 }
+                FieldKind::Time | FieldKind::TimeSpan => {
+                    "Edit temporal fields with a complete output image"
+                }
             };
             text_entry(ui, label, &mut self.desired);
             if let Some(layout) = profile.output_layout() {

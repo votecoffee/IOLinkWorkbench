@@ -206,7 +206,7 @@ impl Exporter {
             .collect::<Vec<_>>();
         for field in &self.fields {
             row.push(if typed {
-                field.decode(payload)?.value
+                field.csv_value(payload)?
             } else {
                 String::new()
             });

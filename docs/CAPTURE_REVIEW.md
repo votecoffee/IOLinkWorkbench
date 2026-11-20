@@ -51,6 +51,12 @@ The [HTTP](LOCAL_API.md), [MQTT](MQTT.md) and [shared-memory](SHARED_MEMORY.md) 
 
 `tools/verify_interface_review.py` copies explicitly supplied saved fixtures into a new ignored directory and verifies original-file preservation, exact counters/hashes, raw-only/legacy cases, unreachable endpoint and absent mapping metadata, corrupted CSV and balanced-but-wrong offer counts. It opens no live service for this review. Use a fixture with all three interface sections to exercise the complete report. Existing native/loopback suites remain separate from this offline evidence and from physical or visible GUI acceptance.
 
+## Device time columns
+
+Each typed `TimeT` or `TimeSpanT` column stores the exact decimal ticks at 4,294,967,296 ticks per second. `TimeT` stores unsigned ticks and `TimeSpanT` stores signed ticks. CSV preserves values differing by one tick even when the decoded calendar or duration displays the same millisecond. Parse the values as integers to preserve precision. Verification and re-decode use the saved field mapping and full raw payload.
+
+Signal review gives the count and the exact first and last nonblank tick strings. Device ticks have no effect on capture UTC start, elapsed host time, freshness, or source-loss accounting.
+
 ## Text columns
 
 Each valid `StringT` cell contains a JSON string literal inside the ordinary CSV quoting. After parsing CSV, parse the cell as JSON to recover the text. An empty decoded string is `""`. Truly blank cells follow the capture's validity and staleness rules. Malformed text cells contain `Invalid StringT` with the reason. This is a field decoding result, so other fields, raw payload bytes, and recorded source quality remain available.

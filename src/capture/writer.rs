@@ -242,7 +242,7 @@ impl CsvOutput {
         for field in self.profile.log_fields() {
             cells.push(
                 if input.validity == Validity::Valid && row.stale != Some(true) {
-                    field.decode(input.payload.bytes())?.value
+                    field.csv_value(input.payload.bytes())?
                 } else {
                     String::new()
                 },

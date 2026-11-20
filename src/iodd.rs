@@ -96,6 +96,7 @@ impl ProcessDataLayout {
             // Packed values occupy their assigned bits. A standalone numeric value
             // covering a full wire container has no separate padding to regenerate.
             !field.kind.is_byte_sequence()
+                && !field.kind.is_temporal()
                 && (self.packed
                     || self.standalone_boolean
                     || self.padded_integer
@@ -262,6 +263,7 @@ fn output_value(field: &Field, input: &str) -> Result<u64> {
         Kind::OctetString | Kind::Utf8String | Kind::AsciiString => {
             bail!("edit string fields with a complete output image")
         }
+        Kind::Time | Kind::TimeSpan => bail!("edit temporal fields with a complete output image"),
     })
 }
 
@@ -764,6 +766,8 @@ fn field(
         ),
         "BooleanT" => (Kind::Bool, 1),
         "Float32T" => (Kind::Float32, 32),
+        "TimeT" => (Kind::Time, 64),
+        "TimeSpanT" => (Kind::TimeSpan, 64),
         string @ ("OctetStringT" | "StringT") => {
             let bytes: u16 = dt
                 .attribute("fixedLength")
@@ -1081,8 +1085,10 @@ fn parse_process_item<'a, 'input>(
                 "extends beyond declared process data width"
             );
             ensure!(
-                !field.kind.is_byte_sequence() || layout.packed || usize::from(field.bits) == bits,
-                "standalone string length differs from the declared process data width"
+                !(field.kind.is_byte_sequence() || field.kind.is_temporal())
+                    || layout.packed
+                    || usize::from(field.bits) == bits,
+                "standalone field length differs from the declared process data width"
             );
             Ok((field, unit_defined))
         });

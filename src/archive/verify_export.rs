@@ -324,7 +324,7 @@ impl Observer for Comparison<'_> {
         );
         for (column, field) in self.fields.iter().enumerate() {
             let expected = if typed {
-                field.decode(payload)?.value
+                field.csv_value(payload)?
             } else {
                 String::new()
             };

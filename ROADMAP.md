@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Cyclic `TimeT` and `TimeSpanT` support scalar, record, array and manual mappings. GUI and CLI show timezone-independent UTC or signed durations. CSV and offline re-decode preserve exact ticks, separate from capture timing.
+
 - Cyclic UTF-8 and US-ASCII `StringT` values retain raw bytes and isolate encoding errors to their field. GUI, CLI, CSV, Signal review and offline re-decode distinguish valid empty text, malformed text and unavailable cells.
 
 - Cyclic `OctetStringT` scalar, record, and array values preserve ordered bytes in the GUI and CLI. Input CSV, saved verification, and raw-capture re-decode support the same mapping. Manual fields accept byte-aligned widths up to 32 bytes.
