@@ -186,8 +186,8 @@ pub fn verify_export(directory: &Path, source: Option<&Path>) -> Result<ExportVe
         reader.headers()? == &header,
         "data.csv: header differs from the saved mapping"
     );
-    let padded_input = profile.padded_input_field();
-    let mut summary = Summary::new(&manifest, None, padded_input.is_some());
+    let encoding = profile.input_encoding();
+    let mut summary = Summary::new(&manifest, None, encoding);
     let mut row_accounting = super::accounting::Rows::default();
     let mut previous_record = None::<csv::StringRecord>;
     let mut typed_rows = 0;
@@ -203,7 +203,7 @@ pub fn verify_export(directory: &Path, source: Option<&Path>) -> Result<ExportVe
             let (payload, typed) = check_values(&mapping, &fields, &row, &record)?;
             row_accounting.observe(&row, previous.as_ref());
             typed_rows += u64::from(typed);
-            summary.observe(&row, previous.as_ref(), &payload, padded_input);
+            summary.observe(&row, previous.as_ref(), &payload, encoding);
             Ok(record)
         };
         previous_record =

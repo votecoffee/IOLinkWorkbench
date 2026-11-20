@@ -51,9 +51,11 @@ The [HTTP](LOCAL_API.md), [MQTT](MQTT.md) and [shared-memory](SHARED_MEMORY.md) 
 
 `tools/verify_interface_review.py` copies explicitly supplied saved fixtures into a new ignored directory and verifies original-file preservation, exact counters/hashes, raw-only/legacy cases, unreachable endpoint and absent mapping metadata, corrupted CSV and balanced-but-wrong offer counts. It opens no live service for this review. Use a fixture with all three interface sections to exercise the complete report. Existing native/loopback suites remain separate from this offline evidence and from physical or visible GUI acceptance.
 
-## Standalone integer padding
+## Standalone input encoding
 
 When the saved input profile includes applicable standalone integer padding metadata, the verification summary reports `noncanonical_input_padding_rows`. The verifier derives it from saved valid CSV rows, including stale rows with valid transport quality. Zero means there were no padding mismatches among the saved valid rows. The field is absent when the saved profile has no applicable padding declaration. This count describes saved rows and leaves transport validity and source-loss accounting intact. Re-decode receipts carry the original capture's verified count.
+
+For a standalone Boolean saved as an eight-bit IODD field, `noncanonical_input_boolean_rows` counts saved valid rows with bytes from `01` through `FE`. These bytes decode as true. The count comes from the original IODD mapping even when an export uses a different manual mapping. Legacy one-bit profiles omit this count.
 
 ## Compare two captures
 

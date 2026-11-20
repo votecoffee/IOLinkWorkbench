@@ -244,6 +244,64 @@ fn standalone_integer_inputs_use_padded_wire_width_and_keep_original_value_bits(
 }
 
 #[test]
+fn standalone_boolean_input_round_trips_and_uses_the_whole_byte() -> Result<()> {
+    use crate::profile::Profile;
+
+    let old =
+        r#"<ProcessDataIn id="IN" bitLength="16"><DatatypeRef datatypeId="PD"/></ProcessDataIn>"#;
+    for bits in [1, 8] {
+        let xml = SENSOR.replace(
+            old,
+            &format!(
+                r#"<ProcessDataIn id="IN" bitLength="{bits}"><Datatype xsi:type="BooleanT"/><Name textId="switch"/></ProcessDataIn>"#,
+            ),
+        );
+        let catalog = parse(&xml, "synthetic standalone Boolean input".into())?;
+        let (identity, imported) = catalog.select(Some("SIM-SENSOR"), None)?;
+        assert_eq!(imported.input_bytes, 1);
+        assert_eq!(imported.fields[0].bits, 8);
+        let mut profile = Profile::default();
+        profile.apply_iodd(identity, imported);
+        let profile = Profile::parse(&toml::to_string(&profile)?)?;
+        for byte in 0..=u8::MAX {
+            assert_eq!(profile.decode(&[byte])?[0].2.raw, (byte != 0).to_string());
+            assert_eq!(
+                profile.input_encoding_warning(&[byte]).is_some(),
+                matches!(byte, 1..=254)
+            );
+        }
+        assert!(profile.decode(&[0, 2]).is_err());
+        assert!(profile.input_encoding_warning(&[0, 2]).is_none());
+
+        let mut legacy = profile.clone();
+        legacy.iodd.as_mut().unwrap().fields[0].bits = 1;
+        let legacy = Profile::parse(&toml::to_string(&legacy)?)?;
+        assert_eq!(legacy.decode(&[2])?[0].2.raw, "false");
+        assert!(legacy.input_encoding_warning(&[2]).is_none());
+
+        let mut manual = profile.clone();
+        let mut field = manual.iodd.as_ref().unwrap().fields[0].clone();
+        field.bits = 1;
+        manual.fields.push(field);
+        manual.validate()?;
+        assert_eq!(manual.decode(&[2])?[0].2.raw, "false");
+        assert!(manual.input_encoding_warning(&[2]).is_some());
+
+        manual.input_bytes = 2;
+        manual.validate()?;
+        assert!(manual.input_encoding_warning(&[0, 2]).is_none());
+    }
+    let packed = parse(SENSOR, "synthetic record input".into())?;
+    assert!(
+        packed.layouts[0]
+            .fields
+            .iter()
+            .any(|field| field.kind == Kind::Bool && field.bits == 1)
+    );
+    Ok(())
+}
+
+#[test]
 fn typed_output_field_edits_keep_wire_width_and_neighboring_bits() -> Result<()> {
     let mut layout = ProcessDataLayout {
         id: "OUT".into(),

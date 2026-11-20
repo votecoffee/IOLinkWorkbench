@@ -447,7 +447,29 @@ def verify_padded_integer_input(cli, output):
     return profile
 
 
-def verify_padded_integer_capture(cli, profile, endpoint, output):
+def verify_standalone_boolean_input(cli, output):
+    output.mkdir()
+    source = output / "boolean.xml"
+    original = (ROOT / "samples/sensor.xml").read_text(encoding="utf-8")
+    old_input = '<ProcessDataIn id="IN" bitLength="16"><DatatypeRef datatypeId="PD"/></ProcessDataIn>'
+    new_input = ('<ProcessDataIn id="IN" bitLength="1"><Datatype xsi:type="BooleanT"/>'
+                 '<Name textId="switch"/></ProcessDataIn>')
+    assert original.count(old_input) == 1
+    source.write_text(original.replace(old_input, new_input), encoding="utf-8")
+    profile = output / "boolean.toml"
+    run(cli, "import", source, profile, "--variant", "SIM-SENSOR")
+    saved = tomllib.loads(profile.read_text(encoding="utf-8"))
+    assert saved["input_bytes"] == saved["iodd"]["input_bytes"] == 1
+    assert [(field["kind"], field["bits"]) for field in saved["iodd"]["fields"]] == [("bool", 8)]
+    for payload, value, warning in (("00", "false", False), ("FF", "true", False), ("02", "true", True)):
+        result = subprocess.run([str(cli), "decode", str(profile), payload], cwd=ROOT,
+                                capture_output=True, encoding="utf-8", timeout=15)
+        assert result.returncode == 0 and f"raw {value}" in result.stdout
+        assert ("noncanonical byte" in result.stderr) == warning
+    return profile
+
+
+def verify_standalone_input_capture(cli, profile, endpoint, output, field, metric, cases, manual_bits):
     output.mkdir()
     input_profile = profile.read_bytes()
     fixture = output / "loopback.toml"
@@ -456,11 +478,7 @@ def verify_padded_integer_capture(cli, profile, endpoint, output):
     old_payload, old_faults = Gateway.payload, Gateway.inject_faults
     Gateway.inject_faults = False
     try:
-        for name, payload, validity, value in [
-            ("canonical", "00016E5A", "valid", "93786"),
-            ("noncanonical", "80016E5A", "valid", "93786"),
-            ("short", "016E5A", "invalid", ""),
-        ]:
+        for name, payload, validity, value in cases:
             Gateway.payload = payload
             path = output / name
             report = tomllib.loads(run(cli, "capture", fixture, path, "--seconds", ".3"))
@@ -468,29 +486,30 @@ def verify_padded_integer_capture(cli, profile, endpoint, output):
             with (path / "capture-0001.csv").open(encoding="utf-8", newline="") as stream:
                 rows = list(csv.DictReader(stream))
             assert rows and all(row["raw_hex"] == payload and row["validity"] == validity
-                                and row["value.integer"] == value for row in rows)
+                                and row[f"value.{field}"] == value for row in rows)
             assert report["csv_rows_flushed"] == len(rows)
             expect = len(rows) if name == "noncanonical" else 0
             before = Gateway.requests
             verified = tomllib.loads(run(cli, "verify-capture", path))
             assert verified["rows_checked"] == len(rows)
-            assert verified["noncanonical_input_padding_rows"] == expect
+            assert verified[metric] == expect
             interface = tomllib.loads(run(cli, "review-interfaces", path))
-            assert interface["capture"]["noncanonical_input_padding_rows"] == expect
+            assert interface["capture"][metric] == expect
             if name == "noncanonical":
                 export = output / "redecoded"
                 mapping = output / "manual-mapping.toml"
                 mapping.write_text(
-                    'version = 1\nname = "Manual 17-bit mapping"\ninput_bytes = 4\n'
-                    '[[fields]]\nname = "Manual"\nkind = "unsigned"\nbits = 17\n',
+                    f'version = 1\nname = "Manual mapping"\ninput_bytes = {len(payload) // 2}\n'
+                    f'[[fields]]\nname = "Manual"\nkind = "unsigned"\nbits = {manual_bits}\n',
                     encoding="utf-8",
                 )
                 receipt = tomllib.loads(run(cli, "redecode-capture", path, mapping, export))
-                assert receipt["source_capture"]["noncanonical_input_padding_rows"] == expect
+                assert receipt["source_capture"][metric] == expect
                 checked = tomllib.loads(run(cli, "verify-export", export, "--source", path))
                 assert checked["original_source_reverified"] and checked["source_capture"] == receipt["source_capture"]
                 with (export / "data.csv").open(encoding="utf-8", newline="") as stream:
-                    assert all(row["raw_hex"] == "80016E5A" and row["value.Manual"] == "93786"
+                    manual_value = str(int(payload, 16) & ((1 << manual_bits) - 1))
+                    assert all(row["raw_hex"] == payload and row["value.Manual"] == manual_value
                                for row in csv.DictReader(stream))
             assert Gateway.requests == before
     finally:
@@ -1306,7 +1325,7 @@ def verify_mapping_settings(cli, output):
     run(cli, "set-field", added, updated, auxiliary, "--unit", "changed")
     assert [field["name"] for field in tomllib.loads(updated.read_text(encoding="utf-8"))["fields"]] == [name, auxiliary]
     invalid = output / "must-not-exist.toml"
-    for args in [["--bits", 0], ["--bits", 65], ["--bit-offset", 16], ["--kind", "bool"], ["--kind", "float32", "--bits", 16],
+    for args in [["--bits", 0], ["--bits", 65], ["--bit-offset", 16], ["--kind", "bool", "--bits", 4], ["--kind", "float32", "--bits", 16],
                  ["--scale", "NaN"], ["--offset", "inf"], ["--decimals", 13]]:
         run(cli, "set-field", edited, invalid, name, *args, expected=1)
         assert not invalid.exists()
@@ -1757,6 +1776,7 @@ def main():
     verify_connection_settings(cli, scratch / "connection-settings")
     verify_port_statuses_and_captures(cli, scratch / "multi-port")
     padded_input_profile = verify_padded_integer_input(cli, scratch / "padded-integer")
+    boolean_input_profile = verify_standalone_boolean_input(cli, scratch / "standalone-boolean")
     verify_identity_settings(cli, scratch / "identity-settings")
     verify_mapping_settings(cli, scratch / "mapping-settings")
     verify_logging_settings(cli, scratch / "logging-settings")
@@ -2051,8 +2071,22 @@ kind = "bool"
             cycle_text = cycle_text.replace('ifm_firmware = ""', 'ifm_firmware = "3.1.42"').replace('port = 1', 'port = 1\nifm_mode = 3\nifm_cycle_unit = "microseconds"').replace('poll_us = 1000', 'poll_us = 10000')
             cycle_fixture.write_bytes(cycle_text.encode("utf-8"))
             verify_cycle_capture(cli, cycle_fixture, scratch / "ifm-cycle", 1200, snapshots=True)
-            verify_padded_integer_capture(cli, padded_input_profile, f"http://127.0.0.1:{server.server_port}",
-                                          scratch / "ifm-padded-input")
+            endpoint = f"http://127.0.0.1:{server.server_port}"
+            verify_standalone_input_capture(
+                cli, padded_input_profile, endpoint, scratch / "ifm-padded-input", "integer",
+                "noncanonical_input_padding_rows",
+                [("canonical", "00016E5A", "valid", "93786"),
+                 ("noncanonical", "80016E5A", "valid", "93786"),
+                 ("short", "016E5A", "invalid", "")],
+                manual_bits=17,
+            )
+            verify_standalone_input_capture(
+                cli, boolean_input_profile, endpoint, scratch / "ifm-boolean-input", "switch",
+                "noncanonical_input_boolean_rows",
+                [("false", "00", "valid", "false"), ("true", "FF", "valid", "true"),
+                 ("noncanonical", "02", "valid", "true"), ("long", "0002", "invalid", "")],
+                manual_bits=1,
+            )
             range_fixture = scratch / "range-fixture.toml"
             range_text = standard_range_profile.read_text(encoding="utf-8").replace('gateway = "simulator"', 'gateway = "ifm_al1350"')
             range_text = range_text.replace('endpoint = ""', f'endpoint = "http://127.0.0.1:{server.server_port}"')
@@ -2153,7 +2187,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, standalone integer input wire width and padding review, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")

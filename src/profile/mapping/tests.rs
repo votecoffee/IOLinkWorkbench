@@ -119,6 +119,7 @@ fn malformed_fields_reject_the_candidate_without_changing_saved_settings() -> Re
         },
         Field {
             kind: Kind::Bool,
+            bits: 4,
             ..valid.clone()
         },
         Field {

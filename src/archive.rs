@@ -1,7 +1,7 @@
 use crate::{
     capture::{CSV_METADATA, csv_header},
     decode,
-    profile::Profile,
+    profile::{InputEncoding, Profile},
     transport::{Freshness, Validity},
 };
 use anyhow::{Context, Result, ensure};
@@ -44,6 +44,9 @@ pub struct Summary {
     /// Available when the saved input layout defines standalone integer padding.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub noncanonical_input_padding_rows: Option<u64>,
+    /// Available when the saved input layout defines a standalone Boolean byte.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub noncanonical_input_boolean_rows: Option<u64>,
     pub row_kind: Option<String>,
     pub first_sample_index: Option<u64>,
     pub last_sample_index: Option<u64>,
@@ -330,7 +333,11 @@ fn check_values(
 }
 
 impl Summary {
-    fn new(manifest: &Manifest, joined_csv: Option<&Path>, inspect_padding: bool) -> Self {
+    fn new(
+        manifest: &Manifest,
+        joined_csv: Option<&Path>,
+        encoding: Option<InputEncoding<'_>>,
+    ) -> Self {
         Self {
             profile: manifest.profile.clone(),
             utc_start: manifest.utc_start.clone(),
@@ -340,7 +347,16 @@ impl Summary {
             invalid_rows: 0,
             unknown_validity_rows: 0,
             stale_rows: 0,
-            noncanonical_input_padding_rows: inspect_padding.then_some(0),
+            noncanonical_input_padding_rows: matches!(
+                encoding,
+                Some(InputEncoding::PaddedInteger(_))
+            )
+            .then_some(0),
+            noncanonical_input_boolean_rows: matches!(
+                encoding,
+                Some(InputEncoding::StandaloneBoolean)
+            )
+            .then_some(0),
             row_kind: manifest.row_kind.clone(),
             first_sample_index: None,
             last_sample_index: None,
@@ -358,16 +374,26 @@ impl Summary {
         row: &Row<'_>,
         previous: Option<&Row<'_>>,
         payload: &[u8],
-        padded_input: Option<&decode::Field>,
+        encoding: Option<InputEncoding<'_>>,
     ) {
         self.rows_checked += 1;
         match row.validity {
             Validity::Valid => {
                 self.valid_rows += 1;
-                if let (Some(field), Some(count)) =
-                    (padded_input, &mut self.noncanonical_input_padding_rows)
+                if let Some(encoding) = encoding
+                    && encoding.noncanonical(payload)
                 {
-                    *count += u64::from(!crate::iodd::integer_padding_matches(field, payload));
+                    let count = match encoding {
+                        InputEncoding::StandaloneBoolean => {
+                            &mut self.noncanonical_input_boolean_rows
+                        }
+                        InputEncoding::PaddedInteger(_) => {
+                            &mut self.noncanonical_input_padding_rows
+                        }
+                    };
+                    if let Some(count) = count {
+                        *count += 1;
+                    }
                 }
             }
             Validity::Invalid => self.invalid_rows += 1,
@@ -602,8 +628,8 @@ fn inspect(
     if let Some(writer) = &mut writer {
         writer.write_record(&header)?;
     }
-    let padded_input = profile.padded_input_field();
-    let mut summary = Summary::new(&manifest, joined_csv, padded_input.is_some());
+    let encoding = profile.input_encoding();
+    let mut summary = Summary::new(&manifest, joined_csv, encoding);
     let mut previous_record = None::<csv::StringRecord>;
     let mut row_accounting = accounting::Rows::default();
     for part in parts {
@@ -638,7 +664,7 @@ fn inspect(
                 if let Some(writer) = &mut writer {
                     writer.write_record(&record)?;
                 }
-                summary.observe(&row, previous.as_ref(), &payload, padded_input);
+                summary.observe(&row, previous.as_ref(), &payload, encoding);
                 Ok(record)
             };
             previous_record = Some(

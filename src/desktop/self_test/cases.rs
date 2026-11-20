@@ -226,6 +226,7 @@ pub(super) fn render(
                 "offline-process",
                 "offline-process-output",
                 "offline-padded-input",
+                "offline-boolean-input",
                 "acyclic-profile",
                 "offline-parameter",
                 "offline-snapshot",
@@ -423,12 +424,18 @@ pub(super) fn render(
                         app.workspace.offline = OfflinePage::Process;
                         app.payload_inspector.output_pasted = "0001".into();
                     }
-                    "offline-padded-input" => {
+                    "offline-padded-input" | "offline-boolean-input" => {
+                        let input = if label == "offline-boolean-input" {
+                            app.payload_inspector.pasted = "02".into();
+                            r#"<ProcessDataIn id="IN" bitLength="1"><Datatype xsi:type="BooleanT"/><Name textId="switch"/></ProcessDataIn>"#
+                        } else {
+                            r#"<ProcessDataIn id="IN" bitLength="12"><Datatype xsi:type="UIntegerT" bitLength="12"/><Name textId="integer"/></ProcessDataIn>"#
+                        };
                         let xml = include_str!("../../../samples/sensor.xml").replace(
                             r#"<ProcessDataIn id="IN" bitLength="16"><DatatypeRef datatypeId="PD"/></ProcessDataIn>"#,
-                            r#"<ProcessDataIn id="IN" bitLength="12"><Datatype xsi:type="UIntegerT" bitLength="12"/><Name textId="integer"/></ProcessDataIn>"#,
+                            input,
                         );
-                        let catalog = iodd::parse(&xml, "synthetic padded input view".into())?;
+                        let catalog = iodd::parse(&xml, format!("synthetic {label} view"))?;
                         let (identity, imported) = catalog.select(Some("SIM-SENSOR"), None)?;
                         app.profile.apply_iodd(identity, imported);
                         app.setup.sync(&app.profile);
@@ -618,6 +625,9 @@ pub(super) fn render(
                 "offline-padded-input" => Some(
                     "Standalone integer input has noncanonical padding. The IODD value uses the declared low bits.",
                 ),
+                "offline-boolean-input" => Some(
+                    "Standalone Boolean input has a noncanonical byte. The IODD interprets any nonzero byte as true.",
+                ),
                 "acyclic-profile" => Some("Acyclic IODD layout"),
                 "offline-diagnostic-snapshot" => Some("37:0 · synthetic fixture reply unavailable"),
                 "offline-diagnostic-comparison" => Some("Slot 1 · E48DFE → 000000"),
@@ -719,7 +729,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 111);
+        assert_eq!(cases.len(), 112);
         assert!(
             cases
                 .iter()

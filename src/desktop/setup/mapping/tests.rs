@@ -53,7 +53,9 @@ fn new_field_and_invalid_type_controls_render_without_input_or_profile_edits() {
     let before = profile.clone();
     let mut form = Form::default();
     form.new_field(&profile);
-    form.draft.as_mut().unwrap().kind = Kind::Bool;
+    let draft = form.draft.as_mut().unwrap();
+    draft.kind = Kind::Bool;
+    draft.bits = 4;
     form.preview = "0001".into();
     let output = ctx.run(
         egui::RawInput {

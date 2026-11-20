@@ -27,7 +27,7 @@ struct Copied {
 
 pub(super) struct Inspector {
     pub page: Page,
-    pasted: String,
+    pub(super) pasted: String,
     pub output_pasted: String,
     copied: Option<Copied>,
 }

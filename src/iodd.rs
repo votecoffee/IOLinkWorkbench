@@ -165,6 +165,10 @@ impl ProcessDataLayout {
         for field in &self.fields {
             field.validate(self.bytes())?;
             ensure!(
+                field.kind != Kind::Bool || field.bits == 1,
+                "IODD output Boolean mappings require one declared bit"
+            );
+            ensure!(
                 field.byte_order == ByteOrder::BigEndian,
                 "IODD process data uses big-endian bit numbering"
             );
@@ -948,8 +952,11 @@ fn parse_resources(
         let output = child(process, "ProcessDataOut")
             .map(read_layout)
             .transpose()?;
-        if let Some(input) = input {
+        if let Some(mut input) = input {
             let input_bytes = input.bytes();
+            if input.standalone_boolean {
+                input.fields[0].bits = 8;
+            }
             layouts.push(Layout {
                 id: input.id,
                 input_bytes,
@@ -1147,10 +1154,8 @@ fn parse_process_item<'a, 'input>(
             dt.and_then(|dt| field(dt, info, name, 0, units)),
         )?;
     }
-    layout.standalone_boolean = kind == Some("BooleanT")
-        && node.has_tag_name((IODD_NAMESPACE, "ProcessDataOut"))
-        && matches!(bits, 1 | 8)
-        && layout.fields.len() == 1;
+    layout.standalone_boolean =
+        kind == Some("BooleanT") && matches!(bits, 1 | 8) && layout.fields.len() == 1;
     layout.padded_integer =
         matches!(kind, Some("IntegerT" | "UIntegerT")) && layout.integer_padding_width().is_some();
     if missing_unit {

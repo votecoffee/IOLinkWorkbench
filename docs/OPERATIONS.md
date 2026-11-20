@@ -48,6 +48,12 @@ Select the acyclic-only layout in **Device → IODD import**. The CLI uses the I
 
 The saved profile retains identity, parameter and event definitions with zero input bytes. Use **Parameters** for ISDU reads and snapshots, **Diagnostics → Device events** for diagnostic reads, and **Device → Writes** for reviewed ISDU operations. Process input acquisition and process output operations require corresponding cyclic data. Acyclic-only profiles require v0.83.0 or later.
 
+### Standalone Boolean input
+
+An IODD input consisting of a single `BooleanT` uses one wire byte. Workbench decodes `00` as false and any nonzero byte as true. Inputs, Offline → Process bytes and CLI `decode` flag values from `01` through `FE` as noncanonical. Packed record and array Booleans still use one bit per field. Manual Boolean mappings can specify either one bit or eight bits. [IO-Link Interface and System Specification, Annex F.2.2](https://io-link-old.io-link.com/share/Downloads/Package-2024-released/IOL-Interface-Spec_10002_V114_Jun24.pdf)
+
+Reimport older standalone Boolean IODDs to get the eight-bit mapping. Older profiles and captures keep their saved bit interpretation. Profiles with eight-bit Boolean fields require v0.91.0 or later.
+
 ### Standalone integer input
 
 For a single IODD signed or unsigned integer, the import preview shows the wire byte count. When the input declaration specifies the logical width or its smallest fitting standard container, the saved profile records the declared length under `iodd.padded_input_bit_length`. For example, a 17-bit value uses a four-byte wire container and retains a 17-bit mapping. Sign-extended or zero-padded high bits do not enter the decoded value. [IO-Link Interface and System Specification, Annex F.2.3–F.2.4](https://io-link.com/fileadmin/user_upload/Downloads/Package_2024/IOL-Interface-Spec_10002_V114_Jun24.pdf)

@@ -76,8 +76,8 @@ impl Field {
             self.name
         );
         ensure!(
-            self.kind != Kind::Bool || self.bits == 1,
-            "{}: bool needs one bit",
+            self.kind != Kind::Bool || matches!(self.bits, 1 | 8),
+            "{}: bool needs one bit or one byte",
             self.name
         );
         ensure!(

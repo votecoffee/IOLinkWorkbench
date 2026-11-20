@@ -223,6 +223,21 @@ impl Default for Profile {
     }
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum InputEncoding<'a> {
+    StandaloneBoolean,
+    PaddedInteger(&'a Field),
+}
+
+impl InputEncoding<'_> {
+    pub(crate) fn noncanonical(self, payload: &[u8]) -> bool {
+        match self {
+            Self::StandaloneBoolean => matches!(payload, [0x01..=0xFE]),
+            Self::PaddedInteger(field) => !crate::iodd::integer_padding_matches(field, payload),
+        }
+    }
+}
+
 impl Profile {
     pub fn has_process_input(&self) -> bool {
         self.input_bytes > 0
@@ -270,18 +285,39 @@ impl Profile {
         (width == self.input_bytes && width == imported.input_bytes).then(|| &imported.fields[0])
     }
 
-    /// Explain noncanonical high bits without changing the decoded value or transport validity.
-    pub fn input_encoding_warning(&self, payload: &[u8]) -> Option<&'static str> {
-        let field = self.padded_input_field()?;
-        if payload.len() == self.input_bytes
-            && !crate::iodd::integer_padding_matches(field, payload)
-        {
-            Some(
-                "Standalone integer input has noncanonical padding. The IODD value uses the declared low bits.",
+    pub(crate) fn input_encoding(&self) -> Option<InputEncoding<'_>> {
+        let imported = self.iodd.as_ref()?;
+        if self.input_bytes == 1
+            && imported.input_bytes == 1
+            && matches!(
+                imported.fields.as_slice(),
+                [Field {
+                    kind: crate::decode::Kind::Bool,
+                    bit_offset: 0,
+                    bits: 8,
+                    ..
+                }]
             )
-        } else {
-            None
+        {
+            return Some(InputEncoding::StandaloneBoolean);
         }
+        self.padded_input_field().map(InputEncoding::PaddedInteger)
+    }
+
+    /// Explain noncanonical wire bytes without changing the decoded value or transport validity.
+    pub fn input_encoding_warning(&self, payload: &[u8]) -> Option<&'static str> {
+        let encoding = self.input_encoding()?;
+        if payload.len() != self.input_bytes || !encoding.noncanonical(payload) {
+            return None;
+        }
+        Some(match encoding {
+            InputEncoding::StandaloneBoolean => {
+                "Standalone Boolean input has a noncanonical byte. The IODD interprets any nonzero byte as true."
+            }
+            InputEncoding::PaddedInteger(_) => {
+                "Standalone integer input has noncanonical padding. The IODD value uses the declared low bits."
+            }
+        })
     }
 
     pub fn output_layout(&self) -> Option<&crate::iodd::ProcessDataLayout> {
