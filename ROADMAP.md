@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Checked ISDU current-value reads show the matching IODD interpretation, including engineering displays and decoding issues. The exact returned hex remains available for the expected-value check.
+
 - Device → Writes can search imported IODD names, IDs and indexes for eligible ISDU parameters and subindexes. An explicit selection fills the numeric address, and changing the address clears the draft values.
 
 - Reviewed single `StringT` writes distinguish exact readback from the same IODD text returned with different zero padding. Expected bytes still require an exact match before dispatch. Receipts retain the returned bytes.

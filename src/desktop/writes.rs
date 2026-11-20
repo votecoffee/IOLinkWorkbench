@@ -2,8 +2,11 @@ use super::parameters::Picker;
 use super::{ACCENT, App, Gateway, Profile, WARNING, Worker, background, completed};
 use anyhow::{Context, Result, ensure};
 use eframe::egui::{self, Ui};
-use iolink_workbench::transport::write::{
-    CurrentRead, CurrentValue, IsduValueReview, Operation, Outcome, Plan, ReadPoint,
+use iolink_workbench::{
+    iodd::AssessmentStatus,
+    transport::write::{
+        CurrentRead, CurrentValue, IsduValueReview, Operation, Outcome, Plan, ReadPoint,
+    },
 };
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -465,6 +468,48 @@ impl Panel {
                 ui.button("Use as expected value").clicked()
             })
             .inner;
+        if let Some(iodd) = &current.iodd_value {
+            let decoded = &iodd.interpretation;
+            let observed = if let Some(time) = &decoded.time_value {
+                Some(time.value.clone())
+            } else if let Some(display) = decoded
+                .preferred_display
+                .as_ref()
+                .or_else(|| decoded.displays.first())
+            {
+                Some(if display.unit.is_empty() {
+                    display.value.clone()
+                } else {
+                    format!("{} {}", display.value, display.unit)
+                })
+            } else {
+                decoded.raw_value.as_ref().map(|value| {
+                    if iodd.datatype == "StringT" {
+                        format!("{value:?}")
+                    } else {
+                        value.clone()
+                    }
+                })
+            };
+            let label = match observed {
+                Some(value) => format!("Observed IODD · {} · {value}", iodd.name),
+                None => format!("Observed IODD · {} · {}", iodd.name, iodd.datatype),
+            };
+            ui.label(label);
+            if decoded.needs_review() {
+                ui.colored_label(WARNING, "Review the observed IODD decoding details.");
+            } else if decoded
+                .value_assessment
+                .as_ref()
+                .is_some_and(|value| value.status == AssessmentStatus::OutsideDefinition)
+            {
+                ui.colored_label(
+                    WARNING,
+                    "Observed value is outside the IODD choices or ranges.",
+                );
+            }
+            ui.collapsing("Observed IODD details", |ui| ui.monospace(decoded.text()));
+        }
         if use_value {
             self.draft.expected = value;
         }

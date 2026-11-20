@@ -78,6 +78,21 @@ struct Target {
 pub struct CurrentRead {
     target: Target,
     point: ReadPoint,
+    parameter: Option<Parameter>,
+}
+
+enum ReadValue {
+    Mode(u8),
+    Bytes(Vec<u8>),
+}
+
+impl From<ReadValue> for Value {
+    fn from(value: ReadValue) -> Self {
+        match value {
+            ReadValue::Mode(mode) => Value::from(mode),
+            ReadValue::Bytes(bytes) => Value::String(hex(&bytes)),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -90,6 +105,16 @@ pub struct CurrentValue {
     pub point: ReadPoint,
     pub observed_utc: String,
     pub value: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iodd_value: Option<CurrentIoddValue>,
+}
+
+#[derive(Serialize)]
+pub struct CurrentIoddValue {
+    pub parameter_id: String,
+    pub name: String,
+    pub datatype: String,
+    pub interpretation: DecodedParameter,
 }
 
 impl CurrentValue {
@@ -103,13 +128,30 @@ impl CurrentValue {
 impl CurrentRead {
     pub fn new(profile: &Profile, master_serial: &str, point: ReadPoint) -> Result<Self> {
         let target = Target::new(profile, master_serial, point != ReadPoint::PortMode)?;
-        point.validate(profile)?;
-        Ok(Self { target, point })
+        let parameter = point.validate(profile)?.cloned();
+        Ok(Self {
+            target,
+            point,
+            parameter,
+        })
     }
 
     pub fn read(self) -> Result<CurrentValue> {
         let mut client = Client::new(&self.target.connection)?;
         let value = self.target.read(&mut client, self.point)?;
+        let observed_utc = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
+        let iodd_value = match (self.parameter, &value) {
+            (Some(parameter), ReadValue::Bytes(bytes)) => {
+                let interpretation = parameter.decode(bytes);
+                Some(CurrentIoddValue {
+                    parameter_id: parameter.id,
+                    name: parameter.name,
+                    datatype: parameter.datatype,
+                    interpretation,
+                })
+            }
+            _ => None,
+        };
         Ok(CurrentValue {
             endpoint: self.target.endpoint,
             port: self.target.connection.port,
@@ -117,8 +159,9 @@ impl CurrentRead {
             firmware: self.target.connection.ifm_firmware,
             expected_device: self.target.expected_device,
             point: self.point,
-            observed_utc: Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
-            value,
+            observed_utc,
+            value: value.into(),
+            iodd_value,
         })
     }
 }
@@ -491,7 +534,9 @@ impl Plan {
 
     fn read_current(&self, client: &mut Client) -> Result<Option<Value>> {
         if let Some(point) = self.point {
-            self.target.read(client, point).map(Some)
+            self.target
+                .read(client, point)
+                .map(|value| Some(value.into()))
         } else {
             self.target.check_device(client)?;
             Ok(None)
@@ -500,7 +545,7 @@ impl Plan {
 }
 
 impl Target {
-    fn read(&self, client: &mut Client, point: ReadPoint) -> Result<Value> {
+    fn read(&self, client: &mut Client, point: ReadPoint) -> Result<ReadValue> {
         if point == ReadPoint::PortMode {
             let mode = format!("{}/mode", client.port);
             let model = "/deviceinfo/productcode";
@@ -521,12 +566,12 @@ impl Target {
             let current = number(get(&mode))
                 .and_then(|mode| u8::try_from(mode).ok())
                 .context("AL1350 port did not report a numeric mode")?;
-            return Ok(json!(current));
+            return Ok(ReadValue::Mode(current));
         }
         self.check_device(client)?;
         match point {
             ReadPoint::Isdu { index, subindex } => {
-                Ok(json!(hex(&client.read_isdu(index, subindex)?)))
+                Ok(ReadValue::Bytes(client.read_isdu(index, subindex)?))
             }
             ReadPoint::ProcessOutput => {
                 let address = format!("{}/pdout/getdata", client.device);
@@ -534,7 +579,7 @@ impl Target {
                 let value = response["data"]["value"]
                     .as_str()
                     .context("AL1350 process output is not a hex string")?;
-                Ok(json!(hex(&parse_hex_bounded(value, MAX_INPUT)?)))
+                Ok(ReadValue::Bytes(parse_hex_bounded(value, MAX_INPUT)?))
             }
             ReadPoint::PortMode => unreachable!("port mode handled before device lookup"),
         }

@@ -33,7 +33,7 @@ pub(super) struct ReadArguments {
 enum CurrentPoint {
     /// Read the current numeric operating mode.
     PortMode,
-    /// Read the current raw value of a prospective ISDU write target.
+    /// Read the exact ISDU bytes and include the IODD interpretation where available.
     Isdu {
         #[arg(long)]
         index: u16,

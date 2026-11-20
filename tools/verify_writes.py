@@ -104,6 +104,7 @@ def verify(cli, profile, server):
     assert not server.requests
     observed = run(["port-mode"], command="read-current")
     assert observed["point"] == {"kind": "port_mode"} and observed["value"] == 3
+    assert "iodd_value" not in observed
     assert observed["master_serial"] == SERIAL and observed["port"] == 2
     assert observed["observed_utc"].endswith("Z")
     assert "serial pin mismatch" in run(["port-mode"], serial="OTHER-MASTER", status=1,
@@ -128,6 +129,7 @@ def verify(cli, profile, server):
     observed = run(parameter[:5], command="read-current")
     assert observed["point"] == {"kind": "isdu", "index": 65, "subindex": 1}
     assert observed["value"] == "0001"
+    assert "iodd_value" not in observed
     server.parameters[65, 1] = "0003"
     assert "expected current" in run(parameter, confirm=pin, status=1)
     assert len(server.writes) == 2
@@ -149,6 +151,7 @@ def verify(cli, profile, server):
     output = ["process-output", "--expected", "01 02", "--desired", "03 04"]
     observed = run(["process-output"], command="read-current")
     assert observed["point"] == {"kind": "process_output"} and observed["value"] == "0102"
+    assert "iodd_value" not in observed
     assert len(server.writes) == 5
     server.next_write = "ignore"
     _, receipt = apply(output, "unconfirmed", status=1)
@@ -338,7 +341,28 @@ def verify(cli, profile, server):
     assert "manual_review" in overlap
     assert len(server.requests) == before
 
+    writes = len(server.writes)
+    before = len(server.requests)
+    server.parameters[64, 0] = "01F4"
+    observed = run(["isdu", "--index", "64"], target=configured, command="read-current")
+    value = observed["iodd_value"]
+    assert value["parameter_id"] == "V_SIM_Threshold" and value["datatype"] == "IntegerT"
+    assert observed["value"] == value["interpretation"]["raw_hex"] == "01F4"
+    assert value["interpretation"]["raw_value"] == "500"
+    assert any(display["value"] == "52.0" for display in value["interpretation"]["displays"])
+    assert server.requests[before:] == ["/getdatamulti", f"{DEVICE}/iolreadacyclic", f"{DEVICE}/iolreadacyclic"]
+
+    server.parameters[66, 0] = "0102"
+    observed = run(["isdu", "--index", "66"], target=formats, command="read-current")
+    bad = observed["iodd_value"]["interpretation"]
+    assert observed["value"] == bad["raw_hex"] == "0102"
+    assert bad["raw_value"] is None and "width differs" in bad["decode_error"]
+    assert len(server.writes) == writes
+
     server.parameters[66, 3] = "FF"
+    observed = run(member[:5], target=formats, command="read-current")
+    assert observed["value"] == "FF" and observed["iodd_value"]["interpretation"]["raw_value"] == "255"
+    assert observed["iodd_value"]["interpretation"]["value_assessment"]["status"] == "outside_definition"
     request, receipt = apply(member, "readback_matched", target=formats)
     value_review = request["isdu_value_review"]
     assert value_review["basis"] == "iodd" and value_review["datatype"] == "UIntegerT"

@@ -218,20 +218,26 @@ fn read_request(listener: &TcpListener) -> Result<(TcpStream, Value)> {
 }
 
 fn reply_with_identity(listener: &TcpListener) -> Result<()> {
-    let (mut stream, preflight) = read_request(listener)?;
+    let (stream, preflight) = read_request(listener)?;
     ensure!(
         preflight["adr"] == "/getdatamulti",
         "expected identity preflight"
     );
-    let body = json!({"cid":preflight["cid"], "code":200, "data":{
-        "/deviceinfo/productcode":{"code":200,"data":"AL1350"},
-        "/deviceinfo/swrevision":{"code":200,"data":"3.1.42"},
-        "/deviceinfo/serialnumber":{"code":200,"data":"BENCH-MASTER"},
-        "/iolinkmaster/port[1]/mode":{"code":200,"data":3},
-        "/iolinkmaster/port[1]/iolinkdevice/vendorid":{"code":200,"data":65535},
-        "/iolinkmaster/port[1]/iolinkdevice/deviceid":{"code":200,"data":1},
-    }})
-    .to_string();
+    reply_json(
+        stream,
+        json!({"cid":preflight["cid"], "code":200, "data":{
+            "/deviceinfo/productcode":{"code":200,"data":"AL1350"},
+            "/deviceinfo/swrevision":{"code":200,"data":"3.1.42"},
+            "/deviceinfo/serialnumber":{"code":200,"data":"BENCH-MASTER"},
+            "/iolinkmaster/port[1]/mode":{"code":200,"data":3},
+            "/iolinkmaster/port[1]/iolinkdevice/vendorid":{"code":200,"data":65535},
+            "/iolinkmaster/port[1]/iolinkdevice/deviceid":{"code":200,"data":1},
+        }}),
+    )
+}
+
+fn reply_json(mut stream: TcpStream, response: Value) -> Result<()> {
+    let body = response.to_string();
     write!(
         stream,
         "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -246,16 +252,36 @@ fn current_value_uses_an_independent_read_and_stays_bound_to_the_draft() -> Resu
     let listener = TcpListener::bind("127.0.0.1:0")?;
     listener.set_nonblocking(true)?;
     let mut app = App::new();
-    app.profile = fixture_profile(format!("http://{}", listener.local_addr()?))?;
+    app.profile = fixture_iodd_profile()?;
+    app.profile.connection.endpoint = format!("http://{}", listener.local_addr()?);
     app.setup.sync(&app.profile);
+    app.tab = Tab::Device;
+    app.setup.page = setup::Page::Writes;
     app.writes.master_serial = "BENCH-MASTER".into();
-    app.writes.draft.expected = "1".into();
+    app.writes.draft.kind = Kind::Parameter;
+    app.writes.draft.index = 64;
+    app.writes.draft.expected = "0001".into();
     let (_hold_capture, completion) = mpsc::channel();
     app.worker = Some(completion);
     assert!(app.write_block_reason().is_some());
     assert!(app.current_read_block_reason().is_none());
 
-    let peer = thread::spawn(move || reply_with_identity(&listener));
+    let peer = thread::spawn(move || {
+        reply_with_identity(&listener)?;
+        let (stream, request) = read_request(&listener)?;
+        ensure!(
+            request["adr"] == "/iolinkmaster/port[1]/iolinkdevice/iolreadacyclic",
+            "expected one parameter read"
+        );
+        ensure!(
+            request["data"]["index"] == 64 && request["data"]["subindex"] == 0,
+            "unexpected read address"
+        );
+        reply_json(
+            stream,
+            json!({"cid":request["cid"], "code":200, "data":{"value":"FFFE"}}),
+        )
+    });
     app.start_current_read()?;
     assert_eq!(app.pending_jobs(), 2);
     assert!(!app.writes.writing());
@@ -267,13 +293,23 @@ fn current_value_uses_an_independent_read_and_stays_bound_to_the_draft() -> Resu
         thread::sleep(Duration::from_millis(5));
     }
     assert_eq!(app.pending_jobs(), 1);
-    assert_eq!(app.writes.draft.expected, "1");
-    assert_eq!(app.writes.current_for_draft().unwrap().value_text(), "3");
+    assert_eq!(app.writes.draft.expected, "0001");
+    let current = app
+        .writes
+        .current_for_draft()
+        .context("missing checked current value")?;
+    assert_eq!(current.value_text(), "FFFE");
+    let iodd = current
+        .iodd_value
+        .as_ref()
+        .context("missing IODD interpretation")?;
+    assert_eq!(iodd.parameter_id, "V_SIM_Threshold");
+    assert_eq!(iodd.interpretation.raw_value.as_deref(), Some("-2"));
     assert!(app.writes.review.is_none() && !app.writes.approved);
     app.writes.master_serial = "DIFFERENT-MASTER".into();
     assert!(app.writes.current_for_draft().is_none());
     app.writes.master_serial = "BENCH-MASTER".into();
-    app.writes.draft.kind = Kind::Output;
+    app.writes.draft.set_parameter_address((66, 2));
     assert!(app.writes.current_for_draft().is_none());
     app.writes.clear_draft();
     assert!(app.writes.current.is_none());
