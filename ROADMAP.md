@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Process output drafts can replace one IODD field in the exact expected image. The GUI and CLI show the entire proposed image for the same width, padding, approval and preflight checks as a raw draft. Supported values include packed Boolean, signed and unsigned integers, and finite Float32.
+
 - The selected IODD input layout retains its paired process output declaration. Offline full-image output previews show typed expected and proposed values and changes to unmapped bits. The preview checks byte width, padding and recorded layout confirmation. Output-only layouts appear in IODD inspection, and profile import still requires an input layout.
 
 - A typed member edit can build a complete record or array write at subindex 0, including for IODDs with direct subindex access disabled. The proposed image keeps every bit outside the selected member.

@@ -7,7 +7,7 @@ The GUI and CLI support four one-shot operations for the AL1350 IoT Core 3.1.x i
 | `port-mode` | `--expected` and `--desired` numeric codes confirmed for the exact firmware | Master identity and current numeric mode. A port can be configured without a connected sensor. |
 | `isdu` | `--index` or `--parameter-id`, optional `--subindex`, `--expected` hex, and either `--desired` hex or `--desired-value` for a supported IODD datatype | Master and device identity, IO-Link mode, and the exact current parameter bytes. When the profile has the address in its IODD, access must be declared read/write and the selected subindex must be enabled. |
 | `device-command` | Decimal `--code` and `--meaning` from the device's documentation | Master and device identity and IO-Link mode. Sends a single SystemCommand byte to index 2, subindex 0. The supported code classes are profile-defined, the four standard reset commands, and vendor-defined. |
-| `process-output` | `--expected` and `--desired` complete hex images of equal width, up to 32 bytes | Master and device identity, IO-Link mode, and the entire gateway `pdout` value. |
+| `process-output` | `--expected` and `--desired` complete hex images of equal width, up to 32 bytes. For an IODD field edit, use the complete expected image, exact field name, and unscaled value. | Master and device identity, IO-Link mode, and the entire gateway `pdout` value. |
 
 ## GUI
 
@@ -91,7 +91,7 @@ The CLI dispatches at most one write for each invocation. It makes a fresh readb
 - `gateway_acknowledged` records the SystemCommand acknowledgement. Verify the command's effect according to the device documentation.
 - `unconfirmed` includes a gateway error, lost or malformed reply, or failed or different readback. The CLI returns exit 1 after printing the receipt. Inspect the current state before deciding on any further action.
 
-Monitoring, capture and optional data feeds use read-only paths. The reviewed write workflow covers mode changes, individual readable ISDU parameters, one-shot documented SystemCommands, and a single full output image. Cyclic output ownership, write-only vendor parameters, typed output encoding, and Data Storage workflows remain follow-on work.
+Monitoring, capture and optional data feeds use read-only paths. The reviewed write workflow covers mode changes, individual readable ISDU parameters, one-shot documented SystemCommands, and a single full output image. Cyclic output ownership, write-only vendor parameters, and Data Storage workflows remain follow-on work.
 
 ## Review process outputs
 
@@ -99,9 +99,17 @@ Use **Device → Writes → Process output** or the CLI to review two complete g
 
 When the selected input layout has `ProcessDataOut` in the same IODD `ProcessData` entry, Workbench saves that output declaration in the profile. In the preview, expand **IODD output fields** for names, offsets, widths, signedness, byte order, raw values and scaled displays. CLI preview and receipt JSON include `target_and_request.process_output_review`. Changes to bits without a typed mapping are listed for manual review. Both images must match the declared byte width, and padding outside the declared bit length must be preserved.
 
+To change one field, select **Edit one field** and choose its IODD name. Keep the complete current image as **Expected output hex**. Enter an unscaled decimal integer, a finite Float32 value, or a Boolean such as `true` or `false`. Workbench replaces the selected bits and preserves all other bits in the expected image. Review the exact full request. Field editing supports packed record and array fields and standalone numeric fields that occupy the entire 8-, 16-, 32- or 64-bit image. A standalone Boolean uses a separate wire representation. [IO-Link Interface and System Specification, Annex F](https://io-link.com/fileadmin/user_upload/Downloads/Package_2024/IOL-Interface-Spec_10002_V114_Jun24.pdf)
+
+The CLI uses `--field` and `--desired-value` for one field edit. Use the exact mapped name from the profile or the output review, including any displayed subindex suffix. Check the device documentation for operating limits and interlocks before approving the image.
+
+```powershell
+.\iolink-cli.exe write $profile --master-serial $serial process-output --expected A7F1 --field "level [1]" --desired-value 2
+```
+
 For a conditional layout, confirm the active condition against the device and record confirmation in Mappings or set `confirm_iodd_condition = true` in the saved profile. Preview checks the recorded confirmation. The live check compares the exact gateway image and verifies the existing identity and mode pins.
 
-The confirmation binds the full expected and desired images and the available typed review. Profiles without output metadata still use raw review. Earlier Workbench releases can read unchanged input-only profiles. Use this or a newer release to open a profile with the new `iodd.output` metadata. Inspect output-only layouts with `iolink-cli iodd` or in the GUI IODD preview. Importing into a profile currently requires a process input layout. [IO Device Description Specification and Schemas V1.1.5, released package](https://io-link.com/downloads)
+The confirmation binds the full expected and desired images and the available typed review. Profiles without output metadata still use raw review. Earlier Workbench releases can read unchanged input-only profiles. Profiles with `iodd.output` metadata require v0.79.0 or later. Inspect output-only layouts with `iolink-cli iodd` or in the GUI IODD preview. Importing into a profile currently requires a process input layout. Re-import the IODD to enable field editing for packed outputs in a profile created by v0.79.0. Newly imported packed output profiles require v0.80.0 or later. [IO Device Description Specification and Schemas V1.1.5, released package](https://io-link.com/downloads)
 
 ```powershell
 .\iolink-cli.exe write $profile --master-serial $serial process-output --expected 0102 --desired 0304
@@ -109,4 +117,4 @@ The confirmation binds the full expected and desired images and the available ty
 
 ## Verification
 
-`python tools/verify_writes.py PATH_TO_CLI` uses an isolated loopback peer. It checks all three current-value reads, ISDU addresses by index and IODD ID, interpretation with raw-byte retention, all four write paths, offline typed and raw ISDU previews including temporal values, whole-image member edits, paired output import and review, output width and padding checks, identity and value mismatches, exact and padding-aware readback, and a lost write reply with one dispatch. `cargo test --locked --bin iolink-workbench desktop::writes::tests` exercises the filtered IODD picker, address changes, offline GUI drafts, an interpreted current read alongside a held acquisition owner, approval guards, and close behavior with a held loopback write reply. Real firmware, machine conditions and actuator effects await physical qualification.
+`python tools/verify_writes.py PATH_TO_CLI` uses an isolated loopback peer. It checks all three current-value reads, ISDU addresses by index and IODD ID, interpretation with raw-byte retention, all four write paths, offline typed and raw ISDU previews including temporal values, whole-image member edits, paired output import and review, typed field edits with exact preservation, output width and padding checks, identity and value mismatches, exact and padding-aware readback, and a lost write reply with one dispatch. `cargo test --locked --bin iolink-workbench desktop::writes::tests` exercises the filtered IODD picker, address changes, offline GUI drafts, an interpreted current read alongside a held acquisition owner, approval guards, and close behavior with a held loopback write reply. Real firmware, machine conditions and actuator effects await physical qualification.

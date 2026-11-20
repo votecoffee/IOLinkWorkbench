@@ -37,6 +37,7 @@ struct Draft {
     desired: String,
     typed_desired: bool,
     member_subindex: u8,
+    output_field: Option<String>,
     empty_text: bool,
     index: u16,
     subindex: u8,
@@ -109,6 +110,14 @@ impl Draft {
                 code: self.code,
                 meaning: self.meaning.clone(),
             },
+            Kind::Output if self.typed_desired => Operation::process_output_field(
+                profile,
+                self.expected.clone(),
+                self.output_field
+                    .as_deref()
+                    .context("Choose an IODD output field")?,
+                &self.desired,
+            )?,
             Kind::Output => Operation::ProcessOutput {
                 expected: self.expected.clone(),
                 desired: self.desired.clone(),
@@ -121,6 +130,7 @@ impl Draft {
         self.desired.clear();
         self.typed_desired = false;
         self.member_subindex = 0;
+        self.output_field = None;
         self.empty_text = false;
     }
 
@@ -155,10 +165,62 @@ impl Draft {
                 );
                 text_entry(ui, "Documented command meaning", &mut self.meaning);
             }
-            Kind::Output => {
-                ui.small("Enter the full process output image on both sides.");
-                self.values(ui, "Expected output hex", "Desired output hex");
-            }
+            Kind::Output => self.show_output(ui, profile),
+        }
+    }
+
+    fn show_output(&mut self, ui: &mut Ui, profile: &Profile) {
+        use iolink_workbench::decode::Kind as FieldKind;
+        let fields: Vec<_> = profile
+            .iodd
+            .iter()
+            .filter_map(|iodd| iodd.output.as_ref())
+            .flat_map(|layout| layout.editable_output_fields())
+            .collect();
+        let was_typed = self.typed_desired;
+        if fields.is_empty() {
+            self.typed_desired = false;
+        } else {
+            ui.horizontal_wrapped(|ui| {
+                ui.selectable_value(&mut self.typed_desired, false, "Raw hex");
+                ui.selectable_value(&mut self.typed_desired, true, "Edit one field");
+            });
+        }
+        if was_typed != self.typed_desired {
+            self.output_field = None;
+            self.desired.clear();
+        }
+        text_entry(ui, "Expected output hex", &mut self.expected);
+        if !self.typed_desired {
+            text_entry(ui, "Desired output hex", &mut self.desired);
+            return;
+        }
+        let previous = self.output_field.clone();
+        egui::ComboBox::from_id_salt("write-output-field")
+            .selected_text(previous.as_deref().unwrap_or("Select a field"))
+            .show_ui(ui, |ui| {
+                for field in &fields {
+                    ui.selectable_value(
+                        &mut self.output_field,
+                        Some(field.name.clone()),
+                        &field.name,
+                    );
+                }
+            });
+        if previous != self.output_field {
+            self.desired.clear();
+        }
+        if let Some(field) = fields
+            .iter()
+            .find(|field| Some(field.name.as_str()) == self.output_field.as_deref())
+        {
+            let label = match field.kind {
+                FieldKind::Bool => "Desired Boolean (true or false)",
+                FieldKind::Float32 => "Desired Float32 (unscaled)",
+                FieldKind::Signed | FieldKind::Unsigned => "Desired integer (unscaled decimal)",
+            };
+            text_entry(ui, label, &mut self.desired);
+            ui.small("Preview builds the full output image and preserves all other bits.");
         }
     }
 

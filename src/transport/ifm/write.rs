@@ -39,6 +39,26 @@ pub enum Operation {
 }
 
 impl Operation {
+    /// Edit one IODD field in the full expected gateway output image.
+    pub fn process_output_field(
+        profile: &Profile,
+        expected: String,
+        field: &str,
+        desired_value: &str,
+    ) -> Result<Self> {
+        let layout = profile
+            .iodd
+            .as_ref()
+            .and_then(|iodd| iodd.output.as_ref())
+            .context("typed process output requires an imported IODD output layout")?;
+        let image = parse_hex_bounded(&expected, MAX_INPUT)?;
+        let proposed = layout.edit_output_field(image, field, desired_value)?;
+        Ok(Self::ProcessOutput {
+            expected,
+            desired: hex(&proposed),
+        })
+    }
+
     /// Encode a desired IODD value locally for the same byte-for-byte review as a raw write.
     pub fn isdu_typed(
         profile: &Profile,

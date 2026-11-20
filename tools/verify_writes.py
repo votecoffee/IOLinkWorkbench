@@ -208,6 +208,8 @@ def verify(cli, profile, server):
     output_source.write_text(output_xml, encoding="utf-8", newline="\n")
     catalog = tomllib.loads(subprocess.check_output([cli, "iodd", output_source], text=True, timeout=15))
     assert catalog["layouts"][0]["output"]["id"] == "OUT"
+    assert catalog["layouts"][0]["output"]["packed"] is True
+    assert "packed" not in catalog["output_only_layouts"][0]
     assert catalog["output_only_layouts"][0]["id"] == "OUT_SINGLE"
     assert catalog["output_only_layouts"][0]["condition"] == "V_SIM_Threshold = 2"
     output_imported = profile.parent / "output-imported.toml"
@@ -259,6 +261,39 @@ def verify(cli, profile, server):
     _, receipt = apply(paired_output, "readback_matched", target=checked)
     assert receipt["preview"]["target_and_request"]["process_output_review"] == review
     assert len(server.writes) == writes + 1 and receipt["readback"] == server.output == "A012"
+
+    field_draft = ["process-output", "--expected", "A7F1", "--field", "level [1]", "--desired-value"]
+    typed_output = [*field_draft, "2"]
+    typed_preview = preview(typed_output, target=checked)
+    assert typed_preview == preview(
+        ["process-output", "--expected", "A7F1", "--desired", "A011"], target=checked)
+    assert typed_preview["target_and_request"]["process_output_review"]["changed_unmapped_bits"] == []
+    typed_boolean = ["process-output", "--expected", "A7F0", "--field", "switch [2]",
+                     "--desired-value", "true"]
+    assert preview(typed_boolean, target=checked)["target_and_request"]["requested_value"] == "A7F1"
+    assert preview([*field_draft, "-1"], target=checked)["target_and_request"]["requested_value"] == "A7F9"
+    for value in ("-129", "128"):
+        assert "exceeds the declared signed width" in run([*field_draft, value], target=checked, status=1)
+    assert "requires 2 bytes" in run([*typed_output[:2], "01", *typed_output[3:]], target=checked, status=1)
+    assert "no editable IODD output field" in run(
+        [*typed_output[:4], "missing", *typed_output[5:]], target=checked, status=1)
+    assert "cannot be used with" in run([*typed_output, "--desired", "A011"], target=checked, status=2)
+    assert "--desired-value" in run(typed_output[:-2], target=checked, status=2)
+    assert "--field" in run([*typed_output[:3], *typed_output[5:]], target=checked, status=2)
+    assert "requires an imported IODD output layout" in run(typed_output, status=1)
+    assert "confirm the active IODD layout condition" in run(typed_output, target=paired, status=1)
+    legacy = profile.parent / "output-without-packing.toml"
+    legacy.write_text(checked_text.replace("packed = true\n", "", 1), encoding="utf-8", newline="\n")
+    assert preview(paired_output, target=legacy) == dry
+    assert "no editable IODD output field" in run(typed_output, target=legacy, status=1)
+    before = len(server.writes)
+    assert "expected current" in run(
+        typed_output, confirm=typed_preview["confirmation"], target=checked, status=1)
+    assert len(server.writes) == before
+    server.output = "A7F1"
+    request, receipt = apply(typed_output, "readback_matched", target=checked)
+    assert request["request_data"] == {"newvalue": "A011"}
+    assert len(server.writes) == before + 1 and receipt["readback"] == server.output == "A011"
 
     configured = import_for_write(ROOT / "samples/sensor.xml")
     formats = import_for_write(ROOT / "samples/sensor-formats.xml")
@@ -640,7 +675,7 @@ def verify(cli, profile, server):
     request, receipt = apply(packed_record, "readback_matched", target=whole_record)
     assert request["request_data"]["subindex"] == 0
     assert receipt["readback"] == "FFEC810A41000000"
-    print("PASS: checked reads and ISDU writes by index or IODD ID, typed compound member edits, paired process outputs, exact target checks, exact and StringT readback, and single dispatch on uncertain outcomes")
+    print("PASS: checked reads and ISDU writes by index or IODD ID, typed compound member edits, raw and typed process outputs, exact target checks, exact and StringT readback, and single dispatch on uncertain outcomes")
 
 
 def main():

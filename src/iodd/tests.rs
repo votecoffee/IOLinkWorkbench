@@ -2,6 +2,82 @@ use super::*;
 
 const SENSOR: &str = include_str!("../../samples/sensor.xml");
 
+#[test]
+fn typed_output_field_edits_keep_wire_width_and_neighboring_bits() -> Result<()> {
+    let mut layout = ProcessDataLayout {
+        id: "OUT".into(),
+        bit_length: 72,
+        packed: true,
+        condition: None,
+        fields: vec![Field {
+            name: "Wide value".into(),
+            bit_offset: 3,
+            bits: 64,
+            ..Field::default()
+        }],
+        needs_input: Vec::new(),
+    };
+    let zeros = [0xf8, 0, 0, 0, 0, 0, 0, 0, 7];
+    assert_eq!(
+        layout.edit_output_field(vec![0xff; 9], "Wide value", "0")?,
+        zeros
+    );
+    assert_eq!(
+        layout.edit_output_field(zeros.to_vec(), "Wide value", "18446744073709551615")?,
+        [0xff; 9]
+    );
+    assert!(
+        layout
+            .edit_output_field(zeros.to_vec(), "Wide value", "18446744073709551616")
+            .is_err()
+    );
+
+    layout.bit_length = 40;
+    layout.fields[0].kind = Kind::Float32;
+    layout.fields[0].bits = 32;
+    assert_eq!(
+        layout.edit_output_field(vec![0xff; 5], "Wide value", "-0")?,
+        [0xfc, 0, 0, 0, 0x07]
+    );
+    assert!(
+        layout
+            .edit_output_field(vec![0xff; 5], "Wide value", "NaN")
+            .is_err()
+    );
+    assert!(
+        layout
+            .edit_output_field(vec![0xff; 5], "Wide value", "1e300")
+            .is_err()
+    );
+
+    layout.packed = false;
+    layout.bit_length = 8;
+    layout.fields[0].kind = Kind::Signed;
+    layout.fields[0].bits = 8;
+    layout.fields[0].bit_offset = 0;
+    assert_eq!(
+        layout.edit_output_field(vec![0x7f], "Wide value", "-128")?,
+        [0x80]
+    );
+    assert!(
+        layout
+            .edit_output_field(vec![0x7f], "Wide value", "-129")
+            .is_err()
+    );
+
+    // A singular one-bit value can require a full-octet representation.
+    layout.bit_length = 1;
+    layout.fields[0].kind = Kind::Bool;
+    layout.fields[0].bits = 1;
+    assert_eq!(layout.editable_output_fields().count(), 0);
+    assert!(
+        layout
+            .edit_output_field(vec![0], "Wide value", "true")
+            .is_err()
+    );
+    Ok(())
+}
+
 fn with_display(unit: &str) -> String {
     SENSOR.replace("<UserInterface>", "<UnusedInterface>").replace("</UserInterface>", "</UnusedInterface>").replace("</DeviceFunction>", &format!(r#"
         <UserInterface><ProcessDataRefCollection><ProcessDataRef processDataId="IN">

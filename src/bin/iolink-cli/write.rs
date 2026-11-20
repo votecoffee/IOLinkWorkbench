@@ -124,12 +124,20 @@ enum WriteOperation {
         #[arg(long)]
         meaning: String,
     },
-    /// Write a complete IO-Link process output image as hex bytes.
+    /// Write a complete output image from hex or an IODD field edit.
     ProcessOutput {
+        /// Exact current full output image in hexadecimal.
         #[arg(long)]
         expected: String,
-        #[arg(long)]
-        desired: String,
+        /// Proposed full output image in hexadecimal.
+        #[arg(long, required_unless_present = "field", conflicts_with_all = ["field", "desired_value"])]
+        desired: Option<String>,
+        /// Exact IODD output field name as printed in the imported mapping.
+        #[arg(long, requires = "desired_value")]
+        field: Option<String>,
+        /// Proposed unscaled field value.
+        #[arg(long, requires = "field", allow_negative_numbers = true)]
+        desired_value: Option<String>,
     },
 }
 
@@ -165,8 +173,21 @@ impl WriteOperation {
                 }
             }
             Self::DeviceCommand { code, meaning } => Operation::DeviceCommand { code, meaning },
-            Self::ProcessOutput { expected, desired } => {
-                Operation::ProcessOutput { expected, desired }
+            Self::ProcessOutput {
+                expected,
+                desired,
+                field,
+                desired_value,
+            } => {
+                if let Some(field) = field {
+                    let value = desired_value.context("specify --desired-value for the field")?;
+                    Operation::process_output_field(profile, expected, &field, &value)?
+                } else {
+                    Operation::ProcessOutput {
+                        expected,
+                        desired: desired.context("specify --desired or a field and its value")?,
+                    }
+                }
             }
         })
     }

@@ -1,5 +1,5 @@
 use crate::{
-    decode::{ByteOrder, Field, Kind, MAX_INPUT},
+    decode::{ByteOrder, Field, Kind, MAX_INPUT, insert_bits},
     profile::{Identity, Imported},
 };
 use anyhow::{Context, Result, bail, ensure};
@@ -57,6 +57,8 @@ pub struct Layout {
 pub struct ProcessDataLayout {
     pub id: String,
     pub bit_length: usize,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub packed: bool,
     pub condition: Option<String>,
     pub fields: Vec<Field>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -66,6 +68,46 @@ pub struct ProcessDataLayout {
 impl ProcessDataLayout {
     pub fn bytes(&self) -> usize {
         self.bit_length.div_ceil(8)
+    }
+
+    pub fn editable_output_fields(&self) -> impl Iterator<Item = &Field> {
+        self.fields.iter().filter(|field| {
+            // Packed values occupy their assigned bits. A standalone numeric value
+            // covering a full wire container has no separate padding to regenerate.
+            self.packed
+                || (field.bit_offset == 0
+                    && usize::from(field.bits) == self.bit_length
+                    && matches!(field.bits, 8 | 16 | 32 | 64))
+        })
+    }
+
+    pub(crate) fn edit_output_field(
+        &self,
+        mut image: Vec<u8>,
+        name: &str,
+        input: &str,
+    ) -> Result<Vec<u8>> {
+        self.validate()?;
+        ensure!(
+            image.len() == self.bytes(),
+            "IODD output layout {} requires {} bytes ({} bits)",
+            self.id,
+            self.bytes(),
+            self.bit_length
+        );
+        let field = self
+            .editable_output_fields()
+            .find(|field| field.name == name)
+            .with_context(|| format!("no editable IODD output field named {name:?}"))?;
+        let value =
+            output_value(field, input).with_context(|| format!("desired value for {name}"))?;
+        insert_bits(
+            &mut image,
+            field.bit_offset,
+            u16::from(field.bits),
+            &value.to_be_bytes(),
+        )?;
+        Ok(image)
     }
 
     pub(crate) fn validate(&self) -> Result<()> {
@@ -104,6 +146,41 @@ impl ProcessDataLayout {
         }
         Ok(())
     }
+}
+
+fn output_value(field: &Field, input: &str) -> Result<u64> {
+    let input = input.trim();
+    Ok(match field.kind {
+        Kind::Bool => match input {
+            "true" | "1" => 1,
+            "false" | "0" => 0,
+            _ => bail!("expected true, false, 1 or 0"),
+        },
+        Kind::Unsigned => {
+            let value: u64 = input
+                .parse()
+                .context("expected an unsigned decimal integer")?;
+            ensure!(
+                u128::from(value) < (1u128 << field.bits),
+                "value exceeds the declared unsigned width"
+            );
+            value
+        }
+        Kind::Signed => {
+            let value: i64 = input.parse().context("expected a signed decimal integer")?;
+            let bound = 1i128 << (field.bits - 1);
+            ensure!(
+                (-bound..bound).contains(&i128::from(value)),
+                "value exceeds the declared signed width"
+            );
+            value as u64
+        }
+        Kind::Float32 => {
+            let value: f32 = input.parse().context("expected a decimal Float32 value")?;
+            ensure!(value.is_finite(), "expected a finite Float32 value");
+            u64::from(value.to_bits())
+        }
+    })
 }
 
 #[derive(Debug, Serialize)]
@@ -795,9 +872,16 @@ fn parse_process_item<'a, 'input>(
         (1..=MAX_INPUT * 8).contains(&bits),
         "{id}: invalid process data width"
     );
+    let dt = datatype(node, types);
+    let kind = dt
+        .as_ref()
+        .ok()
+        .and_then(|dt| dt.attribute((XSI, "type")))
+        .and_then(|kind| kind.rsplit(':').next());
     let mut layout = ProcessDataLayout {
         id: id.into(),
         bit_length: bits,
+        packed: matches!(kind, Some("RecordT" | "ArrayT")),
         condition,
         fields: Vec::new(),
         needs_input: Vec::new(),
@@ -807,7 +891,6 @@ fn parse_process_item<'a, 'input>(
     } else {
         "; review these bits from the device documentation"
     };
-    let dt = datatype(node, types);
     let display = display_refs.get(id).copied();
     let mut missing_unit = false;
     let mut add = |name: String, result: Result<(Field, bool)>| -> Result<()> {
@@ -845,9 +928,7 @@ fn parse_process_item<'a, 'input>(
         Ok(())
     };
     if let Ok(record) = dt.as_ref()
-        && record
-            .attribute((XSI, "type"))
-            .is_some_and(|kind| kind.rsplit(':').next() == Some("RecordT"))
+        && kind == Some("RecordT")
     {
         for item in record
             .children()
@@ -876,10 +957,7 @@ fn parse_process_item<'a, 'input>(
                 })(),
             )?;
         }
-    } else if dt.as_ref().is_ok_and(|dt| {
-        dt.attribute((XSI, "type"))
-            .is_some_and(|kind| kind.rsplit(':').next() == Some("ArrayT"))
-    }) {
+    } else if kind == Some("ArrayT") {
         let name = label(node, texts, id);
         let info = display
             .and_then(|reference| child(reference, "ProcessDataInfo"))

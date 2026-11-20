@@ -337,6 +337,7 @@ pub(super) fn render(
                                     .output = Some(iodd::ProcessDataLayout {
                                     id: "OUT".into(),
                                     bit_length: 13,
+                                    packed: true,
                                     condition: None,
                                     fields: vec![Field {
                                         name: "Enable".into(),
@@ -347,10 +348,12 @@ pub(super) fn render(
                                     needs_input: Vec::new(),
                                 });
                                 app.setup.sync(&app.profile);
-                                Some(Operation::ProcessOutput {
-                                    expected: "0001".into(),
-                                    desired: "0000".into(),
-                                })
+                                Some(Operation::process_output_field(
+                                    &app.profile,
+                                    "0001".into(),
+                                    "Enable",
+                                    "false",
+                                )?)
                             }
                             _ => None,
                         };

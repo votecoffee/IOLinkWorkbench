@@ -124,6 +124,50 @@ fn typed_isdu_draft_stages_exact_bytes_and_requires_explicit_empty_text() -> Res
 }
 
 #[test]
+fn typed_output_draft_stages_only_the_selected_field_offline() -> Result<()> {
+    let mut profile = fixture_iodd_profile()?;
+    profile
+        .iodd
+        .as_mut()
+        .context("missing synthetic IODD")?
+        .output = Some(iolink_workbench::iodd::ProcessDataLayout {
+        id: "OUT".into(),
+        bit_length: 13,
+        packed: true,
+        condition: None,
+        fields: vec![iolink_workbench::decode::Field {
+            name: "Enable".into(),
+            bit_offset: 0,
+            bits: 1,
+            kind: iolink_workbench::decode::Kind::Bool,
+            ..Default::default()
+        }],
+        needs_input: Vec::new(),
+    });
+    let mut draft = Draft {
+        kind: Kind::Output,
+        expected: "A7F0".into(),
+        desired: "true".into(),
+        typed_desired: true,
+        ..Default::default()
+    };
+    assert!(draft.operation(&profile).is_err());
+    draft.output_field = Some("Enable".into());
+    let plan = Plan::new(&profile, "SYNTHETIC-MASTER", draft.operation(&profile)?)?;
+    assert_eq!(plan.review().request_data, json!({"newvalue": "A7F1"}));
+    let review = plan
+        .review()
+        .process_output_review
+        .as_ref()
+        .context("missing output review")?;
+    assert!(review.changed_unmapped_bits.is_empty());
+    assert_eq!(review.fields[0].proposed.raw, "true");
+    draft.reset_values();
+    assert!(draft.output_field.is_none() && !draft.typed_desired && draft.desired.is_empty());
+    Ok(())
+}
+
+#[test]
 fn typed_member_draft_builds_a_whole_image_even_with_subindex_access_disabled() -> Result<()> {
     let mut profile = fixture_iodd_profile()?;
     let record = profile
