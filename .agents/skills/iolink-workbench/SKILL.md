@@ -45,6 +45,8 @@ Physical writes require explicit user approval for the proposed target and opera
 
 For a single supported `StringT` value, the preview includes the IODD encoding and length for readback. Preflight compares exact bytes. After acknowledgement, `text_readback_matched` identifies equal decoded text with different zero padding and retains the exact returned bytes.
 
+Typed integer ISDU drafts support 2- to 64-bit values in 1-, 2-, 4- or 8-byte containers. A standalone typed Boolean true encodes as `FF`. Generate a new preview for typed true operations reviewed before v0.73.0. Existing compact representations still decode.
+
 Typed `TimeT` drafts take an explicit UTC timestamp ending in `Z`. Typed `TimeSpanT` drafts take `[+-]PTseconds[.fff]S`. Review the exact eight bytes and ticks because fractional values at millisecond precision may round to the next tick in magnitude. Temporal preflight and readback compare exact bytes.
 
 ## Changes and delivery

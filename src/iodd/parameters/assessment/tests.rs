@@ -47,6 +47,52 @@ fn boolean_and_integer_aliases_match_without_losing_exact_wide_values() -> Resul
 }
 
 #[test]
+fn integer_wire_and_local_representations_round_trip_every_width() -> Result<()> {
+    let profile = profile(XML)?;
+    let boolean = profile.parameter("V_SIM_Enabled")?;
+    assert_eq!(
+        numeric_bytes(boolean, "true", NumericEncoding::Isdu)?,
+        [0xff]
+    );
+    assert_eq!(numeric_bytes(boolean, "true", NumericEncoding::Local)?, [1]);
+    assert_eq!(boolean.decode_raw(&[0xff])?, boolean.decode_raw(&[1])?);
+
+    let mut parameter = profile.parameter("V_SIM_Wide")?.clone();
+    for bits in 2u16..=64 {
+        parameter.bits = Some(bits);
+        for (datatype, limit) in [
+            ("IntegerT", (-(1i128 << (bits - 1))).to_string()),
+            ("IntegerT", ((1u128 << (bits - 1)) - 1).to_string()),
+            ("UIntegerT", ((1u128 << bits) - 1).to_string()),
+        ] {
+            parameter.datatype = datatype.into();
+            let local = numeric_bytes(&parameter, &limit, NumericEncoding::Local)?;
+            let mut wire = parameter.encode_typed_write(&limit)?;
+            assert_eq!(
+                wire.len(),
+                usize::from(bits).div_ceil(8).next_power_of_two()
+            );
+            assert_eq!(
+                parameter.decode_raw(&local)?.as_deref(),
+                Some(limit.as_str())
+            );
+            assert_eq!(
+                parameter.decode_raw(&wire)?.as_deref(),
+                Some(limit.as_str())
+            );
+            if wire.len() != local.len() {
+                wire[0] ^= 0x80;
+                assert!(
+                    parameter.decode_raw(&wire).is_err(),
+                    "accepted malformed {datatype}/{bits} padding"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn float_comparison_uses_binary32_semantics_and_inclusive_ranges() -> Result<()> {
     let profile = profile(XML)?;
     let parameter = profile.parameter("V_SIM_Float")?;

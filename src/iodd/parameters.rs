@@ -23,6 +23,10 @@ pub(crate) use text::decode as decode_text_parameter;
 pub use time::{DefaultConversion as TimeDefaultConversion, TimeValue};
 pub use value::{DecodedParameter, RecordValue};
 
+fn integer_container_bytes(bits: u16) -> usize {
+    usize::from(bits).div_ceil(8).next_power_of_two()
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Access {
     #[serde(rename = "ro")]
@@ -248,10 +252,30 @@ impl Parameter {
             return Ok(None);
         }
         let field = self.scalar_field()?;
-        ensure!(
-            payload.len() == usize::from(field.bits).div_ceil(8),
-            "parameter response width differs from the IODD"
-        );
+        let bits = usize::from(field.bits);
+        if payload.len() != bits.div_ceil(8) {
+            ensure!(
+                matches!(field.kind, Kind::Signed | Kind::Unsigned)
+                    && (2..=64).contains(&field.bits)
+                    && payload.len() == integer_container_bytes(u16::from(field.bits)),
+                "parameter response width differs from the IODD"
+            );
+            // Packed members and legacy local values keep their original byte width.
+            // An additional wire-width representation has to extend the number cleanly.
+            let mut word = [0; 8];
+            word[8 - payload.len()..].copy_from_slice(payload);
+            let word = u64::from_be_bytes(word);
+            let negative = field.kind == Kind::Signed && word & (1 << (bits - 1)) != 0;
+            let padding = if negative {
+                (1 << (payload.len() * 8 - bits)) - 1
+            } else {
+                0
+            };
+            ensure!(
+                word >> bits == padding,
+                "integer container padding differs from the IODD datatype"
+            );
+        }
         Ok(Some(field.decode(payload)?.raw))
     }
 }

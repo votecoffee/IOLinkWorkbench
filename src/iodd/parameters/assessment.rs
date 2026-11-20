@@ -1,5 +1,5 @@
 //! Compare unscaled numeric values with IODD SingleValue/ValueRange definitions.
-use super::Parameter;
+use super::{Parameter, integer_container_bytes};
 use anyhow::{Context, Result, bail, ensure};
 use serde::Serialize;
 use std::cmp::Ordering;
@@ -156,19 +156,34 @@ fn lexical(parameter: &Parameter, text: &str) -> Result<Atom> {
     })
 }
 
-/// A singular numeric representation rounded up to the nearest byte.
-pub(super) fn numeric_bytes(parameter: &Parameter, value: &str) -> Result<Vec<u8>> {
-    let atom = lexical(parameter, value)?;
-    Ok(match atom {
-        Atom::Boolean(value) => vec![u8::from(value)],
-        Atom::Unsigned(value) => {
-            value.to_be_bytes()[8 - usize::from(parameter.bits.unwrap()).div_ceil(8)..].to_vec()
+pub(super) enum NumericEncoding {
+    Local,
+    Isdu,
+}
+
+pub(super) fn numeric_bytes(
+    parameter: &Parameter,
+    value: &str,
+    encoding: NumericEncoding,
+) -> Result<Vec<u8>> {
+    let word = match lexical(parameter, value)? {
+        Atom::Boolean(value) => {
+            let on = match encoding {
+                NumericEncoding::Local => 1,
+                NumericEncoding::Isdu => 0xff,
+            };
+            return Ok(vec![if value { on } else { 0 }]);
         }
-        Atom::Signed(value) => {
-            value.to_be_bytes()[8 - usize::from(parameter.bits.unwrap()).div_ceil(8)..].to_vec()
-        }
-        Atom::Float(value) => value.to_be_bytes().to_vec(),
-    })
+        Atom::Unsigned(value) => value,
+        Atom::Signed(value) => value as u64,
+        Atom::Float(value) => return Ok(value.to_be_bytes().to_vec()),
+    };
+    let bits = parameter.bits.context("numeric width is unavailable")?;
+    let width = match encoding {
+        NumericEncoding::Local => usize::from(bits).div_ceil(8),
+        NumericEncoding::Isdu => integer_container_bytes(bits),
+    };
+    Ok(word.to_be_bytes()[8 - width..].to_vec())
 }
 
 /// Semantic equality for standard definition references; no float widening.

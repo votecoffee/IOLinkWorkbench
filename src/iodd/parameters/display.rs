@@ -1,4 +1,4 @@
-use super::Parameter;
+use super::{Parameter, integer_container_bytes};
 use crate::{
     decode::{Field, Kind},
     iodd::{IODD_NAMESPACE, child},
@@ -89,12 +89,7 @@ impl Display {
             self.field.read_bits(payload)?.to_string()
         } else {
             let width = self.field.bits;
-            let display_bits = match width {
-                1..=8 => 8,
-                9..=16 => 16,
-                17..=32 => 32,
-                _ => 64,
-            };
+            let display_bits = integer_container_bytes(u16::from(width)) * 8;
             let mut bits = self.field.read_bits(payload)?;
             if self.field.kind == Kind::Signed && width < 64 && bits & (1 << (width - 1)) != 0 {
                 bits |= u64::MAX << width;

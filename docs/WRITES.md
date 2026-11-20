@@ -28,7 +28,8 @@ Preview runs offline and prints JSON with the destination, wire address, payload
 
 For a supported read/write parameter or enabled subindex, choose **IODD value** in the ISDU form or use `--desired-value` in the CLI. **Use as expected value** still copies the exact current hex.
 
-- For Boolean parameters, enter `true` or `false`. For 8-, 16-, 32- or 64-bit integers, enter an unscaled decimal number.
+- For Boolean parameters, enter `true` or `false`. Typed ISDU entry encodes these as `FF` and `00`. Generate a fresh preview for a typed `true` operation reviewed before v0.73.0.
+- For signed and unsigned integers of 2 through 64 bits, enter an unscaled decimal number. Workbench checks the declared numeric bounds and uses the smallest applicable 1-, 2-, 4- or 8-byte container. It sign-extends signed values and zero-pads unsigned values. [IO-Link interface specification, Annex F.2.2–F.2.4](https://io-link.com/fileadmin/user_upload/Downloads/Package_2024/IOL-Interface-Spec_10002_V114_Jun24.pdf)
 - For `Float32T`, enter an unscaled decimal number or exponent form, such as `-2.5` or `2.5e-1`. Explicit `INF` and `-INF` are supported, subject to the same IODD checks. Use `--desired-value=-INF` for the negative literal in the CLI. The preview shows the resulting 32-bit encoding.
 - For `TimeT`, enter `yyyy-mm-ddThh:mm:ss[.fff]Z`, such as `1984-01-01T00:00:00.001Z`. Typed entry uses UTC and the default era window from `1984-01-01T00:00:00Z` inclusive to `2120-02-07T06:28:16Z` exclusive.
 - For `TimeSpanT`, enter signed seconds as `[+-]PTseconds[.fff]S`, such as `PT2.75S` or `-PT0.001S`. In the CLI, pass a negative duration as `--desired-value=-PT0.001S`.
@@ -44,6 +45,8 @@ If index 64 is a signed 16-bit parameter and its current bytes are `0001`, enter
 ```
 
 The typed and raw forms produce the same confirmation when the reviewed bytes and target match. Use raw hex or `--desired` for other widths, unsupported datatypes, and whole compound images.
+
+Integer decoding also accepts the existing compact representation used in saved values and packed members. A longer wire container has to contain valid sign or zero padding. Preflight and readback compare exact bytes for numeric values.
 
 For a single `StringT` value with a supported IODD definition, the preview includes a `text_readback` policy with the declared encoding and byte length. This covers an addressed scalar or one enabled record or array member. The live preflight still requires the exact expected bytes. After the gateway acknowledges the write, Workbench accepts different trailing zero padding if both byte strings decode to identical text under the approved policy. The confirmation includes the policy. Generate a new preview for text operations reviewed before v0.71.0. [IO-Link interface specification, Annex F.2.6](https://io-link.com/fileadmin/user_upload/Downloads/Package_2024/IOL-Interface-Spec_10002_V114_Jun24.pdf)
 

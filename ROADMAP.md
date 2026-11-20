@@ -4,7 +4,7 @@
 
 - Reviewed single `StringT` writes distinguish exact readback from the same IODD text returned with different zero padding. Expected bytes still require an exact match before dispatch. Receipts retain the returned bytes.
 
-- The GUI and CLI encode typed Boolean, 8-, 16-, 32- and 64-bit integer, Float32, time, duration, text and octet string ISDU drafts from the imported IODD. Temporal entry uses millisecond precision and shows exact fixed-point ticks at review. Exact expected hex and the common approval, preflight, and readback checks still apply.
+- The GUI and CLI encode typed Boolean, 2- to 64-bit integer, Float32, time, duration, text and octet string ISDU drafts from the imported IODD. Integer drafts use standard wire containers, and a standalone Boolean true encodes as `FF`. Temporal entry uses millisecond precision and shows exact fixed-point ticks at review.
 
 - ISDU write previews show the IODD interpretation of proposed bytes, including whole records and packed arrays. They reject supported datatype and value-domain failures offline and require bits outside declared writable members to match the expected image. Unsupported or ambiguous value definitions remain flagged for manual review. Bench qualification remains open.
 

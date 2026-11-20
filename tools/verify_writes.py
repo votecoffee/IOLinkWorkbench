@@ -202,10 +202,23 @@ def verify(cli, profile, server):
     values = import_writable_sample("sensor-values")
     strings = import_writable_sample("sensor-strings")
     temporal = import_writable_sample("sensor-time")
+    integer_source = profile.parent / "integer-containers.xml"
+    integer_xml = (ROOT / "samples/sensor-formats.xml").read_text(encoding="utf-8")
+    integer_source.write_text(
+        integer_xml.replace('xsi:type="IntegerT" bitLength="16"', 'xsi:type="IntegerT" bitLength="20"', 1)
+        .replace('</VariableCollection>', '''
+        <Variable id="V_SIM_U40" index="68" accessRights="rw">
+          <Datatype xsi:type="UIntegerT" bitLength="40"/><Name textId="threshold"/>
+        </Variable></VariableCollection>'''), encoding="utf-8", newline="\n")
+    integers = import_for_write(integer_source)
     member = ["isdu", "--index", "66", "--subindex", "3", "--expected", "FF", "--desired", "0A"]
     signed = ["isdu", "--index", "64", "--expected", "0001", "--desired", "FFFE"]
     typed_signed = [*signed[:-2], "--desired-value", "-2"]
     typed_bool = ["isdu", "--index", "66", "--subindex", "2", "--expected", "01", "--desired-value", "false"]
+    typed_true = [*typed_bool[:6], "00", "--desired-value", "true"]
+    typed_short_member = ["isdu", "--index", "85", "--subindex", "1", "--expected", "00", "--desired-value", "-1"]
+    typed_20 = [*signed[:4], "00000001", "--desired-value", "-2"]
+    typed_40 = ["isdu", "--index", "68", "--expected", "0000000000000000", "--desired-value", "1099511627775"]
     typed_wide = ["isdu", "--index", "82", "--expected", "0000000000000000", "--desired-value", "18446744073709551615"]
     typed_float = ["isdu", "--index", "83", "--expected", "3FA00000", "--desired-value", "-2.5"]
     typed_text = ["isdu", "--index", "77", "--expected", "58", "--desired-value", " µm "]
@@ -229,9 +242,6 @@ def verify(cli, profile, server):
         [*typed_signed[:2], "65", *typed_signed[3:]], status=1, target=configured)
     assert "unavailable for the declared datatype or width" in run(
         [*compound[:-2], "--desired-value", "10"], status=1, target=formats)
-    assert "unavailable for the declared datatype or width" in run(
-        ["isdu", "--index", "85", "--subindex", "1", "--expected", "00", "--desired-value", "-1"],
-        status=1, target=values)
     assert "expected true, false, 1 or 0" in run([*typed_bool[:-1], "2"], status=1, target=formats)
     assert "exceeds the declared signed width" in run([*typed_signed[:-1], "-32769"], status=1, target=formats)
     assert "outside the IODD choices or ranges" in run([*member[:-2], "--desired-value", "11"], status=1, target=formats)
@@ -266,6 +276,20 @@ def verify(cli, profile, server):
     assert "manual_review" not in signed_review
     assert preview(typed_signed, target=formats) == preview(signed, target=formats)
     assert preview(typed_bool, target=formats) == preview([*typed_bool[:-2], "--desired", "00"], target=formats)
+    assert preview(typed_true, target=formats) == preview([*typed_true[:-2], "--desired", "FF"], target=formats)
+    assert preview(typed_short_member, target=values) == preview(
+        [*typed_short_member[:-2], "--desired", "FF"], target=values)
+    signed_wire = preview(typed_20, target=integers)["target_and_request"]
+    assert signed_wire["request_data"]["value"] == "FFFFFFFE"
+    assert signed_wire["isdu_value_review"]["interpretation"]["raw_value"] == "-2"
+    compact = preview([*typed_20[:-2], "--desired", "FFFFFE"], target=integers)["target_and_request"]
+    assert compact["isdu_value_review"]["interpretation"]["raw_value"] == "-2"
+    unsigned_wire = preview(typed_40, target=integers)["target_and_request"]
+    assert unsigned_wire["request_data"]["value"] == "000000FFFFFFFFFF"
+    assert unsigned_wire["isdu_value_review"]["interpretation"]["raw_value"] == typed_40[-1]
+    for operation, invalid in [(typed_20, "000FFFFE"), (typed_40, "010000FFFFFFFFFF")]:
+        assert "integer container padding differs" in run([*operation[:-2], "--desired", invalid], status=1, target=integers)
+    assert "exceeds the declared unsigned width" in run([*typed_40[:-1], "1099511627776"], status=1, target=integers)
     wide_plan = preview(typed_wide, target=values)["target_and_request"]
     assert wide_plan["request_data"]["value"] == "FFFFFFFFFFFFFFFF"
     assert wide_plan["isdu_value_review"]["interpretation"]["raw_value"] == typed_wide[-1]
@@ -325,6 +349,19 @@ def verify(cli, profile, server):
     server.parameters[66, 2] = "01"
     _, receipt = apply(typed_bool, "readback_matched", target=formats)
     assert receipt["readback"] == server.parameters[66, 2] == "00"
+    _, receipt = apply(typed_true, "readback_matched", target=formats)
+    assert receipt["readback"] == server.parameters[66, 2] == "FF"
+    server.parameters[66, 2] = "00"
+    server.next_isdu_readback = "01"
+    _, receipt = apply(typed_true, "unconfirmed", status=1, target=formats)
+    assert receipt["readback"] == "01"
+
+    server.parameters[64, 0] = "00000001"
+    _, receipt = apply(typed_20, "readback_matched", target=integers)
+    assert receipt["readback"] == "FFFFFFFE"
+    server.parameters[68, 0] = "0000000000000000"
+    _, receipt = apply(typed_40, "readback_matched", target=integers)
+    assert receipt["readback"] == "000000FFFFFFFFFF"
 
     server.parameters[83, 0] = "3FA00000"
     _, receipt = apply(typed_float, "readback_matched", target=values)

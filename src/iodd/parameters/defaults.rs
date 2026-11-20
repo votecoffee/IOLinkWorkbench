@@ -75,7 +75,7 @@ fn representation(
                 .map(|(bytes, conversion)| (bytes, Some(conversion)));
         }
         "IntegerT" | "UIntegerT" | "BooleanT" | "Float32T" => {
-            assessment::numeric_bytes(parameter, declared)
+            assessment::numeric_bytes(parameter, declared, assessment::NumericEncoding::Local)
         }
         "StringT" | "OctetStringT" => super::text::encode(parameter, declared),
         _ => anyhow::bail!("default representation is unsupported"),
