@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Save a master inspection to a new JSON file and reopen it in the GUI or CLI offline. The saved endpoint and observations preserve the original context, including incomplete second-batch results.
+
 - Inspect master reads the configured cycle preset, validation IDs and raw validation/Data Storage mode on all ports of the four supported ifm models. The GUI groups these settings under Port configuration alongside independent connected-device observations.
 
 - Inspect master reports temperature, supply voltage, sensor-supply current, and raw supply status for all four ifm models. Partial diagnostics preserve the available port observations.

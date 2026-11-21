@@ -1,7 +1,10 @@
 //! One explicit acyclic operation at a time, with results routed by request.
 use super::{App, WARNING, Worker, background, poll_worker};
 use eframe::egui::{self, Ui};
-use iolink_workbench::transport::{inspect_master, layout_condition};
+use iolink_workbench::transport::{
+    MasterInspection, MasterInspectionSnapshot, inspect_master, layout_condition,
+};
+use std::path::PathBuf;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Kind {
@@ -11,6 +14,7 @@ pub(super) enum Kind {
     Events,
     LayoutCondition,
     MasterInspection,
+    SavedMasterInspection,
 }
 
 pub(super) enum Query {
@@ -24,6 +28,7 @@ pub(super) enum Query {
     Events,
     LayoutCondition(layout_condition::Plan),
     MasterInspection,
+    SavedMasterInspection(PathBuf),
 }
 
 impl Query {
@@ -35,6 +40,7 @@ impl Query {
             Self::Events => Kind::Events,
             Self::LayoutCondition(_) => Kind::LayoutCondition,
             Self::MasterInspection => Kind::MasterInspection,
+            Self::SavedMasterInspection(_) => Kind::SavedMasterInspection,
         }
     }
 
@@ -55,6 +61,9 @@ impl Query {
                 plan.layout, plan.parameter_id, plan.index, plan.read_subindex
             ),
             Self::MasterInspection => "Master and port inspection".into(),
+            Self::SavedMasterInspection(path) => {
+                format!("Saved master inspection · {}", path.display())
+            }
         }
     }
 }
@@ -63,6 +72,15 @@ impl Query {
 pub(super) struct Output {
     pub text: String,
     pub port_configuration: Option<String>,
+}
+
+impl From<&MasterInspection> for Output {
+    fn from(inspection: &MasterInspection) -> Self {
+        Self {
+            text: inspection.text(),
+            port_configuration: inspection.port_configuration_text(),
+        }
+    }
 }
 
 impl From<String> for Output {
@@ -88,7 +106,9 @@ pub(super) struct Reading {
 #[derive(Default)]
 pub(super) struct Reads {
     pending: Option<(Query, Worker<Output>)>,
-    latest: [Option<Reading>; 6],
+    latest: [Option<Reading>; 7],
+    master_save_path: String,
+    master_review_path: String,
 }
 
 impl Reads {
@@ -115,7 +135,9 @@ impl Reads {
     }
 
     pub fn clear_results(&mut self) {
+        let saved_master = self.latest[Kind::SavedMasterInspection as usize].take();
         self.latest = Default::default();
+        self.latest[Kind::SavedMasterInspection as usize] = saved_master;
     }
 
     pub fn clear_named(&mut self, id: &str) {
@@ -147,16 +169,89 @@ impl App {
                 if let Some(reason) = blocked {
                     button.on_disabled_hover_text(reason);
                 } else if button.clicked() {
-                    let profile = self.profile.clone();
-                    self.start_acyclic_output(Query::MasterInspection, move || {
-                        let reading = inspect_master(&profile)?;
-                        Ok(Output {
-                            text: reading.text(),
-                            port_configuration: reading.port_configuration_text(),
-                        })
-                    });
+                    self.run_master_inspection(None);
                 }
+                ui.collapsing("Read and save master snapshot", |ui| {
+                    ui.add_enabled(
+                        blocked.is_none(),
+                        egui::TextEdit::singleline(&mut self.acyclic.master_save_path)
+                            .hint_text("New master snapshot JSON path"),
+                    );
+                    let path = self.acyclic.master_save_path.trim();
+                    if ui
+                        .add_enabled(
+                            blocked.is_none() && !path.is_empty(),
+                            egui::Button::new("Inspect and save master snapshot"),
+                        )
+                        .clicked()
+                    {
+                        self.run_master_inspection(Some(PathBuf::from(path)));
+                    }
+                });
                 self.acyclic_result(ui, Kind::MasterInspection);
+            });
+    }
+
+    fn run_master_inspection(&mut self, destination: Option<PathBuf>) {
+        let profile = self.profile.clone();
+        self.start_acyclic_output(Query::MasterInspection, move || {
+            if let Some(path) = &destination {
+                MasterInspectionSnapshot::check_destination(path)?;
+            }
+            let reading = inspect_master(&profile)?;
+            let mut output = Output::from(&reading);
+            if let Some(path) = destination {
+                let snapshot = MasterInspectionSnapshot::new(&profile, reading);
+                match snapshot.save(&path) {
+                    Ok(()) => output
+                        .text
+                        .push_str(&format!("\n\nSaved master snapshot {}", path.display())),
+                    Err(error) => output
+                        .text
+                        .push_str(&format!("\n\nMaster snapshot save failed · {error:#}")),
+                }
+            }
+            Ok(output)
+        });
+    }
+
+    pub(super) fn saved_master_panel(&mut self, ui: &mut Ui) {
+        egui::CollapsingHeader::new("Master inspection snapshots")
+            .default_open(self.acyclic.latest(Kind::SavedMasterInspection).is_some())
+            .show(ui, |ui| {
+                ui.small("Review a saved master and port inventory offline.");
+                let available = self.acyclic_job_block_reason().is_none();
+                ui.add_enabled(
+                    available,
+                    egui::TextEdit::singleline(&mut self.acyclic.master_review_path)
+                        .hint_text("Saved master snapshot JSON path"),
+                );
+                let path = self.acyclic.master_review_path.trim();
+                if ui
+                    .add_enabled(
+                        available && !path.is_empty(),
+                        egui::Button::new("Open master snapshot"),
+                    )
+                    .clicked()
+                {
+                    let path = PathBuf::from(path);
+                    self.start_acyclic_output(
+                        Query::SavedMasterInspection(path.clone()),
+                        move || {
+                            let snapshot = MasterInspectionSnapshot::load(&path)?;
+                            let mut output = Output::from(&snapshot.inspection);
+                            output.text = format!(
+                                "Saved profile {} · Endpoint {}\nProducer {}\n{}",
+                                snapshot.profile_name,
+                                snapshot.endpoint,
+                                snapshot.workbench_version,
+                                output.text
+                            );
+                            Ok(output)
+                        },
+                    );
+                }
+                self.acyclic_result(ui, Kind::SavedMasterInspection);
             });
     }
 
@@ -211,11 +306,19 @@ impl App {
             });
     }
 
-    pub(super) fn acyclic_block_reason(&self) -> Option<&'static str> {
+    fn acyclic_job_block_reason(&self) -> Option<&'static str> {
         if self.closing {
             Some("Application is closing")
         } else if self.acyclic.busy() {
             Some("An acyclic read is in progress")
+        } else {
+            None
+        }
+    }
+
+    pub(super) fn acyclic_block_reason(&self) -> Option<&'static str> {
+        if let Some(reason) = self.acyclic_job_block_reason() {
+            Some(reason)
         } else if self.writes.busy() {
             Some("Wait for the write workflow's current operation before reading parameters")
         } else if self.setup.pending() || self.setup.busy() {
@@ -238,7 +341,11 @@ impl App {
         query: Query,
         work: impl FnOnce() -> anyhow::Result<Output> + Send + 'static,
     ) {
-        if let Some(reason) = self.acyclic_block_reason() {
+        let blocked = match &query {
+            Query::SavedMasterInspection(_) => self.acyclic_job_block_reason(),
+            _ => self.acyclic_block_reason(),
+        };
+        if let Some(reason) = blocked {
             self.message = reason.into();
             return;
         }

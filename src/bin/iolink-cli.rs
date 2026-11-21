@@ -246,7 +246,14 @@ enum Command {
         verify_product_id: bool,
     },
     /// Read ifm master diagnostics and port metadata without sampling device inputs.
-    InspectMaster { profile: PathBuf },
+    InspectMaster {
+        profile: PathBuf,
+        /// Save the report as a new JSON snapshot.
+        #[arg(long)]
+        snapshot: Option<PathBuf>,
+    },
+    /// Review a saved master inspection without contacting the gateway.
+    ReviewMaster { snapshot: PathBuf },
     /// Read status for explicitly profiled ports of the same master, up to its port limit.
     StatusPorts {
         #[arg(required = true, num_args = 1..=iolink_workbench::profile::MAX_PORTS)]
@@ -840,12 +847,28 @@ fn main() -> Result<()> {
             println!("identity_check = {check:?}");
             print!("{}", toml::to_string_pretty(&status)?);
         }
-        Command::InspectMaster { profile } => {
-            let report = transport::inspect_master(&Profile::load(&profile)?)?;
+        Command::InspectMaster { profile, snapshot } => {
+            let profile = Profile::load(&profile)?;
+            if let Some(path) = &snapshot {
+                transport::MasterInspectionSnapshot::check_destination(path)?;
+            }
+            let report = transport::inspect_master(&profile)?;
             print!("{}", toml::to_string_pretty(&report)?);
+            let complete = report.error.is_none();
+            if let Some(path) = snapshot {
+                transport::MasterInspectionSnapshot::new(&profile, report).save(&path)?;
+            }
             ensure!(
-                report.error.is_none(),
+                complete,
                 "master inspection needs review; see the report above"
+            );
+        }
+        Command::ReviewMaster { snapshot } => {
+            let saved = transport::MasterInspectionSnapshot::load(&snapshot)?;
+            print!("{}", toml::to_string_pretty(&saved)?);
+            ensure!(
+                saved.inspection.error.is_none(),
+                "saved master inspection needs review; see the report above"
             );
         }
         Command::StatusPorts { profiles } => {

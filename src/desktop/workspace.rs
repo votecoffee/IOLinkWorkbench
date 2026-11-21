@@ -436,7 +436,10 @@ impl App {
             }
             OfflinePage::Snapshot => self.saved_parameter.show(ui),
             OfflinePage::Events => self.offline_diagnostics.show(ui, &self.profile),
-            OfflinePage::DiagnosticSnapshots => self.saved_diagnostics.show(ui),
+            OfflinePage::DiagnosticSnapshots => {
+                self.saved_master_panel(ui);
+                self.saved_diagnostics.show(ui);
+            }
         }
     }
 

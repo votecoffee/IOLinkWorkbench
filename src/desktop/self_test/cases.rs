@@ -242,6 +242,7 @@ pub(super) fn render(
                 "offline-parameter",
                 "offline-snapshot",
                 "offline-events",
+                "offline-master-snapshot",
                 "offline-diagnostic-snapshot",
                 "offline-diagnostic-comparison",
                 "profiles-dialog",
@@ -545,6 +546,18 @@ pub(super) fn render(
                         app.workspace.offline = OfflinePage::Events;
                         app.offline_diagnostics.stage_error_type_fixture();
                     }
+                    "offline-master-snapshot" => {
+                        app.tab = Tab::Offline;
+                        app.workspace.offline = OfflinePage::DiagnosticSnapshots;
+                        app.acyclic.store_result(
+                            Query::SavedMasterInspection(".local/synthetic-master.json".into()),
+                            Ok(Output {
+                                text: "Saved profile Synthetic bench · Endpoint http://127.0.0.1:1"
+                                    .into(),
+                                port_configuration: Some("Port 1 · Cycle preset automatic".into()),
+                            }),
+                        );
+                    }
                     "offline-diagnostic-snapshot" | "offline-diagnostic-comparison" => {
                         app.tab = Tab::Offline;
                         app.workspace.offline = OfflinePage::DiagnosticSnapshots;
@@ -729,6 +742,9 @@ pub(super) fn render(
                 "layout-condition" => Some("Condition matched · expected 1 · observed 1"),
                 "layout-condition-whole" => Some("Reads the whole value for selector subindex 2"),
                 "acyclic-profile" => Some("Acyclic IODD layout"),
+                "offline-master-snapshot" => {
+                    Some("Saved profile Synthetic bench · Endpoint http://127.0.0.1:1")
+                }
                 "offline-diagnostic-snapshot" => Some("37:0 · synthetic fixture reply unavailable"),
                 "offline-diagnostic-comparison" => Some("Wire slot positions"),
                 "al1351-connection" => Some("ifm AL1351 · http://127.0.0.1:1"),
@@ -861,7 +877,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 122);
+        assert_eq!(cases.len(), 123);
         assert!(
             cases
                 .iter()

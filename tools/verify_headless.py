@@ -1292,7 +1292,8 @@ def verify_master_inspection(cli, output):
                         if port == 2 and point == "mode":
                             value = "Disabled"
                         values[path.lstrip("/")] = {"code": 200, "data": value}
-            status = 503 if checking_ports and self.server.fail_ports else 200
+            bad_batch = self.server.fail_ports if checking_ports else self.server.fail_master
+            status = 503 if bad_batch else 200
             body = json.dumps({"cid": request["cid"], "code": status, "data": values}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -1304,6 +1305,7 @@ def verify_master_inspection(cli, output):
         server.requests = []
         server.changed_serial = False
         server.fail_ports = False
+        server.fail_master = False
         server.partial_diagnostics = False
         endpoint = f"http://127.0.0.1:{server.server_port}"
         worker = threading.Thread(target=server.serve_forever)
@@ -1329,8 +1331,17 @@ def verify_master_inspection(cli, output):
                     "--port", length, "--cycle-unit", unit, "--firmware", "3.1.42")
                 pinned = route.read_bytes()
                 before = len(server.requests)
-                report = tomllib.loads(run(cli, "inspect-master", route))
+                snapshot = output / f"{name}.json"
+                report = tomllib.loads(run(cli, "inspect-master", route, "--snapshot", snapshot))
                 assert server.requests[before:] == [False, True]
+                original_snapshot = snapshot.read_bytes()
+                review = tomllib.loads(run(cli, "review-master", snapshot))
+                assert review["format_version"] == 1 and review["workbench_version"]
+                assert review["endpoint"] == endpoint and review["cycle_unit"] == unit
+                assert review["firmware_pin"] == "3.1.42" and review["inspection"] == report
+                run(cli, "inspect-master", route, "--snapshot", snapshot, expected=1)
+                assert server.requests[before:] == [False, True]
+                assert snapshot.read_bytes() == original_snapshot
                 assert report["master"] == {
                     "model": model, "firmware": "3.1.42", "serial": "INVENTORY-MASTER", "hardware_revision": "AC",
                 }
@@ -1369,6 +1380,35 @@ def verify_master_inspection(cli, output):
                 assert route.read_bytes() == pinned
 
             before = len(server.requests)
+            run(cli, "inspect-master", route, "--snapshot", output / "missing-parent" / "master.json", expected=1)
+            assert len(server.requests) == before
+            server.fail_master = True
+            absent = output / "first-batch-failed.json"
+            run(cli, "inspect-master", route, "--snapshot", absent, expected=1)
+            server.fail_master = False
+            assert not absent.exists() and server.requests[before:] == [False]
+            before = len(server.requests)
+
+            original_snapshot = snapshot.read_bytes()
+            corrupted = output / "invalid-snapshot.json"
+            for name in ("version", "pin", "time", "ports", "cycles", "unexpected"):
+                wrong = json.loads(original_snapshot)
+                if name == "version":
+                    wrong["format_version"] = 2
+                elif name == "pin":
+                    wrong["firmware_pin"] = "3.1.99"
+                elif name == "time":
+                    wrong["inspection"]["host_finished_utc"] = "2026-01-01T00:00:00-05:00"
+                elif name == "ports":
+                    wrong["inspection"]["ports"][1]["port"] = 1
+                elif name == "cycles":
+                    wrong["cycle_unit"] = None
+                else:
+                    wrong["inspection"]["ports"][0]["unexpected"] = True
+                corrupted.write_text(json.dumps(wrong), encoding="utf-8")
+                run(cli, "review-master", corrupted, expected=1)
+            assert len(server.requests) == before and snapshot.read_bytes() == original_snapshot
+
             server.partial_diagnostics = True
             partial = tomllib.loads(run(cli, "inspect-master", route))
             server.partial_diagnostics = False
@@ -1397,8 +1437,10 @@ def verify_master_inspection(cli, output):
             for fault in ("changed_serial", "fail_ports"):
                 before = len(server.requests)
                 setattr(server, fault, True)
-                failure = tomllib.loads(run(cli, "inspect-master", route, expected=1))
+                partial_path = output / f"{fault}.json"
+                failure = tomllib.loads(run(cli, "inspect-master", route, "--snapshot", partial_path, expected=1))
                 setattr(server, fault, False)
+                assert tomllib.loads(run(cli, "review-master", partial_path, expected=1))["inspection"] == failure
                 assert server.requests[before:] == [False, True]
                 assert failure["master"]["serial"] == "INVENTORY-MASTER" and failure["ports"] == []
                 assert "master_diagnostics" not in failure
@@ -3005,7 +3047,7 @@ kind = "bool"
 
     print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state names with Boolean CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
-          "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1351, AL1352 and AL1353 status, ISDU and capture across all ports, one-shot ifm master inspection with supply diagnostics and read-only port configuration, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
+          "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1351, AL1352 and AL1353 status, ISDU and capture across all ports, one-shot ifm master inspection with supply diagnostics, read-only port configuration and offline snapshot review, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 
 

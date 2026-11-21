@@ -2,14 +2,18 @@
 use super::{Client, MASTER_SERIAL, PRODUCT_CODE, label, number};
 use crate::profile::{Gateway, Identity, Profile};
 use anyhow::{Context, Result, ensure};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{fmt::Write as _, time::Instant};
 
-#[derive(Debug, Serialize)]
+mod snapshot;
+pub use snapshot::MasterInspectionSnapshot;
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct MasterInspection {
     pub gateway: Gateway,
-    pub route: &'static str,
+    pub route: String,
     pub master: MasterIdentity,
     pub master_diagnostics: Option<MasterDiagnostics>,
     pub host_finished_utc: String,
@@ -18,7 +22,8 @@ pub struct MasterInspection {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct MasterIdentity {
     pub model: Option<String>,
     pub firmware: Option<String>,
@@ -26,7 +31,8 @@ pub struct MasterIdentity {
     pub serial: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct MasterDiagnostics {
     pub temperature_c: Option<f64>,
     pub supply_voltage_mv: Option<f64>,
@@ -35,7 +41,8 @@ pub struct MasterDiagnostics {
     pub unavailable: Vec<UnavailablePoint>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct PortInspection {
     pub port: u8,
     pub mode: Option<String>,
@@ -50,7 +57,8 @@ pub struct PortInspection {
     pub unavailable: Vec<UnavailablePoint>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct PortConfiguration {
     pub preset_cycle_raw: Option<String>,
     pub preset_cycle_us: Option<u64>,
@@ -61,7 +69,8 @@ pub struct PortConfiguration {
     pub unavailable: Vec<UnavailablePoint>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct UnavailablePoint {
     pub path: String,
     pub service_code: Option<u64>,
@@ -92,7 +101,7 @@ pub fn inspect_master(profile: &Profile) -> Result<MasterInspection> {
     };
     Ok(MasterInspection {
         gateway: profile.connection.gateway,
-        route: client.route,
+        route: client.route.into(),
         master,
         master_diagnostics,
         host_finished_utc: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),

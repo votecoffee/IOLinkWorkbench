@@ -138,6 +138,15 @@ Expand **Port configuration** under the result to review the master settings for
 
 Keep this inventory separate from a sampling session or a checked read of a selected device. Use **status** or **Read port status** to check the sensor and mode pins for acquisition. A model or firmware mismatch or a failed port batch returns exit 1 and retains any master metadata already collected. Individual unavailable data points remain in a successful report, including measurements with a successful service code and an unusable value. Master diagnostics apply to the inspected endpoint as a whole.
 
+To keep a bench baseline, expand **Read and save master snapshot** and choose a new JSON path, or use the CLI:
+
+```powershell
+.\iolink-cli.exe inspect-master .\.local\bench.toml --snapshot .\.local\master.json
+.\iolink-cli.exe review-master .\.local\master.json
+```
+
+**Offline → Diagnostic snapshots → Master inspection snapshots** opens the same file without a profile or gateway connection. The file stores the original report, configured endpoint, firmware pin, cycle unit, profile name and producing Workbench version. Keep it under ignored `.local/` in a source checkout. A failure after the initial master reply can be saved with its error and initial observations. The CLI prints the available report and reports exit 1 for that outcome when inspecting or reopening it. If the initial request fails, Workbench has no inspection report to save. The save checks for an existing destination before the read and publishes a new file atomically. Offline review checks the saved format and consistency of the reported context, port list and Device ID widths. It reflects the recorded inspection.
+
 ### Compare diagnostic snapshots
 
 ```powershell
