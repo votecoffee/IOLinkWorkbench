@@ -17,6 +17,11 @@ use std::{
 };
 
 pub(super) const SIZE: [u32; 2] = [1130, 790];
+const MASTER_INSPECTION_FIXTURE: &str = concat!(
+    "Master temperature 33 °C · Supply voltage 24050 mV · Sensor current 105 mA\n",
+    "Supply status (raw) 0\n\n",
+    "Port 8 · mode Disabled · Device identity unavailable",
+);
 
 #[derive(Serialize)]
 pub(super) struct Case {
@@ -351,7 +356,7 @@ pub(super) fn render(
                         app.workspace.diagnostics = DiagnosticsPage::Connection;
                         app.acyclic.store_result(
                             Query::MasterInspection,
-                            Ok("Port 8 · mode Disabled · Device identity unavailable".into()),
+                            Ok(MASTER_INSPECTION_FIXTURE.into()),
                         );
                     }
                     "diagnostics-events" => {
@@ -726,7 +731,7 @@ pub(super) fn render(
                 "al1351-connection" => Some("ifm AL1351 · http://127.0.0.1:1"),
                 "al1352-connection" => Some("ifm AL1352 · http://127.0.0.1:1"),
                 "al1353-connection" => Some("ifm AL1353 · http://127.0.0.1:1"),
-                "master-inspection" => Some("Port 8 · mode Disabled · Device identity unavailable"),
+                "master-inspection" => Some(MASTER_INSPECTION_FIXTURE),
                 "offline-events" => Some(
                     "ErrorType 0x8011 · Standard device application error\nIndex is unavailable",
                 ),

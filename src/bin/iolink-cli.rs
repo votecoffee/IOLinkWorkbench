@@ -245,7 +245,7 @@ enum Command {
         #[arg(long)]
         verify_product_id: bool,
     },
-    /// Inspect one ifm master and all its port metadata, without sampling process data.
+    /// Read ifm master diagnostics and port metadata without sampling device inputs.
     InspectMaster { profile: PathBuf },
     /// Read status for explicitly profiled ports of the same master, up to its port limit.
     StatusPorts {

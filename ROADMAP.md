@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Inspect master reports temperature, supply voltage, sensor-supply current, and raw supply status for all four ifm models. Partial diagnostics preserve the available port observations.
+
 - Read-only ifm AL1351 (four ports) and AL1353 (eight ports) extend documented IoT Core coverage. Loopback checks enumerate every port, capture host polls, read high-port diagnostics, and reject requests through a mismatched model or the AL1350 write workflow. The new templates leave cycle conversion unset pending unit confirmation.
 
 - One-shot ifm master inspection reads master identity and metadata for every port from one saved profile. The GUI and CLI retain unavailable device fields and gateway codes, with model and firmware checks before reading ports.

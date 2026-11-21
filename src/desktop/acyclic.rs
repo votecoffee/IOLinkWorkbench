@@ -120,9 +120,7 @@ impl App {
         egui::CollapsingHeader::new("Master and ports")
             .default_open(self.live.status.is_none())
             .show(ui, |ui| {
-                ui.small(
-                    "Read master identity and metadata for every port at the configured endpoint.",
-                );
+                ui.small("Read master identity, supply diagnostics, and metadata for every port.");
                 let blocked = self.acyclic_block_reason();
                 let button = ui.add_enabled(blocked.is_none(), egui::Button::new("Inspect master"));
                 if let Some(reason) = blocked {

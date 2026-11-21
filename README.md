@@ -353,7 +353,7 @@ Use **status-ports PROFILE1 [PROFILE2 …]** to read status concurrently for up 
 
 In the GUI, use **Logging → Multiple ports → Review profiles → Read port status**. The results show observed status or failure per port and include acyclic-only profiles. You can check status before setting a capture folder.
 
-Use **Diagnostics → Connection & identity → Master and ports → Inspect master** or `inspect-master PROFILE` for an inventory of one configured ifm endpoint. It reads the master model, firmware, hardware revision and serial, then shows every port's mode, reported cycle, COM speed, and available device identity and diagnostics. This works for ports with unavailable device identity and requires only one profile. [Inspect a configured master](docs/OPERATIONS.md#inspect-a-configured-master)
+Use **Diagnostics → Connection & identity → Master and ports → Inspect master** or `inspect-master PROFILE` for an inventory of one configured ifm endpoint. It reads the master model, firmware, hardware revision and serial. The same report shows master temperature, supply voltage and current, raw supply status, and each port's mode, reported cycle, COM speed, and available device identity and diagnostics. This works for ports with unavailable device identity and requires only one profile. [Inspect a configured master](docs/OPERATIONS.md#inspect-a-configured-master)
 
 ## Capture files and timing
 
