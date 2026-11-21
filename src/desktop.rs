@@ -477,7 +477,7 @@ fn payload_view(ui: &mut Ui, profile: &Profile, payload: &[u8], decode_values: b
                         });
                         ui.monospace(format!("×{} + {}", field.scale, field.offset));
                         if field.kind.is_byte_sequence() {
-                            ui.monospace(value.raw);
+                            ui.monospace(&value.raw);
                         } else {
                             ui.monospace(format!("{} · 0x{}", value.raw, value.bits_hex));
                         }
@@ -486,7 +486,7 @@ fn payload_view(ui: &mut Ui, profile: &Profile, payload: &[u8], decode_values: b
                         } else {
                             ACCENT
                         };
-                        ui.colored_label(color, value.value);
+                        ui.colored_label(color, value.display());
                         ui.label(&field.unit);
                         ui.end_row();
                     }

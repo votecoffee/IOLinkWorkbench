@@ -4,8 +4,17 @@ use crate::decode::Field;
 use anyhow::{Context, Result};
 
 impl Profile {
-    pub fn with_field(&self, field: Field) -> Result<Self> {
+    pub fn with_field(&self, mut field: Field) -> Result<Self> {
         self.require_process_input()?;
+        if !field.value_names.is_empty()
+            && self
+                .effective_fields()
+                .into_iter()
+                .find(|(existing, _)| existing.name == field.name)
+                .is_some_and(|(existing, _)| !field.same_wire_as(existing))
+        {
+            field.value_names.clear();
+        }
         field.validate(self.input_bytes)?;
         let mut candidate = self.clone();
         if let Some(existing) = candidate

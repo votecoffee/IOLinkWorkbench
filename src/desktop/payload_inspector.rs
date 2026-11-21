@@ -172,7 +172,7 @@ pub(super) fn show_output_fields(ui: &mut Ui, output: &DecodedOutput) {
                         "{} · bit {} · {} bits · {:?} · {:?}",
                         field.name, field.bit_offset, field.bits, field.kind, field.byte_order
                     ));
-                    let display = format!("{} {}", entry.value.value, field.unit);
+                    let display = format!("{} {}", entry.value.display(), field.unit);
                     ui.monospace(format!(
                         "{} (raw {}, bits 0x{})",
                         display.trim_end(),

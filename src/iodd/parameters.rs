@@ -15,6 +15,7 @@ mod text;
 mod time;
 mod value;
 pub use array::Array;
+pub(in crate::iodd) use assessment::process_choice_key;
 pub use assessment::{AssessmentStatus, ValueAssessment};
 pub use display::{Display, DisplayValue, NumberFormat};
 pub use record::{Record, RecordItem};

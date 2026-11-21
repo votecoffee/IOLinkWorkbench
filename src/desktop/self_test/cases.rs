@@ -467,7 +467,7 @@ pub(super) fn render(
                         let input = match label {
                             "offline-boolean-input" => {
                                 app.payload_inspector.pasted = "02".into();
-                                r#"<ProcessDataIn id="IN" bitLength="1"><Datatype xsi:type="BooleanT"/><Name textId="switch"/></ProcessDataIn>"#
+                                r#"<ProcessDataIn id="IN" bitLength="1"><Datatype xsi:type="BooleanT"><SingleValue value="true"><Name textId="nominal"/></SingleValue></Datatype><Name textId="switch"/></ProcessDataIn>"#
                             }
                             "offline-octet-input" => {
                                 app.payload_inspector.pasted = "0080FF00".into();
@@ -715,6 +715,12 @@ pub(super) fn render(
                     texts.contains(&review_note),
                     "required note is missing from {label}"
                 );
+                if label == "offline-boolean-input" {
+                    ensure!(
+                        texts.contains(&"Nominal setting (true)"),
+                        "named process value is missing"
+                    );
+                }
             }
             if let Some(expected) = expected_observation {
                 let observation = Observation::at(

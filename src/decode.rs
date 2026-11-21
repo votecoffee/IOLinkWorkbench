@@ -1,6 +1,6 @@
 use anyhow::{Result, anyhow, bail, ensure};
 use serde::{Deserialize, Serialize};
-use std::fmt::Write;
+use std::{borrow::Cow, collections::BTreeMap, fmt::Write};
 
 pub const MAX_INPUT: usize = 32;
 pub(crate) mod temporal;
@@ -66,6 +66,8 @@ pub struct Field {
     pub offset: f64,
     pub unit: String,
     pub decimals: Option<u8>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub value_names: BTreeMap<String, String>,
 }
 
 impl Default for Field {
@@ -80,6 +82,7 @@ impl Default for Field {
             offset: 0.0,
             unit: String::new(),
             decimals: None,
+            value_names: BTreeMap::new(),
         }
     }
 }
@@ -90,10 +93,26 @@ pub struct Value {
     pub raw: String,
     pub value: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub value_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub encoding_error: Option<String>,
 }
 
+impl Value {
+    pub fn display(&self) -> Cow<'_, str> {
+        match &self.value_name {
+            Some(name) => Cow::Owned(format!("{name} ({})", self.value)),
+            None => Cow::Borrowed(&self.value),
+        }
+    }
+}
+
 impl Field {
+    pub fn same_wire_as(&self, other: &Self) -> bool {
+        (self.kind, self.bits, self.bit_offset, self.byte_order)
+            == (other.kind, other.bits, other.bit_offset, other.byte_order)
+    }
+
     pub fn validate(&self, input_bytes: usize) -> Result<()> {
         ensure!(!self.name.trim().is_empty(), "field name is empty");
         ensure!(
@@ -195,10 +214,16 @@ impl Field {
         if let Some(datatype) = self.kind.temporal_datatype() {
             return temporal::raw_ticks(datatype, self.aligned_bytes(payload)?);
         }
-        Ok(self.decode(payload)?.value)
+        Ok(self.decode_unlabeled(payload)?.value)
     }
 
     pub fn decode(&self, payload: &[u8]) -> Result<Value> {
+        let mut value = self.decode_unlabeled(payload)?;
+        value.value_name = self.value_names.get(&value.raw).cloned();
+        Ok(value)
+    }
+
+    fn decode_unlabeled(&self, payload: &[u8]) -> Result<Value> {
         if let Some(datatype) = self.kind.temporal_datatype() {
             let bytes = self.aligned_bytes(payload)?;
             let decoded = temporal::decode(datatype, bytes)?;
@@ -206,6 +231,7 @@ impl Field {
                 raw: decoded.raw_ticks,
                 bits_hex: hex(bytes),
                 value: decoded.value,
+                value_name: None,
                 encoding_error: None,
             });
         }
@@ -227,6 +253,7 @@ impl Field {
                 raw: bits_hex.clone(),
                 bits_hex,
                 value,
+                value_name: None,
                 encoding_error,
             });
         }
@@ -265,6 +292,7 @@ impl Field {
             bits_hex: format!("{bits:X}"),
             raw,
             value,
+            value_name: None,
             encoding_error: None,
         })
     }

@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Cyclic Boolean and integer fields show localized IODD state names in live, offline and reviewed output views. Names match exact raw values, including packed record members and array elements. Typed CSV cells retain their Boolean and engineering representation.
+
 - GUI multi-port status reads use reviewed profiles and report master, identity and diagnostics for each port. Results stay visible when another port fails. Acyclic-only and output-only profiles support status checks before a CSV destination is selected.
 
 - Conditional layout checks resolve the saved IODD selector offline and compare an explicit acyclic read with the declared value. Records and arrays with individual access disabled use a whole-value read and select the declared member from its reply. The operator can review matches, mismatches, and undecodable replies in Mappings or CLI. Loopback checks hold a selector read while cyclic polling continues.

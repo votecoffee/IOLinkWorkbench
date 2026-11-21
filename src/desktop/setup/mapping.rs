@@ -147,10 +147,20 @@ impl Form {
         ui.text_edit_singleline(&mut self.preview);
         if !self.preview.trim().is_empty() {
             match preview(field, profile.input_bytes, &self.preview) {
-                Ok(value) => {
+                Ok(mut value) => {
+                    if self
+                        .baseline
+                        .as_ref()
+                        .is_some_and(|baseline| !field.same_wire_as(baseline))
+                    {
+                        value.value_name = None;
+                    }
                     ui.monospace(format!(
                         "Raw {} · bits 0x{} · value {} {}",
-                        value.raw, value.bits_hex, value.value, field.unit
+                        value.raw,
+                        value.bits_hex,
+                        value.display(),
+                        field.unit
                     ));
                 }
                 Err(error) => {

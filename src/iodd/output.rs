@@ -82,6 +82,7 @@ impl ProcessDataLayout {
         Ok(Value {
             bits_hex: format!("{byte:02X}"),
             raw: value.clone(),
+            value_name: field.value_names.get(&value).cloned(),
             value,
             encoding_error: None,
         })

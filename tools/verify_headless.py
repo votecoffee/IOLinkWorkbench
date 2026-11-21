@@ -612,8 +612,11 @@ def verify_standalone_boolean_input(cli, output):
     source = output / "boolean.xml"
     original = (ROOT / "samples/sensor.xml").read_text(encoding="utf-8")
     old_input = '<ProcessDataIn id="IN" bitLength="16"><DatatypeRef datatypeId="PD"/></ProcessDataIn>'
-    new_input = ('<ProcessDataIn id="IN" bitLength="1"><Datatype xsi:type="BooleanT"/>'
-                 '<Name textId="switch"/></ProcessDataIn>')
+    datatype = ('<Datatype xsi:type="BooleanT">'
+                '<SingleValue value="1"><Name textId="nominal"/></SingleValue></Datatype>')
+    new_input = (f'<ProcessDataIn id="IN" bitLength="1">{datatype}'
+                 '<Name textId="switch"/></ProcessDataIn>'
+                 f'<ProcessDataOut id="OUT" bitLength="1">{datatype}</ProcessDataOut>')
     assert original.count(old_input) == 1
     source.write_text(original.replace(old_input, new_input), encoding="utf-8")
     profile = output / "boolean.toml"
@@ -626,6 +629,23 @@ def verify_standalone_boolean_input(cli, output):
                                 capture_output=True, encoding="utf-8", timeout=15)
         assert result.returncode == 0 and f"raw {value}" in result.stdout
         assert ("noncanonical byte" in result.stderr) == warning
+        assert ("Nominal setting (true)" in result.stdout) == (value == "true")
+        decoded = json.loads(run(cli, "decode-output", profile, payload))["iodd_output"]
+        observed = decoded["fields"][0]["value"]
+        assert observed["value"] == value and observed["raw"] == value
+        assert ("value_name" in observed) == (value == "true")
+        if value == "true":
+            assert observed["value_name"] == "Nominal setting"
+        assert ("encoding_warning" in decoded) == warning
+    unit_only = output / "unit-override.toml"
+    run(cli, "set-field", profile, unit_only, "switch", "--unit", "state")
+    assert "Nominal setting (true)" in run(cli, "decode", unit_only, "FF")
+    kind_override = output / "wire-override.toml"
+    run(cli, "set-field", unit_only, kind_override, "switch", "--bits", 1)
+    assert "Nominal setting" not in run(cli, "decode", kind_override, "01")
+    restored = output / "restored.toml"
+    run(cli, "remove-field", kind_override, restored, "switch")
+    assert "Nominal setting (true)" in run(cli, "decode", restored, "FF")
     return profile
 
 
@@ -2168,8 +2188,16 @@ def main():
     profile = source.read_text(encoding="utf-8")
 
     with zipfile.ZipFile(scratch / "iodd.zip", "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.write(ROOT / "samples" / "sensor.xml", "bundle/Synthetic-IODD1.1.xml")
-        archive.write(ROOT / "samples" / "sensor-de.xml", "bundle/Synthetic-IODD1.1-de.xml")
+        main_xml = (ROOT / "samples" / "sensor.xml").read_text(encoding="utf-8")
+        primary_state = '<SingleValue value="true"><Name textId="ready"/></SingleValue>'
+        assert main_xml.count('<SimpleDatatype xsi:type="BooleanT"/>') == 1
+        main_xml = main_xml.replace('<SimpleDatatype xsi:type="BooleanT"/>',
+                                    f'<SimpleDatatype xsi:type="BooleanT">{primary_state}</SimpleDatatype>')
+        main_xml = main_xml.replace('</PrimaryLanguage>', '<Text id="ready" value="Ready"/></PrimaryLanguage>')
+        language_xml = (ROOT / "samples" / "sensor-de.xml").read_text(encoding="utf-8")
+        language_xml = language_xml.replace('</Language>', '<Text id="ready" value="Bereit"/></Language>')
+        archive.writestr("bundle/Synthetic-IODD1.1.xml", main_xml)
+        archive.writestr("bundle/Synthetic-IODD1.1-de.xml", language_xml)
     catalog = tomllib.loads(run(cli, "iodd", scratch / "iodd.zip"))
     assert len(catalog["variants"]) == 2
     assert "select the connected product ID" in subprocess.run(
@@ -2178,17 +2206,21 @@ def main():
     ).stderr
     imported = scratch / "imported.toml"
     run(cli, "import", scratch / "iodd.zip", imported, "--variant", "SIM-SENSOR")
-    assert "level [1] [IODD]" in run(cli, "decode", imported, "FFF9")
+    decoded = run(cli, "decode", imported, "FFF9")
+    assert "level [1] [IODD]" in decoded and "Ready (true)" in decoded
     run(cli, "validate", imported)
     localized = scratch / "localized.toml"
     run(cli, "import", scratch / "iodd.zip", localized, "--variant", "SIM-SENSOR", "--language", "de")
     locale = tomllib.loads(localized.read_text(encoding="utf-8"))["iodd"]["localization"]
     assert locale["selected_language"] == "de" and locale["fallback_text_ids"]
-    assert "Füllstand [1]" in run(cli, "decode", localized, "FFF9")
+    decoded = run(cli, "decode", localized, "FFF9")
+    assert "Füllstand [1]" in decoded and "Bereit (true)" in decoded
     reading = tomllib.loads(run(cli, "read-parameter", localized, "V_SIM_Threshold"))
     assert reading["name"] == "Grenzwert" and reading["choice_name"] == "Nennwert" and reading["raw_value"] == "500"
     _, localized_rows = capture(cli, localized, scratch / "sim-localized", "--seconds", 0.25)
     assert any("Füllstand [1]" in name for name in localized_rows[0])
+    logged_states = {row["value.Schalter [2]"] for row in localized_rows}
+    assert logged_states <= {"", "true", "false"} and logged_states & {"true", "false"}
     _, selected_locale = capture(cli, localized, scratch / "sim-selected-language", "--seconds", 0.25,
                                  "--field", "Füllstand [1]")
     assert list(selected_locale[0])[12:] == ["value.Füllstand [1]"]
@@ -2576,7 +2608,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state names with Boolean CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")

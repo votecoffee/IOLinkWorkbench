@@ -6,7 +6,7 @@ use anyhow::{Context, Result, bail, ensure};
 use roxmltree::{Document, Node};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fs::File,
     io::Read,
     path::Path,
@@ -747,11 +747,13 @@ fn field(
     name: String,
     bit_offset: u16,
     units: &resources::Units,
+    texts: &HashMap<&str, &str>,
 ) -> Result<(Field, bool)> {
     let datatype = dt
         .attribute((XSI, "type"))
         .context("missing datatype xsi:type")?;
-    let (kind, bits) = match datatype.rsplit(':').next().unwrap_or(datatype) {
+    let datatype = datatype.rsplit(':').next().unwrap_or(datatype);
+    let (kind, bits) = match datatype {
         "UIntegerT" => (
             Kind::Unsigned,
             dt.attribute("bitLength")
@@ -808,10 +810,47 @@ fn field(
             offset,
             unit,
             decimals,
+            value_names: process_value_names(dt, datatype, bits, texts),
             ..Field::default()
         },
         owner.attribute("unitCode").is_some(),
     ))
+}
+
+fn process_value_names(
+    dt: Node<'_, '_>,
+    datatype: &str,
+    bits: u16,
+    texts: &HashMap<&str, &str>,
+) -> BTreeMap<String, String> {
+    let mut names = BTreeMap::new();
+    if !matches!(datatype, "BooleanT" | "IntegerT" | "UIntegerT") {
+        return names;
+    }
+    let mut duplicates = HashSet::new();
+    for item in dt
+        .children()
+        .filter(|node| node.has_tag_name((IODD_NAMESPACE, "SingleValue")))
+    {
+        let Some(raw) = item
+            .attribute("value")
+            .and_then(|value| parameters::process_choice_key(datatype, bits, value))
+        else {
+            continue;
+        };
+        let name = child(item, "Name")
+            .and_then(|node| node.attribute("textId"))
+            .and_then(|id| texts.get(id))
+            .filter(|name| !name.trim().is_empty())
+            .copied()
+            .unwrap_or_default()
+            .to_owned();
+        if names.insert(raw.clone(), name).is_some() {
+            duplicates.insert(raw);
+        }
+    }
+    names.retain(|raw, name| !name.is_empty() && !duplicates.contains(raw));
+    names
 }
 
 // Common unit codes from IO-Link Standard Unit Definitions V1.1.9.
@@ -1143,7 +1182,7 @@ fn parse_process_item<'a, 'input>(
                             })
                         })
                         .unwrap_or(item);
-                    field(datatype(item, types)?, info, name, bit_offset, units)
+                    field(datatype(item, types)?, info, name, bit_offset, units, texts)
                 })(),
             )?;
         }
@@ -1155,7 +1194,7 @@ fn parse_process_item<'a, 'input>(
         let expanded = (|| -> Result<_> {
             let dt = dt?;
             let (template, unit_defined) =
-                field(datatype(dt, types)?, info, name.clone(), 0, units)?;
+                field(datatype(dt, types)?, info, name.clone(), 0, units, texts)?;
             let count = dt
                 .attribute("count")
                 .context("array has no count")?
@@ -1185,7 +1224,7 @@ fn parse_process_item<'a, 'input>(
             .unwrap_or(node);
         add(
             name.clone(),
-            dt.and_then(|dt| field(dt, info, name, 0, units)),
+            dt.and_then(|dt| field(dt, info, name, 0, units, texts)),
         )?;
     }
     layout.standalone_boolean =

@@ -3,6 +3,58 @@ use super::*;
 const SENSOR: &str = include_str!("../../samples/sensor.xml");
 
 #[test]
+fn names_match_exact_unscaled_array_values_and_exclude_ambiguous_choices() -> Result<()> {
+    let xml = include_str!("../../samples/sensor-array.xml").replace(
+        r#"<ValueRange lowerValue="-8" upperValue="7"/>"#,
+        r#"<SingleValue value="-04"><Name textId="temperature"/></SingleValue>
+           <SingleValue value="2"><Name textId="temperature"/></SingleValue>
+           <SingleValue value="+02"><Name textId="history"/></SingleValue>
+           <SingleValue value="16"><Name textId="temperature"/></SingleValue>
+           <SingleValue value="0"><Name textId="missing"/></SingleValue>"#,
+    );
+    let catalog = parse(&xml, "synthetic array choices".into())?;
+    let (identity, imported) = catalog.select(Some("SIM-SENSOR"), None)?;
+    let mut profile = crate::profile::Profile::default();
+    profile.apply_iodd(identity, imported);
+    let profile = crate::profile::Profile::parse(&toml::to_string(&profile)?)?;
+    let data = [0x02, 0xC4, 0x95, 0xF0];
+    let fields = profile.decode(&data)?;
+    assert_eq!(fields[0].2.raw, "2");
+    assert!(fields[0].2.value_name.is_none());
+    assert_eq!(fields[1].2.raw, "-4");
+    assert_eq!(fields[1].2.display(), "Temperature (-1.0)");
+    assert_eq!(fields[1].0.csv_value(&data)?, "-1.0");
+    assert_eq!(fields[1].0.value_names.len(), 1);
+    assert!(fields[6].2.value_name.is_none());
+    Ok(())
+}
+
+#[test]
+fn names_distinguish_adjacent_unsigned_64_bit_values() -> Result<()> {
+    let xml = SENSOR.replace(
+        r#"<ProcessDataIn id="IN" bitLength="16"><DatatypeRef datatypeId="PD"/></ProcessDataIn>"#,
+        r#"<ProcessDataIn id="IN" bitLength="64"><Datatype xsi:type="UIntegerT" bitLength="64">
+              <SingleValue value="18446744073709551615"><Name textId="nominal"/></SingleValue>
+            </Datatype></ProcessDataIn>"#,
+    );
+    let catalog = parse(&xml, "synthetic unsigned choice".into())?;
+    let field = &catalog.layouts[0].fields[0];
+    let maximum = u64::MAX.to_be_bytes();
+    assert_eq!(
+        field.decode(&maximum)?.display(),
+        "Nominal setting (18446744073709551615)"
+    );
+    assert!(
+        field
+            .decode(&(u64::MAX - 1).to_be_bytes())?
+            .value_name
+            .is_none()
+    );
+    assert_eq!(field.csv_value(&maximum)?, u64::MAX.to_string());
+    Ok(())
+}
+
+#[test]
 fn explicit_acyclic_layout_imports_and_qualifies_only_its_own_selection() -> Result<()> {
     let xml = SENSOR.replace(
         "<ProcessDataIn id=\"IN\" bitLength=\"16\"><DatatypeRef datatypeId=\"PD\"/></ProcessDataIn>",

@@ -1,6 +1,6 @@
 [package]
 name = "iolink-workbench"
-version = "0.97.0"
+version = "0.98.0"
 edition = "2024"
 description = "IO-Link input inspection, capture, and reviewed AL1350 writes"
 license = "MIT"

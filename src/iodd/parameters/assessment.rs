@@ -80,18 +80,31 @@ fn digits(text: &str) -> bool {
 }
 
 fn lexical(parameter: &Parameter, text: &str) -> Result<Atom> {
+    parse_numeric(&parameter.datatype, parameter.bits, text)
+}
+
+pub(in crate::iodd) fn process_choice_key(datatype: &str, bits: u16, text: &str) -> Option<String> {
+    match parse_numeric(datatype, Some(bits), text).ok()? {
+        Atom::Boolean(value) => Some(value.to_string()),
+        Atom::Unsigned(value) => Some(value.to_string()),
+        Atom::Signed(value) => Some(value.to_string()),
+        Atom::Float(_) => None,
+    }
+}
+
+fn parse_numeric(datatype: &str, bits: Option<u16>, text: &str) -> Result<Atom> {
     // XML Schema numeric/Boolean whitespace is collapsed; strings are not touched.
     let text = text.trim_matches([' ', '\t', '\r', '\n']);
-    Ok(match parameter.datatype.as_str() {
+    Ok(match datatype {
         "BooleanT" => Atom::Boolean(match text {
             "true" | "1" => true,
             "false" | "0" => false,
             _ => bail!("expected true, false, 1 or 0"),
         }),
         "UIntegerT" | "IntegerT" => {
-            let bits = parameter.bits.context("numeric width is unavailable")?;
+            let bits = bits.context("numeric width is unavailable")?;
             ensure!((1..=64).contains(&bits), "numeric width is unsupported");
-            let unsigned = parameter.datatype == "UIntegerT";
+            let unsigned = datatype == "UIntegerT";
             let magnitude = text.strip_prefix('+').unwrap_or(text);
             let magnitude = if unsigned {
                 magnitude

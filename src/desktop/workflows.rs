@@ -102,7 +102,7 @@ impl App {
                                 } else {
                                     ACCENT
                                 };
-                                ui.colored_label(color, value.value);
+                                ui.colored_label(color, value.display());
                                 ui.label(&field.unit);
                                 ui.end_row();
                             }

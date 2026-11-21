@@ -959,7 +959,11 @@ fn main() -> Result<()> {
             for (field, origin, value) in profile.decode(&payload)? {
                 println!(
                     "{} [{origin}]: {} {} (raw {}, bits 0x{})",
-                    field.name, value.value, field.unit, value.raw, value.bits_hex
+                    field.name,
+                    value.display(),
+                    field.unit,
+                    value.raw,
+                    value.bits_hex
                 );
             }
         }

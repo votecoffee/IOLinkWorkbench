@@ -843,8 +843,8 @@ fn show_review(ui: &mut Ui, plan: &Plan) {
                     ));
                     ui.monospace(format!(
                         "{} → {} {} (raw {} → {})",
-                        entry.expected.value,
-                        entry.proposed.value,
+                        entry.expected.display(),
+                        entry.proposed.display(),
                         field.unit,
                         entry.expected.raw,
                         entry.proposed.raw
