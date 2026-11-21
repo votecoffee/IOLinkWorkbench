@@ -345,6 +345,8 @@ Use **status-ports PROFILE1 [PROFILE2 …]** to read status concurrently for up 
 
 In the GUI, use **Logging → Multiple ports → Review profiles → Read port status**. The results show observed status or failure per port and include acyclic-only profiles. You can check status before setting a capture folder.
 
+Use **Diagnostics → Connection & identity → Master and ports → Inspect master** or `inspect-master PROFILE` for an inventory of one configured ifm endpoint. It reads the master model, firmware, hardware revision and serial, then shows every port's mode, reported cycle, COM speed, and available device identity and diagnostics. This works for ports with unavailable device identity and requires only one profile. [Inspect a configured master](docs/OPERATIONS.md#inspect-a-configured-master)
+
 ## Capture files and timing
 
 **Concurrent port capture.** Use **Logging → Multiple ports** or CLI **capture-ports OUTPUT PROFILE1 [PROFILE2 …] --seconds N** for distinct ports on one configured master, up to the model's port limit. In the GUI, review the saved profiles before starting and use **Stop and flush** to end the set. Each port uses its own process input mapping, logging settings, bounded queue, CSV parts, timing report, and reconnect history. A failed port leaves the others running. The new output folder contains `port-N` capture bundles and a `capture-set.toml` summary. Use **verify-capture OUTPUT/port-N** to check an individual bundle. Each port starts its own host clock and duration after its own setup. Choose Single port when working with live integrations. [Concurrent capture and exit behavior](docs/OPERATIONS.md#capture-several-configured-ports)

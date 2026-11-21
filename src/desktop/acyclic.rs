@@ -1,7 +1,7 @@
 //! One explicit acyclic operation at a time, with results routed by request.
 use super::{App, WARNING, Worker, background, poll_worker};
 use eframe::egui::{self, Ui};
-use iolink_workbench::transport::layout_condition;
+use iolink_workbench::transport::{inspect_master, layout_condition};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Kind {
@@ -10,6 +10,7 @@ pub(super) enum Kind {
     ProductId,
     Events,
     LayoutCondition,
+    MasterInspection,
 }
 
 pub(super) enum Query {
@@ -22,6 +23,7 @@ pub(super) enum Query {
     ProductId(String),
     Events,
     LayoutCondition(layout_condition::Plan),
+    MasterInspection,
 }
 
 impl Query {
@@ -32,6 +34,7 @@ impl Query {
             Self::ProductId(_) => Kind::ProductId,
             Self::Events => Kind::Events,
             Self::LayoutCondition(_) => Kind::LayoutCondition,
+            Self::MasterInspection => Kind::MasterInspection,
         }
     }
 
@@ -51,6 +54,7 @@ impl Query {
                 "Layout {} · {} · index {}:{}",
                 plan.layout, plan.parameter_id, plan.index, plan.read_subindex
             ),
+            Self::MasterInspection => "Master and port inspection".into(),
         }
     }
 }
@@ -63,7 +67,7 @@ pub(super) struct Reading {
 #[derive(Default)]
 pub(super) struct Reads {
     pending: Option<(Query, Worker<String>)>,
-    latest: [Option<Reading>; 5],
+    latest: [Option<Reading>; 6],
 }
 
 impl Reads {
@@ -109,6 +113,30 @@ impl Reads {
 }
 
 impl App {
+    pub(super) fn master_inspection_panel(&mut self, ui: &mut Ui) {
+        if self.profile.connection.gateway.ifm_model().is_none() {
+            return;
+        }
+        egui::CollapsingHeader::new("Master and ports")
+            .default_open(self.live.status.is_none())
+            .show(ui, |ui| {
+                ui.small(
+                    "Read master identity and metadata for every port at the configured endpoint.",
+                );
+                let blocked = self.acyclic_block_reason();
+                let button = ui.add_enabled(blocked.is_none(), egui::Button::new("Inspect master"));
+                if let Some(reason) = blocked {
+                    button.on_disabled_hover_text(reason);
+                } else if button.clicked() {
+                    let profile = self.profile.clone();
+                    self.start_acyclic(Query::MasterInspection, move || {
+                        Ok(inspect_master(&profile)?.text())
+                    });
+                }
+                self.acyclic_result(ui, Kind::MasterInspection);
+            });
+    }
+
     pub(super) fn layout_condition_page(&mut self, ui: &mut Ui) {
         if self
             .profile

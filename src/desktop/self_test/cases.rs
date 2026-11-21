@@ -220,6 +220,7 @@ pub(super) fn render(
                 "integration-mqtt",
                 "integration-shared-memory",
                 "diagnostics-timing",
+                "master-inspection",
                 "diagnostics-events",
                 "offline-compare",
                 "offline-signal",
@@ -339,6 +340,17 @@ pub(super) fn render(
                     "diagnostics-timing" => {
                         app.tab = Tab::Diagnostics;
                         app.workspace.diagnostics = DiagnosticsPage::Timing;
+                    }
+                    "master-inspection" => {
+                        app.profile =
+                            Profile::parse(include_str!("../../../samples/ifm-al1352.toml"))?;
+                        app.setup.sync(&app.profile);
+                        app.tab = Tab::Diagnostics;
+                        app.workspace.diagnostics = DiagnosticsPage::Connection;
+                        app.acyclic.store_result(
+                            Query::MasterInspection,
+                            Ok("Port 8 · mode Disabled · Device identity unavailable".into()),
+                        );
                     }
                     "diagnostics-events" => {
                         app.tab = Tab::Diagnostics;
@@ -706,6 +718,7 @@ pub(super) fn render(
                 "offline-diagnostic-snapshot" => Some("37:0 · synthetic fixture reply unavailable"),
                 "offline-diagnostic-comparison" => Some("Wire slot positions"),
                 "al1352-connection" => Some("ifm AL1352 · http://127.0.0.1:1"),
+                "master-inspection" => Some("Port 8 · mode Disabled · Device identity unavailable"),
                 "offline-events" => Some(
                     "ErrorType 0x8011 · Standard device application error\nIndex is unavailable",
                 ),
@@ -820,7 +833,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 119);
+        assert_eq!(cases.len(), 120);
         assert!(
             cases
                 .iter()

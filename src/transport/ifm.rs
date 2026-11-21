@@ -14,9 +14,12 @@ use std::{
 };
 
 const RESPONSE_LIMIT: u64 = 64 * 1024;
+const PRODUCT_CODE: &str = "/deviceinfo/productcode";
+const MASTER_SERIAL: &str = "/deviceinfo/serialnumber";
 const SOFTWARE_REVISION: &str = "/deviceinfo/swrevision";
 const AL1352_REVISION: &str = "/deviceinfo/revision";
 
+pub(super) mod inspection;
 pub mod write;
 
 pub struct Client {
@@ -143,8 +146,8 @@ impl Client {
         }
     }
 
-    fn identity(&self, response: &Value) -> Identity {
-        let get = |key| Self::data(response, &format!("{}/{key}", self.device));
+    fn identity_at(response: &Value, device: &str) -> Identity {
+        let get = |key| Self::data(response, &format!("{device}/{key}"));
         Identity {
             vendor_id: number(get("vendorid")).and_then(|n| u16::try_from(n).ok()),
             device_id: number(get("deviceid"))
@@ -159,10 +162,44 @@ impl Client {
         }
     }
 
-    fn device_paths(&self) -> Vec<String> {
+    fn device_paths(device: &str) -> Vec<String> {
         ["vendorid", "deviceid", "productname", "serial"]
-            .map(|key| format!("{}/{key}", self.device))
+            .map(|key| format!("{device}/{key}"))
             .to_vec()
+    }
+
+    fn master_paths(&self) -> Vec<String> {
+        let mut paths = [PRODUCT_CODE, SOFTWARE_REVISION, MASTER_SERIAL]
+            .map(str::to_owned)
+            .to_vec();
+        if self.settings.gateway == Gateway::IfmAl1352 {
+            // The manual lists swrevision in the deviceinfo profile and revision in §9.2.17.
+            paths.push(AL1352_REVISION.into());
+        }
+        paths
+    }
+
+    fn firmware(&self, response: &Value) -> Option<String> {
+        if self.settings.gateway == Gateway::IfmAl1352 {
+            [SOFTWARE_REVISION, AL1352_REVISION]
+                .into_iter()
+                .find_map(|path| {
+                    Self::data(response, path)
+                        .as_str()
+                        .filter(|text| !text.trim().is_empty())
+                })
+                .map(str::to_owned)
+        } else {
+            label(Self::data(response, SOFTWARE_REVISION))
+        }
+    }
+
+    fn cycle_us(&self, cycle: &Value) -> Option<u64> {
+        let value = number(cycle).filter(|value| *value > 0)?;
+        match self.settings.ifm_cycle_unit? {
+            CycleUnit::Microseconds => Some(value),
+            CycleUnit::Milliseconds => value.checked_mul(1000),
+        }
     }
 
     pub fn read_isdu(&mut self, index: u16, subindex: u8) -> Result<Vec<u8>> {
@@ -227,20 +264,8 @@ impl InputTransport for Client {
         let port = self.port.clone();
         let device = self.device.clone();
         let mode_path = format!("{port}/mode");
-        let mut paths = self.device_paths();
-        paths.extend(
-            [
-                "/deviceinfo/productcode",
-                SOFTWARE_REVISION,
-                "/deviceinfo/serialnumber",
-            ]
-            .map(str::to_owned),
-        );
-        let al1352 = self.settings.gateway == Gateway::IfmAl1352;
-        if al1352 {
-            // The manual lists swrevision in the deviceinfo profile and revision in §9.2.17.
-            paths.push(AL1352_REVISION.into());
-        }
+        let mut paths = Self::device_paths(&device);
+        paths.extend(self.master_paths());
         paths.extend([
             mode_path.clone(),
             format!("{port}/mastercycletime_actual"),
@@ -250,22 +275,16 @@ impl InputTransport for Client {
         ]);
         let (_, response) = self.multi(&paths)?;
         let get = |path: &str| Self::data(&response, path);
-        let model = label(get("/deviceinfo/productcode"))
+        let model = label(get(PRODUCT_CODE))
             .with_context(|| format!("{} product code unavailable", self.model))?;
         ensure!(
             model == self.model,
             "expected master {}, observed {model}",
             self.model
         );
-        let firmware = if al1352 {
-            [SOFTWARE_REVISION, AL1352_REVISION]
-                .into_iter()
-                .find_map(|path| get(path).as_str().filter(|text| !text.trim().is_empty()))
-                .map(str::to_owned)
-        } else {
-            label(get(SOFTWARE_REVISION))
-        }
-        .with_context(|| format!("{} firmware unavailable", self.model))?;
+        let firmware = self
+            .firmware(&response)
+            .with_context(|| format!("{} firmware unavailable", self.model))?;
         if !self.settings.ifm_firmware.is_empty() {
             ensure!(
                 firmware == self.settings.ifm_firmware,
@@ -288,7 +307,7 @@ impl InputTransport for Client {
             "port {} reports mode {port_mode}; verify the existing IO-Link mode and set ifm_mode if numeric",
             self.settings.port
         );
-        let identity = self.identity(&response);
+        let identity = Self::identity_at(&response, &device);
         ensure!(
             identity.vendor_id.is_some_and(|id| id != 0)
                 && identity.device_id.is_some_and(|id| id != 0),
@@ -297,24 +316,18 @@ impl InputTransport for Client {
         self.mode = Some(port_mode.clone());
         self.pinned_identity = Some(identity.clone());
         let cycle = get(&format!("{port}/mastercycletime_actual"));
-        let port_cycle_us = number(cycle).filter(|us| *us > 0).and_then(|value| {
-            match self.settings.ifm_cycle_unit? {
-                CycleUnit::Microseconds => Some(value),
-                CycleUnit::Milliseconds => value.checked_mul(1000),
-            }
-        });
         Ok(Status {
             route: self.route,
             model,
             firmware,
-            master_serial: label(get("/deviceinfo/serialnumber")),
+            master_serial: label(get(MASTER_SERIAL)),
             port: self.settings.port,
             port_mode,
             device_status: label(get(&format!("{device}/status"))),
             port_event: label(get(&format!("{port}/portevent"))),
             device_event: label(get(&format!("{device}/iolinkevent"))),
             port_cycle_raw: label(cycle),
-            port_cycle_us,
+            port_cycle_us: self.cycle_us(cycle),
             identity,
             freshness: Freshness::Snapshots,
         })
@@ -323,7 +336,7 @@ impl InputTransport for Client {
     fn poll(&mut self) -> Result<Input> {
         let mode_path = format!("{}/mode", self.port);
         let pdin = format!("{}/pdin", self.device);
-        let mut paths = self.device_paths();
+        let mut paths = Self::device_paths(&self.device);
         paths.extend([mode_path.clone(), pdin.clone()]);
         let (received, response) = self.multi(&paths)?;
         ensure!(
@@ -331,7 +344,7 @@ impl InputTransport for Client {
             "{} port mode changed or is unavailable",
             self.model
         );
-        let identity = self.identity(&response);
+        let identity = Self::identity_at(&response, &self.device);
         let pinned = self
             .pinned_identity
             .as_ref()

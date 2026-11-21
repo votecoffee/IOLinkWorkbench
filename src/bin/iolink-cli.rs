@@ -245,6 +245,8 @@ enum Command {
         #[arg(long)]
         verify_product_id: bool,
     },
+    /// Inspect one ifm master and all its port metadata, without sampling process data.
+    InspectMaster { profile: PathBuf },
     /// Read status for explicitly profiled ports of the same master, up to its port limit.
     StatusPorts {
         #[arg(required = true, num_args = 1..=iolink_workbench::profile::MAX_PORTS)]
@@ -837,6 +839,14 @@ fn main() -> Result<()> {
             }
             println!("identity_check = {check:?}");
             print!("{}", toml::to_string_pretty(&status)?);
+        }
+        Command::InspectMaster { profile } => {
+            let report = transport::inspect_master(&Profile::load(&profile)?)?;
+            print!("{}", toml::to_string_pretty(&report)?);
+            ensure!(
+                report.error.is_none(),
+                "master inspection needs review; see the report above"
+            );
         }
         Command::StatusPorts { profiles } => {
             let profiles = profiles

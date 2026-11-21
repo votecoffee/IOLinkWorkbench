@@ -10,7 +10,7 @@ The workspace follows EthernetIP Workbench's Device → Inputs → Logging patte
 | Mappings | Imported/manual fields and overrides; Edit mapping opens a focused editor instead of stacking it below the list |
 | Parameters | Search declared IODD parameters or read a documented numeric ISDU address |
 | Integration | Optional local HTTP, MQTT and Windows shared-memory settings, on separate pages |
-| Diagnostics | Observed connection/identity, finalized timing and explicit device-event reads, on separate pages |
+| Diagnostics | One-shot master and port inspection, observed connection and identity, finalized timing and explicit device-event reads |
 | Offline | Saved capture review/comparison, process and parameter bytes, saved parameter and diagnostic snapshots, and event-code decoding |
 
 ## First session

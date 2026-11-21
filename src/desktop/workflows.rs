@@ -255,9 +255,10 @@ impl App {
 
     pub(super) fn connection_diagnostics(&mut self, ui: &mut Ui) {
         ui.heading("Connection diagnostics");
+        self.master_inspection_panel(ui);
         let running = self.worker.is_some();
         if self.live.status.is_none() {
-            ui.label("No observed master or port status. Connect explicitly to collect a read-only observation.");
+            ui.label("No acquisition connection observed yet.");
         }
         if let Some(status) = &self.live.status {
             ui.horizontal_wrapped(|ui| {

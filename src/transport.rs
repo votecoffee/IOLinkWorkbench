@@ -11,6 +11,9 @@ pub mod layout_condition;
 pub(crate) mod ports;
 mod simulator;
 
+pub use ifm::inspection::{
+    MasterIdentity, MasterInspection, PortInspection, UnavailablePoint, inspect_master,
+};
 pub use ifm::write;
 pub use ports::{
     PortStatus, PortStatusReport, read_port_statuses, validate_selection as check_port_selection,

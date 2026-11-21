@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- One-shot ifm master inspection reads master identity and metadata for every port from one saved profile. The GUI and CLI retain unavailable device fields and gateway codes, with model and firmware checks before reading ports.
+
 - Read-only ifm AL1352 routing supports status, cyclic input capture and explicit ISDU reads on ports 1–8. Loopback verifies the high port addresses, model check and eight independent capture bundles.
 
 - Decode recorded device application ErrorTypes in GUI and CLI. The offline lookup reads both code bytes and resolves localized vendor terms and standard references from the saved IODD catalog.

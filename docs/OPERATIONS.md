@@ -124,6 +124,18 @@ An explicit parameter or diagnostic read uses its own client, apart from the cyc
 
 Use a new file in an existing parent folder. The two independent 36:0 and 37:0 queries retain their own raw reply or error, host UTC and monotonic duration, and any accepted connection observation. The saved profile supplies event definitions offline. A partially successful read or a change in master or device identity remains reviewable. Exit 1 indicates a read, decode, context or save failure. Continue to treat source event history and loss as unknown.
 
+### Inspect a configured master
+
+Apply an ifm AL1350 or AL1352 profile with the master endpoint. Open **Diagnostics → Connection & identity → Master and ports → Inspect master**, or run:
+
+```powershell
+.\iolink-cli.exe inspect-master .\.local\bench.toml
+```
+
+The first request reads master metadata and checks the model and saved firmware pin. The second request reads every port and rechecks the master. Each port shows its raw mode, COM speed and cycle, with cycle conversion when the profile specifies the unit. Available device IDs, name, serial and diagnostic points appear alongside the port. Missing values and IoT Core response codes remain visible. An unavailable device identity can have several causes, including a disabled port. The requests use the documented read-only `getdatamulti` service with sequential data-point reads. [AL1350 operating instructions](https://www.quicktimeonline.com/assets/images/pdf/IFM%20Electronic/operating-instruction-AL1350.pdf) · [AL1352 operating instructions](https://www.ifm.com/mounting/80284138UK.pdf)
+
+Keep this inventory separate from a sampling session or a checked read of a selected device. Use **status** or **Read port status** to check the sensor and mode pins for acquisition. A model or firmware mismatch or a failed port batch returns exit 1 and retains any master metadata already collected. Individual unavailable data points remain in a successful report.
+
 ### Compare diagnostic snapshots
 
 ```powershell
