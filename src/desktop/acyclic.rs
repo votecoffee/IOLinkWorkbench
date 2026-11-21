@@ -2,7 +2,8 @@
 use super::{App, WARNING, Worker, background, poll_worker};
 use eframe::egui::{self, Ui};
 use iolink_workbench::transport::{
-    MasterInspection, MasterInspectionSnapshot, inspect_master, layout_condition,
+    MasterInspection, MasterInspectionComparison, MasterInspectionSnapshot, inspect_master,
+    layout_condition,
 };
 use std::path::PathBuf;
 
@@ -29,6 +30,7 @@ pub(super) enum Query {
     LayoutCondition(layout_condition::Plan),
     MasterInspection,
     SavedMasterInspection(PathBuf),
+    CompareMasterSnapshots(PathBuf, PathBuf),
 }
 
 impl Query {
@@ -40,7 +42,9 @@ impl Query {
             Self::Events => Kind::Events,
             Self::LayoutCondition(_) => Kind::LayoutCondition,
             Self::MasterInspection => Kind::MasterInspection,
-            Self::SavedMasterInspection(_) => Kind::SavedMasterInspection,
+            Self::SavedMasterInspection(_) | Self::CompareMasterSnapshots(..) => {
+                Kind::SavedMasterInspection
+            }
         }
     }
 
@@ -64,6 +68,13 @@ impl Query {
             Self::SavedMasterInspection(path) => {
                 format!("Saved master inspection · {}", path.display())
             }
+            Self::CompareMasterSnapshots(left, right) => {
+                format!(
+                    "Master snapshots · {} → {}",
+                    left.display(),
+                    right.display()
+                )
+            }
         }
     }
 }
@@ -72,6 +83,7 @@ impl Query {
 pub(super) struct Output {
     pub text: String,
     pub port_configuration: Option<String>,
+    pub comparison_sources: Option<[String; 2]>,
 }
 
 impl From<&MasterInspection> for Output {
@@ -79,6 +91,7 @@ impl From<&MasterInspection> for Output {
         Self {
             text: inspection.text(),
             port_configuration: inspection.port_configuration_text(),
+            comparison_sources: None,
         }
     }
 }
@@ -88,6 +101,7 @@ impl From<String> for Output {
         Self {
             text,
             port_configuration: None,
+            comparison_sources: None,
         }
     }
 }
@@ -109,6 +123,7 @@ pub(super) struct Reads {
     latest: [Option<Reading>; 7],
     master_save_path: String,
     master_review_path: String,
+    master_compare_path: String,
 }
 
 impl Reads {
@@ -153,6 +168,24 @@ impl Reads {
         assert!(!self.busy());
         self.pending = Some((Query::Raw(19, 0), worker));
     }
+}
+
+fn saved_master_output(snapshot: &MasterInspectionSnapshot) -> Output {
+    let mut output = Output::from(&snapshot.inspection);
+    output.text = format!(
+        "Saved profile {} · Endpoint {}\nProducer {}\n{}",
+        snapshot.profile_name, snapshot.endpoint, snapshot.workbench_version, output.text
+    );
+    output
+}
+
+fn saved_master_text(snapshot: &MasterInspectionSnapshot) -> String {
+    let mut output = saved_master_output(snapshot);
+    if let Some(configuration) = output.port_configuration {
+        output.text.push_str("\n\nPort configuration\n");
+        output.text.push_str(&configuration);
+    }
+    output.text
 }
 
 impl App {
@@ -239,18 +272,42 @@ impl App {
                         Query::SavedMasterInspection(path.clone()),
                         move || {
                             let snapshot = MasterInspectionSnapshot::load(&path)?;
-                            let mut output = Output::from(&snapshot.inspection);
-                            output.text = format!(
-                                "Saved profile {} · Endpoint {}\nProducer {}\n{}",
-                                snapshot.profile_name,
-                                snapshot.endpoint,
-                                snapshot.workbench_version,
-                                output.text
-                            );
-                            Ok(output)
+                            Ok(saved_master_output(&snapshot))
                         },
                     );
                 }
+                ui.collapsing("Compare two master snapshots", |ui| {
+                    ui.add_enabled(
+                        available,
+                        egui::TextEdit::singleline(&mut self.acyclic.master_compare_path)
+                            .hint_text("Second master snapshot JSON path"),
+                    );
+                    let left = self.acyclic.master_review_path.trim();
+                    let right = self.acyclic.master_compare_path.trim();
+                    if ui
+                        .add_enabled(
+                            available && !left.is_empty() && !right.is_empty(),
+                            egui::Button::new("Compare master snapshots"),
+                        )
+                        .clicked()
+                    {
+                        let (left, right) = (PathBuf::from(left), PathBuf::from(right));
+                        self.start_acyclic_output(
+                            Query::CompareMasterSnapshots(left.clone(), right.clone()),
+                            move || {
+                                let comparison = MasterInspectionComparison::load(&left, &right)?;
+                                Ok(Output {
+                                    text: comparison.text(),
+                                    comparison_sources: Some([
+                                        saved_master_text(&comparison.left),
+                                        saved_master_text(&comparison.right),
+                                    ]),
+                                    port_configuration: None,
+                                })
+                            },
+                        );
+                    }
+                });
                 self.acyclic_result(ui, Kind::SavedMasterInspection);
             });
     }
@@ -342,7 +399,9 @@ impl App {
         work: impl FnOnce() -> anyhow::Result<Output> + Send + 'static,
     ) {
         let blocked = match &query {
-            Query::SavedMasterInspection(_) => self.acyclic_job_block_reason(),
+            Query::SavedMasterInspection(_) | Query::CompareMasterSnapshots(..) => {
+                self.acyclic_job_block_reason()
+            }
             _ => self.acyclic_block_reason(),
         };
         if let Some(reason) = blocked {
@@ -386,6 +445,10 @@ impl App {
                         });
                     }
                     ui.monospace(&output.text);
+                    if let Some([left, right]) = &output.comparison_sources {
+                        ui.collapsing("Left master snapshot", |ui| ui.monospace(left));
+                        ui.collapsing("Right master snapshot", |ui| ui.monospace(right));
+                    }
                 }
                 Err(error) => {
                     ui.colored_label(WARNING, format!("{error:#}"));

@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Compare saved master inspections offline in the GUI or CLI. The comparison reports recorded context and separates supply, link, connected-device and configured-port changes. Both original inspections remain available.
+
 - Save a master inspection to a new JSON file and reopen it in the GUI or CLI offline. The saved endpoint and observations preserve the original context, including incomplete second-batch results.
 
 - Inspect master reads the configured cycle preset, validation IDs and raw validation/Data Storage mode on all ports of the four supported ifm models. The GUI groups these settings under Port configuration alongside independent connected-device observations.

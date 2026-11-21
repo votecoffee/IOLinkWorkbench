@@ -1445,9 +1445,85 @@ def verify_master_inspection(cli, output):
                 assert failure["master"]["serial"] == "INVENTORY-MASTER" and failure["ports"] == []
                 assert "master_diagnostics" not in failure
                 assert ("identity changed" if fault == "changed_serial" else "service code 503") in failure["error"]
+
+            before = len(server.requests)
+            verify_master_comparison(cli, output, snapshot)
+            assert len(server.requests) == before
         finally:
             server.shutdown()
             worker.join()
+
+
+def verify_master_comparison(cli, output, source):
+    original = source.read_bytes()
+    same = tomllib.loads(run(cli, "compare-master", source, source))
+    assert same["left"] == same["right"]
+    assert same["observations"] == {"cycles_comparable": True, "supply_changes": [], "changed_ports": []}
+
+    def compared(name, edit, expected=0):
+        changed = json.loads(original)
+        edit(changed)
+        path = output / f"compare-{name}.json"
+        path.write_text(json.dumps(changed), encoding="utf-8")
+        pinned = path.read_bytes()
+        result = tomllib.loads(run(cli, "compare-master", source, path, expected=expected))
+        assert result["left"] == same["left"] and path.read_bytes() == pinned
+        return result
+
+    def observations(changed):
+        inspection = changed["inspection"]
+        inspection["master_diagnostics"]["supply_voltage_mv"] = 24120
+        port = inspection["ports"][0]
+        port["identity"]["device_id"] = 2
+        port["configuration"]["validation_vendor_id"] = 311
+        port["port_event"] = None
+        port["unavailable"].append({"path": "/iolinkmaster/port[1]/portevent", "service_code": 503})
+
+    changes = compared("observations", observations)["observations"]
+    assert changes["supply_changes"] == [{"field": "Supply voltage (mV)", "left": "24050", "right": "24120"}]
+    port, = changes["changed_ports"]
+    assert port["port"] == 1
+    assert port["connected_device"] == [{"field": "Connected Device ID", "left": "1", "right": "2"}]
+    assert port["configuration"] == [{"field": "Configured Vendor ID", "left": "310", "right": "311"}]
+    assert port["link"] == [
+        {"field": "Port event", "left": "0"},
+        {"field": "Unavailable data points", "left": "none reported", "right": "/iolinkmaster/port[1]/portevent (IoT Core 503)"},
+    ]
+
+    def different_cycle_unit(changed):
+        changed["cycle_unit"] = "microseconds"
+        for port in changed["inspection"]["ports"]:
+            port["port_cycle_us"] = int(port["port_cycle_raw"])
+            settings = port["configuration"]
+            if settings["preset_cycle_us"] is not None:
+                settings["preset_cycle_us"] = int(settings["preset_cycle_raw"])
+        changed["inspection"]["ports"][0]["port_cycle_raw"] = "7"
+        changed["inspection"]["ports"][0]["port_cycle_us"] = 7
+
+    units = compared("cycle-unit", different_cycle_unit)
+    assert units["context_changes"] == [{"field": "Cycle unit", "left": "milliseconds", "right": "microseconds"}]
+    assert not units["observations"]["cycles_comparable"]
+    port, = units["observations"]["changed_ports"]
+    assert port["link"] == [{"field": "Reported cycle (raw)", "left": "2", "right": "7"}]
+
+    def different_firmware(changed):
+        changed["firmware_pin"] = ""
+        changed["inspection"]["master"]["firmware"] = "3.1.77"
+
+    for name, edit, issue in (
+        ("route", lambda s: s.update(endpoint="http://127.0.0.1:1"), "routes differ"),
+        ("serial", lambda s: s["inspection"]["master"].update(serial="OTHER"), "serial numbers differ"),
+        ("serial-missing", lambda s: s["inspection"]["master"].update(serial=" "), "serial numbers are unavailable"),
+        ("firmware", different_firmware, "firmware revisions differ"),
+    ):
+        blocked = compared(name, edit, expected=1)
+        assert "observations" not in blocked and issue in blocked["comparison_issue"]
+
+    partial = tomllib.loads(run(cli, "compare-master", source, output / "fail_ports.json", expected=1))
+    assert "incomplete" in partial["comparison_issue"] and "observations" not in partial
+    assert partial["right"]["inspection"]["error"]
+    run(cli, "compare-master", source, output / "invalid-snapshot.json", expected=1)
+    assert source.read_bytes() == original
 
 
 def verify_error_types(cli, output):
@@ -3047,7 +3123,7 @@ kind = "bool"
 
     print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state names with Boolean CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
-          "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1351, AL1352 and AL1353 status, ISDU and capture across all ports, one-shot ifm master inspection with supply diagnostics, read-only port configuration and offline snapshot review, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
+          "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1351, AL1352 and AL1353 status, ISDU and capture across all ports, one-shot ifm master inspection with supply diagnostics, read-only port configuration and offline snapshot review and comparison, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 
 

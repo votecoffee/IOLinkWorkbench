@@ -243,6 +243,7 @@ pub(super) fn render(
                 "offline-snapshot",
                 "offline-events",
                 "offline-master-snapshot",
+                "offline-master-comparison",
                 "offline-diagnostic-snapshot",
                 "offline-diagnostic-comparison",
                 "profiles-dialog",
@@ -360,6 +361,7 @@ pub(super) fn render(
                             Ok(Output {
                                 text: MASTER_INSPECTION_FIXTURE.into(),
                                 port_configuration: Some("Port 8 · Cycle preset automatic · Validation / Data Storage (raw) 0\nConfigured Vendor ID 0 · Configured Device ID 0".into()),
+                                comparison_sources: None,
                             }),
                         );
                     }
@@ -555,6 +557,25 @@ pub(super) fn render(
                                 text: "Saved profile Synthetic bench · Endpoint http://127.0.0.1:1"
                                     .into(),
                                 port_configuration: Some("Port 1 · Cycle preset automatic".into()),
+                                comparison_sources: None,
+                            }),
+                        );
+                    }
+                    "offline-master-comparison" => {
+                        app.tab = Tab::Offline;
+                        app.workspace.offline = OfflinePage::DiagnosticSnapshots;
+                        app.acyclic.store_result(
+                            Query::CompareMasterSnapshots(
+                                ".local/synthetic-master-left.json".into(),
+                                ".local/synthetic-master-right.json".into(),
+                            ),
+                            Ok(Output {
+                                text: "Saved master comparison · left → right\nPort 1 · Configured Vendor ID 310 → 311".into(),
+                                port_configuration: None,
+                                comparison_sources: Some([
+                                    "Left recorded master supply".into(),
+                                    "Right recorded master supply".into(),
+                                ]),
                             }),
                         );
                     }
@@ -745,6 +766,7 @@ pub(super) fn render(
                 "offline-master-snapshot" => {
                     Some("Saved profile Synthetic bench · Endpoint http://127.0.0.1:1")
                 }
+                "offline-master-comparison" => Some("Right recorded master supply"),
                 "offline-diagnostic-snapshot" => Some("37:0 · synthetic fixture reply unavailable"),
                 "offline-diagnostic-comparison" => Some("Wire slot positions"),
                 "al1351-connection" => Some("ifm AL1351 · http://127.0.0.1:1"),
@@ -877,7 +899,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 123);
+        assert_eq!(cases.len(), 124);
         assert!(
             cases
                 .iter()

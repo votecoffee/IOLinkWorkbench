@@ -254,6 +254,8 @@ enum Command {
     },
     /// Review a saved master inspection without contacting the gateway.
     ReviewMaster { snapshot: PathBuf },
+    /// Compare two saved ifm master inspections offline.
+    CompareMaster { left: PathBuf, right: PathBuf },
     /// Read status for explicitly profiled ports of the same master, up to its port limit.
     StatusPorts {
         #[arg(required = true, num_args = 1..=iolink_workbench::profile::MAX_PORTS)]
@@ -869,6 +871,14 @@ fn main() -> Result<()> {
             ensure!(
                 saved.inspection.error.is_none(),
                 "saved master inspection needs review; see the report above"
+            );
+        }
+        Command::CompareMaster { left, right } => {
+            let comparison = transport::MasterInspectionComparison::load(&left, &right)?;
+            print!("{}", toml::to_string_pretty(&comparison)?);
+            ensure!(
+                comparison.observations.is_some(),
+                "master comparison needs review; see the report above"
             );
         }
         Command::StatusPorts { profiles } => {

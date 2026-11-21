@@ -147,6 +147,10 @@ To keep a bench baseline, expand **Read and save master snapshot** and choose a 
 
 **Offline → Diagnostic snapshots → Master inspection snapshots** opens the same file without a profile or gateway connection. The file stores the original report, configured endpoint, firmware pin, cycle unit, profile name and producing Workbench version. Keep it under ignored `.local/` in a source checkout. A failure after the initial master reply can be saved with its error and initial observations. The CLI prints the available report and reports exit 1 for that outcome when inspecting or reopening it. If the initial request fails, Workbench has no inspection report to save. The save checks for an existing destination before the read and publishes a new file atomically. Offline review checks the saved format and consistency of the reported context, port list and Device ID widths. It reflects the recorded inspection.
 
+Expand **Compare two master snapshots** in **Master inspection snapshots** to select a second file. The CLI uses `compare-master LEFT.json RIGHT.json`. The report lists recorded context changes and groups observed differences by master supply, port link and diagnostics, connected identity, and configured settings. Expand either original snapshot in the GUI to review its evidence.
+
+Per-port and supply differences require complete inspections, matching configured routes, matching recorded master serial and firmware, and no conflicting observed hardware revision. Missing readings and changes in returned service codes remain visible. Converted cycle values are compared only with matching saved cycle units. If the master context prevents comparison, the CLI still prints both snapshots and returns exit 1. Review and comparison use only the supplied files.
+
 ### Compare diagnostic snapshots
 
 ```powershell

@@ -430,6 +430,7 @@ fn master_port_configuration_opens_without_another_read() -> Result<()> {
         Ok(Output {
             text: "Port 1 · connected Vendor ID 65535".into(),
             port_configuration: Some(details.into()),
+            comparison_sources: None,
         }),
     );
     let ctx = Context::default();

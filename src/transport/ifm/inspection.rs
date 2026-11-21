@@ -6,7 +6,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{fmt::Write as _, time::Instant};
 
+mod comparison;
 mod snapshot;
+pub use comparison::MasterInspectionComparison;
 pub use snapshot::MasterInspectionSnapshot;
 
 #[derive(Debug, Deserialize, Serialize)]
