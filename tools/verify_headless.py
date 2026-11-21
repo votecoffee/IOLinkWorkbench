@@ -38,6 +38,8 @@ class Gateway(BaseHTTPRequestHandler):
     change_master_after_status = False
     payload = "03C9"
     threshold_payload = "01F4"
+    record_payload = "FFEC010A54455354"
+    array_payload = "02C495F0"
     octet_payload = "0080FF2C"
     text_payload = "C2B56D0000000000"
     wide_payload = "FFFFFFFFFFFFFFFF"
@@ -108,8 +110,8 @@ class Gateway(BaseHTTPRequestHandler):
             response["data"] = {"value": {
                 (19, 0): "53494D2D53454E534F52", (48, 0): "2A", (64, 0): self.threshold_payload, (65, 0): "666978747572652073656E736F72",
                 (36, 0): "02", (37, 0): self.detailed_payload,
-                (66, 0): "FFEC010A54455354", (66, 1): "FFEC", (66, 2): "01", (66, 3): "0A", (66, 4): "54455354",
-                (67, 0): "02C495F0", (67, 1): "02", (67, 2): "FC", (67, 3): "04", (67, 4): "F9", (67, 5): "05", (67, 6): "FF", (67, 7): "00",
+                (66, 0): self.record_payload, (66, 1): "FFEC", (66, 2): "01", (66, 3): "0A", (66, 4): "54455354",
+                (67, 0): self.array_payload, (67, 1): "02", (67, 2): "FC", (67, 3): "04", (67, 4): "F9", (67, 5): "05", (67, 6): "FF", (67, 7): "00",
                 (71, 0): "9DFF440080000000", (72, 0): "FFFFFFFD40000000",
                 (73, 0): "9DFF440080000000FFFFFFFD40000000", (73, 1): "9DFF440080000000", (73, 2): "FFFFFFFD40000000",
                 (74, 0): "9DFF4400800000000000000000000000", (74, 1): "9DFF440080000000", (74, 2): "0000000000000000",
@@ -407,7 +409,7 @@ def verify_layout_condition_plan(cli, output):
     before = profile.read_bytes()
     plan = tomllib.loads(run(cli, "check-layout", profile))
     assert plan["layout"] == "IN" and plan["parameter_id"] == "V_SIM_Threshold"
-    assert (plan["index"], plan["subindex"], plan["expected"]) == (64, 0, 1)
+    assert (plan["index"], plan["subindex"], plan["read_subindex"], plan["expected"]) == (64, 0, 0, 1)
     observation = tomllib.loads(run(cli, "check-layout", profile, "--read", expected=1))
     assert observation["plan"] == plan and observation["outcome"] == "mismatch"
     assert observation["reading"]["raw_value"] == "500"
@@ -475,6 +477,52 @@ def verify_layout_condition_reads(cli, source, fixture, endpoint, output):
         assert not Gateway.violations and live.read_bytes() == original
     finally:
         Gateway.threshold_payload, Gateway.device_id, Gateway.inject_faults = old_threshold, old_id, old_faults
+
+
+def verify_whole_layout_conditions(cli, endpoint, output):
+    output.mkdir()
+    for kind, selector, index, subindex, condition, expected in [
+        ("record", "V_SIM_Record", 66, 2, 1, "true"),
+        ("array", "V_SIM_History", 67, 1, 2, "2"),
+    ]:
+        source = output / f"{kind}.xml"
+        xml = (ROOT / "samples" / f"sensor-{kind}.xml").read_text(encoding="utf-8")
+        marker = '<ProcessData id="PD">'
+        assert xml.count(marker) == 1 and 'subindexAccessSupported="true"' in xml
+        xml = xml.replace('subindexAccessSupported="true"', 'subindexAccessSupported="false"')
+        xml = xml.replace(marker, marker + f'<Condition variableId="{selector}" subindex="{subindex}" value="{condition}"/>')
+        source.write_text(xml, encoding="utf-8")
+        profile = output / f"{kind}.toml"
+        run(cli, "import", source, profile, "--variant", "SIM-SENSOR", "--layout", "IN")
+        live = output / f"{kind}-live.toml"
+        run(cli, "set-connection", profile, live, "--gateway", "ifm-al1350", "--endpoint", endpoint,
+            "--expected-mode", "3", "--firmware", "3.1.42")
+        saved = live.read_bytes()
+        requests = Gateway.requests
+        plan = tomllib.loads(run(cli, "check-layout", live))
+        assert (plan["index"], plan["subindex"], plan["read_subindex"]) == (index, subindex, 0)
+        run(cli, "read-parameter", live, selector, "--subindex", subindex, expected=1)
+        assert Gateway.requests == requests
+        raw = getattr(Gateway, f"{kind}_payload")
+        reads = Gateway.isdu_reads
+        result = tomllib.loads(run(cli, "check-layout", live, "--read"))
+        assert result["outcome"] == "matched" and result["selector_raw_value"] == expected
+        assert result["reading"]["subindex"] == 0 and result["reading"]["raw_hex"] == raw
+        assert result["plan"] == plan and Gateway.isdu_reads == reads + 1
+        if kind == "record":
+            try:
+                Gateway.record_payload = "FFEC000A54455354"
+                mismatch = tomllib.loads(run(cli, "check-layout", live, "--read", expected=1))
+                assert mismatch["outcome"] == "mismatch" and mismatch["selector_raw_value"] == "false"
+                assert mismatch["reading"]["subindex"] == 0
+                Gateway.record_payload = "FFEC01"
+                unavailable = tomllib.loads(run(cli, "check-layout", live, "--read", expected=1))
+                assert unavailable["outcome"] == "unavailable" and "selector_raw_value" not in unavailable
+                assert unavailable["reading"]["raw_hex"] == "FFEC01" and unavailable["reading"]["decode_error"]
+                assert Gateway.isdu_reads == reads + 3
+            finally:
+                Gateway.record_payload = raw
+        assert live.read_bytes() == saved and not Gateway.violations
 
 
 def verify_display_preferences(cli, source, output):
@@ -2474,6 +2522,7 @@ kind = "bool"
             parallel_parameter_read(cli, parameter_fixture, scratch / "ifm-parallel-diagnostics", diagnostics=True)
             verify_layout_condition_reads(cli, layout_profile, parameter_fixture, endpoint,
                                           scratch / "ifm-layout-condition")
+            verify_whole_layout_conditions(cli, endpoint, scratch / "ifm-layout-condition-whole")
             verify_diagnostic_snapshots(cli, parameter_fixture, scratch / "ifm-diagnostic-snapshots", loopback=True)
             changed_identity_path = scratch / "changed-device.json"
             Gateway.change_serial_after_status = True
@@ -2529,7 +2578,7 @@ kind = "bool"
 
     print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
-          "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
+          "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 
 

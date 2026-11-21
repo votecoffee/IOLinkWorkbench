@@ -154,7 +154,7 @@ The bundled **sensor-checksum.xml** and **sensor-checksum-de.xml** are original 
 
 **Cyclic time.** IODD `TimeT` and `TimeSpanT` fields display UTC timestamps or signed durations. Their typed CSV columns store exact 64-bit ticks for offline verification and re-decode. Device time is separate from acquisition timing. [Temporal mapping and profile compatibility](docs/OPERATIONS.md#cyclic-timet-and-timespant)
 
-**Conditional layouts.** **Mappings → Layout condition** resolves the selector from the saved IODD and offers an explicit, read-only comparison. The CLI uses `check-layout PROFILE` for the offline plan and adds `--read` for the observed value. Review the observation before confirming the active condition. [Conditional layout workflow](docs/OPERATIONS.md#check-a-conditional-layout)
+**Conditional layouts.** **Mappings → Layout condition** resolves the selector from the saved IODD and offers an explicit, read-only comparison. The CLI uses `check-layout PROFILE` for the offline plan and adds `--read` for the observed value. For a record or array defined for whole-value access, the check reads subindex 0 and evaluates the declared selector member. Review the observation before confirming the active condition. [Conditional layout workflow](docs/OPERATIONS.md#check-a-conditional-layout)
 
 **Standalone Boolean input.** The IODD mapping uses the full wire byte. `00` is false, `FF` is true, and other nonzero bytes decode as true with an encoding warning. Packed Booleans use one bit. [Input mapping and profile compatibility](docs/OPERATIONS.md#standalone-boolean-input)
 

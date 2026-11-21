@@ -2,7 +2,7 @@
 
 ## Windows preview
 
-- Conditional layout checks resolve the saved IODD selector offline and compare an explicit acyclic read with the declared value. The operator can review matches, mismatches, and undecodable replies in Mappings or CLI. Loopback checks hold a selector read while cyclic polling continues.
+- Conditional layout checks resolve the saved IODD selector offline and compare an explicit acyclic read with the declared value. Records and arrays with individual access disabled use a whole-value read and select the declared member from its reply. The operator can review matches, mismatches, and undecodable replies in Mappings or CLI. Loopback checks hold a selector read while cyclic polling continues.
 
 - Cyclic `TimeT` and `TimeSpanT` support scalar, record, array and manual mappings. GUI and CLI show timezone-independent UTC or signed durations. CSV and offline re-decode preserve exact ticks, separate from capture timing.
 

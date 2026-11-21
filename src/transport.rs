@@ -233,11 +233,19 @@ pub(crate) fn parameter_target<'a>(
         subindex == 0 || parent.subindex_access(),
         "IODD does not permit individual subindex reads for {id}"
     );
+    readable_parameter_member(parent, subindex)
+}
+
+fn readable_parameter_member(
+    parent: &crate::iodd::Parameter,
+    subindex: u8,
+) -> Result<&crate::iodd::Parameter> {
     let parameter = parent.target(subindex)?;
     ensure!(
         parent.access != crate::iodd::Access::WriteOnly
             && parameter.access != crate::iodd::Access::WriteOnly,
-        "parameter {id} is write-only in the IODD"
+        "parameter {} is write-only in the IODD",
+        parent.id
     );
     Ok(parameter)
 }

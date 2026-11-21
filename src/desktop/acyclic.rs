@@ -49,7 +49,7 @@ impl Query {
             Self::Events => "Device diagnostics · indexes 36:0 and 37:0".into(),
             Self::LayoutCondition(plan) => format!(
                 "Layout {} · {} · index {}:{}",
-                plan.layout, plan.parameter_id, plan.index, plan.subindex
+                plan.layout, plan.parameter_id, plan.index, plan.read_subindex
             ),
         }
     }
@@ -131,9 +131,15 @@ impl App {
                 };
                 ui.label(format!(
                     "{} · {} · ISDU {}:{}",
-                    plan.layout, plan.parameter_name, plan.index, plan.subindex
+                    plan.layout, plan.parameter_name, plan.index, plan.read_subindex
                 ));
                 ui.monospace(&plan.declaration);
+                if plan.read_subindex != plan.subindex {
+                    ui.small(format!(
+                        "Reads the whole value for selector subindex {}",
+                        plan.subindex
+                    ));
+                }
                 let blocked = self.acyclic_block_reason();
                 let button =
                     ui.add_enabled(blocked.is_none(), egui::Button::new("Read layout selector"));
@@ -146,9 +152,11 @@ impl App {
                     });
                 }
                 self.acyclic_result(ui, Kind::LayoutCondition);
-                ui.small(
-                    "Review the reading before confirming the active condition in the mapping.",
-                );
+                if !self.profile.acyclic_only() {
+                    ui.small(
+                        "Review the reading before confirming the active condition in the mapping.",
+                    );
+                }
             });
     }
 

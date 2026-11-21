@@ -214,6 +214,7 @@ pub(super) fn render(
                 "device-advanced",
                 "mapping-editor",
                 "layout-condition",
+                "layout-condition-whole",
                 "parameters-raw",
                 "parameters-selected-record",
                 "integration-mqtt",
@@ -269,12 +270,24 @@ pub(super) fn render(
                             app.setup.edit_field((*field).clone(), *origin != "IODD");
                         }
                     }
-                    "layout-condition" => {
+                    "layout-condition" | "layout-condition-whole" => {
                         use iolink_workbench::transport::layout_condition::Plan;
-                        let xml = include_str!("../../../samples/sensor.xml").replace(
-                            r#"<ProcessData id="PD">"#,
-                            r#"<ProcessData id="PD"><Condition variableId="V_SIM_Threshold" value="1"/>"#,
-                        );
+                        let whole = label == "layout-condition-whole";
+                        let (source, condition) = if whole {
+                            (
+                                include_str!("../../../samples/sensor-record.xml").replace(
+                                    r#"subindexAccessSupported="true""#,
+                                    r#"subindexAccessSupported="false""#,
+                                ),
+                                r#"<ProcessData id="PD"><Condition variableId="V_SIM_Record" subindex="2" value="1"/>"#,
+                            )
+                        } else {
+                            (
+                                include_str!("../../../samples/sensor.xml").to_owned(),
+                                r#"<ProcessData id="PD"><Condition variableId="V_SIM_Threshold" value="1"/>"#,
+                            )
+                        };
+                        let xml = source.replace(r#"<ProcessData id="PD">"#, condition);
                         let catalog = iodd::parse(&xml, "synthetic condition view".into())?;
                         let (identity, imported) =
                             catalog.select(Some("SIM-SENSOR"), Some("IN"))?;
@@ -674,6 +687,7 @@ pub(super) fn render(
                 }
                 "offline-temporal-input" => Some("1984-01-01 00:00:00.500 UTC"),
                 "layout-condition" => Some("Condition matched · expected 1 · observed 1"),
+                "layout-condition-whole" => Some("Reads the whole value for selector subindex 2"),
                 "acyclic-profile" => Some("Acyclic IODD layout"),
                 "offline-diagnostic-snapshot" => Some("37:0 · synthetic fixture reply unavailable"),
                 "offline-diagnostic-comparison" => Some("Slot 1 · E48DFE → 000000"),
@@ -775,7 +789,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 116);
+        assert_eq!(cases.len(), 117);
         assert!(
             cases
                 .iter()

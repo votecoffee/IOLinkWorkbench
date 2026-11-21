@@ -53,7 +53,9 @@ iolink-cli check-layout profile.toml --read
 
 The first command resolves the selector offline. With `--read`, Workbench checks the configured connection and identity pins, reads the selector, and compares its unscaled Boolean or integer value with the IODD value. The report includes the observed port and identity, host read time, and raw reply. A mismatch or undecodable reply returns exit code 1 and keeps the report on stdout.
 
-The read uses the existing acyclic path and supports readable scalars and permitted individual subindexes. An unresolved selector or a prohibited read is reported before transport access. Before cyclic acquisition or live output review, use **Confirmed active condition on the device** after checking the layout on the device. The check works with existing profiles whose stored condition resolves to an imported parameter.
+The read uses the independent acyclic path. For a record or array whose IODD disables individual subindex access, the check reads the whole value at subindex 0 and compares the declared member of that reply. The plan's `subindex` is the selector member and `read_subindex` is the actual ISDU address component. The result's `selector_raw_value` is the value compared, and `reading.raw_hex` contains the complete reply. [IO-Link Interface and System Specification, section 4.4](https://io-link.com/fileadmin/user_upload/Downloads/Package_2024/IOL-Interface-Spec_10002_V114_Jun24.pdf)
+
+The selector and its parent must both be readable. An unresolved selector or a prohibited read is reported before transport access. Before cyclic acquisition or live output review, use **Confirmed active condition on the device** after checking the layout on the device. The check works with existing profiles whose stored condition resolves to an imported parameter.
 
 ### Acyclic-only IODDs
 

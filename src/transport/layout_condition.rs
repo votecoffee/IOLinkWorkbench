@@ -1,6 +1,6 @@
 //! Resolve the selected IODD condition offline, then optionally read its selector.
-use super::{ParameterReading, Status, parameter_target, read_parameter_observed};
-use crate::profile::Profile;
+use super::{ParameterReading, Status, read_parameter_observed, readable_parameter_member};
+use crate::{iodd::RecordValue, profile::Profile};
 use anyhow::{Context, Result, bail, ensure};
 use serde::Serialize;
 
@@ -12,6 +12,7 @@ pub struct Plan {
     pub parameter_name: String,
     pub index: u16,
     pub subindex: u8,
+    pub read_subindex: u8,
     pub expected: u8,
 }
 
@@ -51,8 +52,15 @@ impl Plan {
             .trim()
             .parse::<u8>()
             .context("IODD condition value must be 0–255")?;
-        let parameter = parameter_target(profile, id, subindex)
+        let parent = profile
+            .parameter(id)
             .with_context(|| format!("cannot resolve the condition selector {selector}"))?;
+        let parameter = readable_parameter_member(parent, subindex)?;
+        let read_subindex = if parent.subindex_access() {
+            subindex
+        } else {
+            0
+        };
         let limit = match (parameter.datatype.as_str(), parameter.bits) {
             ("BooleanT", Some(1)) => 2,
             ("UIntegerT", Some(bits @ 2..=64)) => 1u128 << bits,
@@ -70,6 +78,7 @@ impl Plan {
             parameter_name: parameter.name.clone(),
             index: parameter.index,
             subindex,
+            read_subindex,
             expected,
         })
     }
@@ -87,6 +96,14 @@ impl Plan {
             None => Outcome::Unavailable,
         }
     }
+
+    fn member<'a>(&self, reading: &'a ParameterReading) -> Option<&'a RecordValue> {
+        reading
+            .record_items
+            .iter()
+            .chain(&reading.array_items)
+            .find(|item| item.subindex == self.subindex)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -100,6 +117,8 @@ pub enum Outcome {
 #[derive(Debug, Serialize)]
 pub struct Observation {
     pub outcome: Outcome,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selector_raw_value: Option<String>,
     pub plan: Plan,
     pub observed: Status,
     pub reading: ParameterReading,
@@ -108,14 +127,16 @@ pub struct Observation {
 impl Observation {
     pub fn text(&self) -> String {
         let mut text = format!(
-            "{} · expected {} · observed {}\nRaw bytes {}\n{} · port {} · {}",
+            "{} · expected {} · observed {}\nISDU {}:{} · raw reply {}\n{} · port {} · {}",
             match self.outcome {
                 Outcome::Matched => "Condition matched",
                 Outcome::Mismatch => "Condition mismatch",
                 Outcome::Unavailable => "Selector value unavailable",
             },
             self.plan.expected,
-            self.reading.raw_value.as_deref().unwrap_or("unavailable"),
+            self.selector_raw_value.as_deref().unwrap_or("unavailable"),
+            self.reading.index,
+            self.reading.subindex,
             self.reading.raw_hex,
             self.observed.model,
             self.observed.port,
@@ -124,6 +145,16 @@ impl Observation {
         if let Some(error) = &self.reading.decode_error {
             text.push_str(&format!("\n{error}"));
         }
+        if let Some(error) = self
+            .plan
+            .member(&self.reading)
+            .and_then(|member| member.value.decode_error.as_deref())
+        {
+            text.push_str(&format!(
+                "\nSelector subindex {} · {error}",
+                self.plan.subindex
+            ));
+        }
         text
     }
 }
@@ -131,9 +162,17 @@ impl Observation {
 /// Perform one explicit acyclic read using the current profile and its identity checks.
 pub fn read(profile: &Profile) -> Result<Observation> {
     let plan = Plan::from_profile(profile)?;
-    let (reading, observed) = read_parameter_observed(profile, &plan.parameter_id, plan.subindex)?;
+    let (reading, observed) =
+        read_parameter_observed(profile, &plan.parameter_id, plan.read_subindex)?;
+    let selector_raw_value = if plan.read_subindex == plan.subindex {
+        reading.raw_value.clone()
+    } else {
+        plan.member(&reading)
+            .and_then(|member| member.value.raw_value.clone())
+    };
     Ok(Observation {
-        outcome: plan.compare(reading.raw_value.as_deref()),
+        outcome: plan.compare(selector_raw_value.as_deref()),
+        selector_raw_value,
         plan,
         observed,
         reading,
@@ -188,6 +227,7 @@ mod tests {
         assert_eq!(observed.outcome, Outcome::Matched);
         assert_eq!(observed.reading.raw_value.as_deref(), Some("true"));
         assert_eq!((observed.plan.index, observed.plan.subindex), (66, 2));
+        assert_eq!(observed.plan.read_subindex, 2);
 
         profile.connection.gateway = Gateway::IfmAl1350;
         profile.connection.endpoint = "unavailable".into();
@@ -204,16 +244,70 @@ mod tests {
         assert!(format!("{:#}", read(&profile).unwrap_err()).contains("subindex"));
         let imported = profile.iodd.as_mut().unwrap();
         imported.condition = Some("V_SIM_Record[2] = 1".into());
-        imported
+        let record = imported
             .parameters
             .iter_mut()
             .find(|parameter| parameter.id == "V_SIM_Record")
             .unwrap()
             .record
             .as_mut()
+            .unwrap();
+        record.subindex_access = false;
+        record
+            .items
+            .iter_mut()
+            .find(|item| item.subindex == 2)
             .unwrap()
-            .subindex_access = false;
-        assert!(format!("{:#}", read(&profile).unwrap_err()).contains("does not permit"));
+            .parameter
+            .access = iodd::Access::WriteOnly;
+        assert!(format!("{:#}", read(&profile).unwrap_err()).contains("write-only"));
+        Ok(())
+    }
+
+    #[test]
+    fn whole_value_reads_extract_the_selected_record_or_array_member() -> Result<()> {
+        for (xml, rule, index, selector, value) in [
+            (
+                include_str!("../../samples/sensor-record.xml"),
+                r#"variableId="V_SIM_Record" subindex="2" value="1""#,
+                66,
+                2,
+                "true",
+            ),
+            (
+                include_str!("../../samples/sensor-array.xml"),
+                r#"variableId="V_SIM_History" subindex="1" value="2""#,
+                67,
+                1,
+                "2",
+            ),
+        ] {
+            let xml = xml.replace(
+                r#"subindexAccessSupported="true""#,
+                r#"subindexAccessSupported="false""#,
+            );
+            let profile = with_condition(&xml, rule)?;
+            let expected = profile.clone();
+            let plan = Plan::from_profile(&profile)?;
+            assert_eq!(
+                (plan.index, plan.subindex, plan.read_subindex),
+                (index, selector, 0)
+            );
+            assert!(
+                format!(
+                    "{:#}",
+                    super::super::read_parameter_at(&profile, &plan.parameter_id, selector)
+                        .unwrap_err()
+                )
+                .contains("does not permit individual subindex reads")
+            );
+            let observation = read(&profile)?;
+            assert_eq!(observation.outcome, Outcome::Matched);
+            assert_eq!(observation.reading.subindex, 0);
+            assert!(observation.reading.raw_value.is_none());
+            assert_eq!(observation.selector_raw_value.as_deref(), Some(value));
+            assert_eq!(profile, expected);
+        }
         Ok(())
     }
 }
