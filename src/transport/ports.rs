@@ -92,7 +92,8 @@ pub(crate) fn master_conflict<'a>(mut statuses: impl Iterator<Item = &'a Status>
     })
 }
 
-pub(crate) fn validate_selection(profiles: &[Profile]) -> Result<Gateway> {
+/// Check saved routes for a port status query without opening a client.
+pub fn validate_selection(profiles: &[Profile]) -> Result<Gateway> {
     ensure!(
         (1..=4).contains(&profiles.len()),
         "select one to four port profiles"

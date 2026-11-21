@@ -12,7 +12,9 @@ pub(crate) mod ports;
 mod simulator;
 
 pub use ifm::write;
-pub use ports::{PortStatus, PortStatusReport, read_port_statuses};
+pub use ports::{
+    PortStatus, PortStatusReport, read_port_statuses, validate_selection as check_port_selection,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

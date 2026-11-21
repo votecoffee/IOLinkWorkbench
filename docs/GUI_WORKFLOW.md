@@ -6,7 +6,7 @@ The workspace follows EthernetIP Workbench's Device → Inputs → Logging patte
 |---|---|
 | Device | Setup overview, host connection, identity expectations, IODD import, reviewed AL1350 writes and advanced profile TOML, on separate pages |
 | Inputs | Current raw input, quality, advancing host ages and a compact field/value/unit table; expand bit layout and scaling when needed |
-| Logging | Single port records the applied profile. Multiple ports reviews and records a set of saved port profiles. |
+| Logging | Single port records the applied profile. Multiple ports reviews saved profiles, reads port status and starts a capture set. |
 | Mappings | Imported/manual fields and overrides; Edit mapping opens a focused editor instead of stacking it below the list |
 | Parameters | Search declared IODD parameters or read a documented numeric ISDU address |
 | Integration | Optional local HTTP, MQTT and Windows shared-memory settings, on separate pages |
@@ -31,7 +31,7 @@ The footer shows the latest session message; hover to read it in full. **Diagnos
 ## Record several ports
 
 1. Open **Logging → Multiple ports**. Enter a saved TOML profile for each distinct configured port on the same master. For a simulator run, use **samples/simulator.toml** and **samples/simulator-port2.toml** from the portable package.
-2. Choose **Review profiles** to inspect the route, ports, expected identity and logging modes offline. **Start capture set** uses the reviewed settings. If you edit a profile file, review it again to pick up the change.
+2. Choose **Review profiles** to inspect the route, ports, expected identity and logging modes offline. **Read port status** checks each reviewed port concurrently, using an independent read-only client for each port. Successful results stay visible alongside errors. Expand **Master, identity and diagnostics** under a port for observed firmware, IDs, cycle and gateway diagnostics. Status also works for profiles with an acyclic-only or output-only layout and needs no output folder. Read status and capture both use the reviewed settings. Review again after editing a profile file.
 3. Enter a new **Output folder**, set the duration per port, and choose **Start capture set**. While recording, each port shows its own received, invalid, stale, reconnect and overrun counts. Expand **Device identity and input quality** for the observed IDs and receipt quality. The header’s **Show port capture set** returns here from any tab.
 4. Choose **Stop and flush** to stop the whole set, or let each port finish its timed run. **Last capture set** lists the outcomes. Select **Verify capture** beside a port to open its saved bundle in Offline. A failed port leaves the others recording. Its final result shows the error.
 

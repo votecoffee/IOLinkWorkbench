@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- GUI multi-port status reads use reviewed profiles and report master, identity and diagnostics for each port. Results stay visible when another port fails. Acyclic-only and output-only profiles support status checks before a CSV destination is selected.
+
 - Conditional layout checks resolve the saved IODD selector offline and compare an explicit acyclic read with the declared value. Records and arrays with individual access disabled use a whole-value read and select the declared member from its reply. The operator can review matches, mismatches, and undecodable replies in Mappings or CLI. Loopback checks hold a selector read while cyclic polling continues.
 
 - Cyclic `TimeT` and `TimeSpanT` support scalar, record, array and manual mappings. GUI and CLI show timezone-independent UTC or signed durations. CSV and offline re-decode preserve exact ticks, separate from capture timing.

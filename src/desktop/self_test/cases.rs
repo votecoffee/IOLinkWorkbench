@@ -245,6 +245,7 @@ pub(super) fn render(
                 "latest-recording",
                 "port-capture-review",
                 "port-capture-results",
+                "port-status-results",
                 "connection-dialog",
                 "connection-needs-endpoint",
                 "connection-feed-settings",
@@ -543,11 +544,14 @@ pub(super) fn render(
                             has_error: true,
                         });
                     }
-                    "port-capture-review" | "port-capture-results" => {
+                    "port-capture-review" | "port-capture-results" | "port-status-results" => {
                         app.tab = Tab::Logging;
                         app.workspace.logging = LoggingPage::Ports;
                         app.port_capture
                             .stage_render_fixture(profile.clone(), label == "port-capture-results");
+                        if label == "port-status-results" {
+                            app.port_capture.stage_status_fixture();
+                        }
                     }
                     "connection-dialog" => app.workspace.connect_dialog = true,
                     "connection-needs-endpoint" => {
@@ -693,6 +697,7 @@ pub(super) fn render(
                 "offline-diagnostic-comparison" => Some("Slot 1 · E48DFE → 000000"),
                 "port-capture-review" => Some("Start capture set"),
                 "port-capture-results" => Some("Synthetic device identity mismatch"),
+                "port-status-results" => Some("Synthetic status request timed out"),
                 "writes-text-review" => {
                     Some("Readback accepts the same IODD text with different zero padding.")
                 }
@@ -789,7 +794,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 117);
+        assert_eq!(cases.len(), 118);
         assert!(
             cases
                 .iter()

@@ -57,7 +57,10 @@ fn reviewed_profiles_run_independently_and_flush_when_close_is_requested_off_pag
     app.tab = Tab::Parameters;
     pump_until(&mut app, |app| app.pending_jobs() == 0)?;
     assert!(!output.exists());
-    assert_eq!(app.port_capture.profiles.as_ref().unwrap().len(), 2);
+    assert_eq!(
+        app.port_capture.reviewed.as_ref().unwrap().profiles.len(),
+        2
+    );
     let mut changed = Profile::load(&sources[1])?;
     changed.name = "Later file edit".into();
     changed.save(&sources[1])?;
@@ -148,5 +151,74 @@ fn partial_capture_keeps_healthy_rows_and_cancels_close_on_the_batch_page() -> R
         batch.ports[0].csv_rows_flushed
     );
     assert!(output.join("port-2/capture.toml").is_file());
+    Ok(())
+}
+
+#[test]
+fn read_status_keeps_partial_results_and_accepts_an_acyclic_profile() -> Result<()> {
+    let _serial = WORKER_TEST_LOCK.lock().unwrap();
+    let scratch = tempfile::tempdir()?;
+    let mut app = App::new();
+    let applied = app.profile.clone();
+    let sources = set_profiles(&mut app, scratch.path(), true)?;
+    let mut acyclic = Profile::load(&sources[0])?;
+    let xml = include_str!("../../../samples/sensor.xml").replace(
+        "<ProcessDataIn id=\"IN\" bitLength=\"16\"><DatatypeRef datatypeId=\"PD\"/></ProcessDataIn>",
+        "",
+    );
+    let catalog = iodd::parse(&xml, "synthetic acyclic".into())?;
+    let (identity, imported) = catalog.select(Some("SIM-SENSOR"), None)?;
+    acyclic.apply_iodd(identity, imported);
+    acyclic.save(&sources[0])?;
+    let pinned = fs::read(&sources[0])?;
+    let output = PathBuf::from(&app.port_capture.output);
+    assert!(app.read_port_status().is_err());
+    app.port_capture.review_profiles()?;
+    pump_until(&mut app, |app| app.pending_jobs() == 0)?;
+    assert!(
+        app.start_port_capture()
+            .unwrap_err()
+            .to_string()
+            .contains("acyclic-only")
+    );
+    assert!(app.port_capture.status_result.is_none());
+    app.read_port_status()?;
+    assert!(app.read_port_status().is_err());
+    assert!(!app.acquisition_active());
+    app.tab = Tab::Offline;
+    assert_eq!(app.advance_close(true), shutdown::CloseAction::Wait);
+    pump_until(&mut app, |app| app.pending_jobs() == 0)?;
+    let report = app
+        .port_capture
+        .status_result
+        .as_ref()
+        .unwrap()
+        .as_ref()
+        .unwrap();
+    assert!(!report.all_successful() && !report.observed_master_conflict);
+    assert_eq!(
+        report
+            .ports
+            .iter()
+            .map(|port| port.port)
+            .collect::<Vec<_>>(),
+        [1, 2]
+    );
+    assert!(report.ports[0].status.is_some() && report.ports[0].error.is_none());
+    assert!(report.ports[1].status.is_some());
+    assert!(
+        report.ports[1]
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("identity mismatch")
+    );
+    assert!(app.read_port_status().is_err());
+    assert_eq!(app.tab, Tab::Offline);
+    assert_eq!(app.profile, applied);
+    assert_eq!(fs::read(&sources[0])?, pinned);
+    assert!(!output.exists());
+    app.port_capture.clear_review();
+    assert!(app.port_capture.status_result.is_none());
     Ok(())
 }
