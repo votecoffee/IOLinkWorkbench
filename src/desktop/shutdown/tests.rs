@@ -92,7 +92,8 @@ fn every_worker_domain_delays_close_and_completes_with_its_tab_hidden() {
             .latest(desktop::acyclic::Kind::Raw)
             .unwrap()
             .output
-            .as_deref()
+            .as_ref()
+            .map(|output| output.text.as_str())
             .unwrap(),
         "synthetic acyclic completion"
     );

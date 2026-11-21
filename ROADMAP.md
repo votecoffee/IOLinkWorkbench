@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Inspect master reads the configured cycle preset, validation IDs and raw validation/Data Storage mode on all ports of the four supported ifm models. The GUI groups these settings under Port configuration alongside independent connected-device observations.
+
 - Inspect master reports temperature, supply voltage, sensor-supply current, and raw supply status for all four ifm models. Partial diagnostics preserve the available port observations.
 
 - Read-only ifm AL1351 (four ports) and AL1353 (eight ports) extend documented IoT Core coverage. Loopback checks enumerate every port, capture host polls, read high-port diagnostics, and reject requests through a mismatched model or the AL1350 write workflow. The new templates leave cycle conversion unset pending unit confirmation.

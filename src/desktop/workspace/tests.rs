@@ -415,6 +415,36 @@ fn session_route_reviews_block_start_and_point_to_the_relevant_settings() -> Res
 }
 
 #[test]
+fn master_port_configuration_opens_without_another_read() -> Result<()> {
+    use crate::desktop::acyclic::{Output, Query};
+    use crate::desktop::workspace::DiagnosticsPage;
+
+    let mut app = App::new();
+    app.profile = Profile::parse(include_str!("../../../samples/ifm-al1352.toml"))?;
+    app.setup.sync(&app.profile);
+    app.tab = Tab::Diagnostics;
+    app.workspace.diagnostics = DiagnosticsPage::Connection;
+    let details = "Port 1 · Cycle preset automatic · Configured Vendor ID 310";
+    app.acyclic.store_result(
+        Query::MasterInspection,
+        Ok(Output {
+            text: "Port 1 · connected Vendor ID 65535".into(),
+            port_configuration: Some(details.into()),
+        }),
+    );
+    let ctx = Context::default();
+    let size = egui::vec2(1130.0, 790.0);
+    let visible =
+        |app: &mut App, label: &str| draw(app, &ctx, size).iter().any(|(text, _)| text == label);
+    assert!(visible(&mut app, "Port 1 · connected Vendor ID 65535"));
+    assert!(!visible(&mut app, details));
+    click(&mut app, &ctx, size, "Port configuration");
+    assert!(visible(&mut app, details));
+    assert!(!app.acyclic.busy());
+    Ok(())
+}
+
+#[test]
 fn acyclic_results_follow_the_read_action_and_keep_the_original_address() -> Result<()> {
     let _serial = WORKER_TEST_LOCK.lock().unwrap();
     let catalog = iodd::parse(
@@ -593,7 +623,8 @@ fn parameter_search_keeps_selection_explicit_and_read_controls_compact() -> Resu
         .latest(acyclic::Kind::Named)
         .unwrap()
         .output
-        .as_deref()
+        .as_ref()
+        .map(|output| output.text.as_str())
         .unwrap();
     assert!(named.contains("index 66:1"), "{named}");
     click(&mut app, &ctx, size, "Clear search");

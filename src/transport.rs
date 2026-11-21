@@ -12,8 +12,8 @@ pub(crate) mod ports;
 mod simulator;
 
 pub use ifm::inspection::{
-    MasterDiagnostics, MasterIdentity, MasterInspection, PortInspection, UnavailablePoint,
-    inspect_master,
+    MasterDiagnostics, MasterIdentity, MasterInspection, PortConfiguration, PortInspection,
+    UnavailablePoint, inspect_master,
 };
 pub use ifm::write;
 pub use ports::{

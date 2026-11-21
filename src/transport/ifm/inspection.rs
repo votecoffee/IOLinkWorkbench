@@ -1,5 +1,5 @@
 //! Read the master and its port metadata independently of cyclic or ISDU traffic.
-use super::{Client, MASTER_SERIAL, PRODUCT_CODE, label};
+use super::{Client, MASTER_SERIAL, PRODUCT_CODE, label, number};
 use crate::profile::{Gateway, Identity, Profile};
 use anyhow::{Context, Result, ensure};
 use serde::Serialize;
@@ -46,6 +46,18 @@ pub struct PortInspection {
     pub port_event: Option<String>,
     pub device_event: Option<String>,
     pub identity: Identity,
+    pub configuration: PortConfiguration,
+    pub unavailable: Vec<UnavailablePoint>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PortConfiguration {
+    pub preset_cycle_raw: Option<String>,
+    pub preset_cycle_us: Option<u64>,
+    pub preset_cycle_automatic: Option<bool>,
+    pub validation_mode_raw: Option<String>,
+    pub validation_vendor_id: Option<u16>,
+    pub validation_device_id: Option<u32>,
     pub unavailable: Vec<UnavailablePoint>,
 }
 
@@ -60,6 +72,10 @@ const TEMPERATURE: &str = "/processdatamaster/temperature";
 const VOLTAGE: &str = "/processdatamaster/voltage";
 const CURRENT: &str = "/processdatamaster/current";
 const SUPPLY_STATUS: &str = "/processdatamaster/supervisionstatus";
+const PRESET_CYCLE: &str = "mastercycletime_preset";
+const VALIDATION_MODE: &str = "validation_datastorage_mode";
+const VALIDATION_VENDOR: &str = "validation_vendorid";
+const VALIDATION_DEVICE: &str = "validation_deviceid";
 
 /// Inspect one explicitly profiled ifm endpoint. Device identity is optional on every port.
 pub fn inspect_master(profile: &Profile) -> Result<MasterInspection> {
@@ -109,7 +125,18 @@ fn read_details(
     );
     let ports = 1..=settings.gateway.max_port();
     paths.extend([TEMPERATURE, VOLTAGE, CURRENT, SUPPLY_STATUS].map(str::to_owned));
-    paths.extend(ports.clone().flat_map(port_paths));
+    paths.extend(ports.clone().flat_map(|port| {
+        let path = format!("/iolinkmaster/port[{port}]");
+        port_paths(port).into_iter().chain(
+            [
+                PRESET_CYCLE,
+                VALIDATION_MODE,
+                VALIDATION_VENDOR,
+                VALIDATION_DEVICE,
+            ]
+            .map(|key| format!("{path}/{key}")),
+        )
+    }));
     let (_, response) = client.multi(&paths)?;
     let observed = MasterIdentity::observed(client, &response);
     ensure!(
@@ -222,9 +249,48 @@ impl PortInspection {
             port_event: label(Client::data(response, &format!("{path}/portevent"))),
             device_event: label(Client::data(response, &format!("{device}/iolinkevent"))),
             identity: Client::identity_at(response, &device),
+            configuration: PortConfiguration::observed(client, response, &path),
             unavailable,
         }
     }
+}
+
+impl PortConfiguration {
+    fn observed(client: &Client, response: &Value, path: &str) -> Self {
+        let read = |key| Client::data(response, &format!("{path}/{key}"));
+        let preset = read(PRESET_CYCLE);
+        let preset_cycle_automatic = number(preset).map(|value| value == 0);
+        let validation_mode_raw =
+            label(read(VALIDATION_MODE)).filter(|text| !text.trim().is_empty());
+        let validation_vendor_id =
+            number(read(VALIDATION_VENDOR)).and_then(|value| u16::try_from(value).ok());
+        let validation_device_id = number(read(VALIDATION_DEVICE))
+            .filter(|&value| value <= 0xFF_FFFF)
+            .map(|value| value as u32);
+        let unavailable = [
+            (PRESET_CYCLE, preset_cycle_automatic.is_none()),
+            (VALIDATION_MODE, validation_mode_raw.is_none()),
+            (VALIDATION_VENDOR, validation_vendor_id.is_none()),
+            (VALIDATION_DEVICE, validation_device_id.is_none()),
+        ]
+        .into_iter()
+        .filter(|(_, missing)| *missing)
+        .map(|(key, _)| UnavailablePoint::observed(response, format!("{path}/{key}")))
+        .collect();
+        Self {
+            preset_cycle_raw: label(preset),
+            preset_cycle_us: client.cycle_us(preset),
+            preset_cycle_automatic,
+            validation_mode_raw,
+            validation_vendor_id,
+            validation_device_id,
+            unavailable,
+        }
+    }
+}
+
+fn optional_value(value: Option<impl std::fmt::Display>) -> String {
+    value.map_or_else(|| "unavailable".into(), |value| value.to_string())
 }
 
 fn available(field: &Option<String>) -> &str {
@@ -239,6 +305,40 @@ fn quantity(value: Option<f64>, unit: &str) -> String {
 }
 
 impl MasterInspection {
+    pub fn port_configuration_text(&self) -> Option<String> {
+        if self.ports.is_empty() {
+            return None;
+        }
+        let mut text = String::new();
+        for port in &self.ports {
+            let settings = &port.configuration;
+            let cycle = match (settings.preset_cycle_automatic, settings.preset_cycle_us) {
+                (Some(true), _) => "automatic".into(),
+                (_, Some(us)) => format!("{us} µs"),
+                _ => settings
+                    .preset_cycle_raw
+                    .as_ref()
+                    .map_or_else(|| "unavailable".into(), |raw| format!("raw {raw}")),
+            };
+            let _ = writeln!(
+                text,
+                "Port {} · Cycle preset {cycle} · Validation / Data Storage (raw) {}\nConfigured Vendor ID {} · Configured Device ID {}",
+                port.port,
+                available(&settings.validation_mode_raw),
+                optional_value(settings.validation_vendor_id),
+                optional_value(settings.validation_device_id)
+            );
+            for point in &settings.unavailable {
+                if let Some(code) = point.service_code.filter(|code| *code != 200) {
+                    let _ = writeln!(text, "{} · IoT Core {code}", point.path);
+                }
+            }
+            text.push('\n');
+        }
+        text.truncate(text.trim_end().len());
+        Some(text)
+    }
+
     pub fn text(&self) -> String {
         let mut text = format!(
             "{} · firmware {} · hardware {} · S/N {}\n{} · {}",

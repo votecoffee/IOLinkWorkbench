@@ -263,7 +263,7 @@ pub(super) fn render(
                 app.profile = profile.clone();
                 app.setup.sync(&app.profile);
                 use super::super::{
-                    acyclic::Query,
+                    acyclic::{Output, Query},
                     setup::Page,
                     workspace::{
                         DiagnosticsPage, IntegrationPage, LoggingPage, OfflinePage, ParameterPage,
@@ -356,7 +356,10 @@ pub(super) fn render(
                         app.workspace.diagnostics = DiagnosticsPage::Connection;
                         app.acyclic.store_result(
                             Query::MasterInspection,
-                            Ok(MASTER_INSPECTION_FIXTURE.into()),
+                            Ok(Output {
+                                text: MASTER_INSPECTION_FIXTURE.into(),
+                                port_configuration: Some("Port 8 · Cycle preset automatic · Validation / Data Storage (raw) 0\nConfigured Vendor ID 0 · Configured Device ID 0".into()),
+                            }),
                         );
                     }
                     "diagnostics-events" => {
@@ -755,6 +758,18 @@ pub(super) fn render(
                     texts.contains(&review_note),
                     "required note is missing from {label}"
                 );
+                if label == "master-inspection" {
+                    ensure!(
+                        texts.contains(&"Port configuration"),
+                        "configuration control is missing"
+                    );
+                    ensure!(
+                        texts
+                            .iter()
+                            .any(|text| text.contains("Configured Vendor ID 0")),
+                        "configured port settings are missing from the expanded view"
+                    );
+                }
                 if label == "offline-boolean-input" {
                     ensure!(
                         texts.contains(&"Nominal setting (true)"),

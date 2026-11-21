@@ -59,14 +59,35 @@ impl Query {
     }
 }
 
+#[derive(Debug)]
+pub(super) struct Output {
+    pub text: String,
+    pub port_configuration: Option<String>,
+}
+
+impl From<String> for Output {
+    fn from(text: String) -> Self {
+        Self {
+            text,
+            port_configuration: None,
+        }
+    }
+}
+
+impl From<&str> for Output {
+    fn from(text: &str) -> Self {
+        text.to_owned().into()
+    }
+}
+
 pub(super) struct Reading {
     pub query: Query,
-    pub output: anyhow::Result<String>,
+    pub output: anyhow::Result<Output>,
 }
 
 #[derive(Default)]
 pub(super) struct Reads {
-    pending: Option<(Query, Worker<String>)>,
+    pending: Option<(Query, Worker<Output>)>,
     latest: [Option<Reading>; 6],
 }
 
@@ -84,7 +105,7 @@ impl Reads {
         }
     }
 
-    pub(super) fn store_result(&mut self, query: Query, output: anyhow::Result<String>) {
+    pub(super) fn store_result(&mut self, query: Query, output: anyhow::Result<Output>) {
         let slot = query.kind() as usize;
         self.latest[slot] = Some(Reading { query, output });
     }
@@ -106,7 +127,7 @@ impl Reads {
     }
 
     #[cfg(test)]
-    pub fn hold_for_test(&mut self, worker: Worker<String>) {
+    pub fn hold_for_test(&mut self, worker: Worker<Output>) {
         assert!(!self.busy());
         self.pending = Some((Query::Raw(19, 0), worker));
     }
@@ -127,8 +148,12 @@ impl App {
                     button.on_disabled_hover_text(reason);
                 } else if button.clicked() {
                     let profile = self.profile.clone();
-                    self.start_acyclic(Query::MasterInspection, move || {
-                        Ok(inspect_master(&profile)?.text())
+                    self.start_acyclic_output(Query::MasterInspection, move || {
+                        let reading = inspect_master(&profile)?;
+                        Ok(Output {
+                            text: reading.text(),
+                            port_configuration: reading.port_configuration_text(),
+                        })
                     });
                 }
                 self.acyclic_result(ui, Kind::MasterInspection);
@@ -205,6 +230,14 @@ impl App {
         query: Query,
         work: impl FnOnce() -> anyhow::Result<String> + Send + 'static,
     ) {
+        self.start_acyclic_output(query, move || work().map(Output::from));
+    }
+
+    fn start_acyclic_output(
+        &mut self,
+        query: Query,
+        work: impl FnOnce() -> anyhow::Result<Output> + Send + 'static,
+    ) {
         if let Some(reason) = self.acyclic_block_reason() {
             self.message = reason.into();
             return;
@@ -239,8 +272,13 @@ impl App {
                 _ => {}
             }
             match &reading.output {
-                Ok(text) => {
-                    ui.monospace(text);
+                Ok(output) => {
+                    if let Some(configuration) = &output.port_configuration {
+                        ui.collapsing("Port configuration", |ui| {
+                            ui.monospace(configuration);
+                        });
+                    }
+                    ui.monospace(&output.text);
                 }
                 Err(error) => {
                     ui.colored_label(WARNING, format!("{error:#}"));

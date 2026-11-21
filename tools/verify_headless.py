@@ -1215,6 +1215,11 @@ def verify_master_inspection(cli, output):
         "iolinkdevice/status": 0, "iolinkdevice/iolinkevent": 0,
     }
 
+    config_points = {
+        "mastercycletime_preset": 0, "validation_datastorage_mode": "0x007F",
+        "validation_vendorid": 310, "validation_deviceid": "0x010203",
+    }
+
     class InspectionGateway(BaseHTTPRequestHandler):
         def log_message(self, *_args):
             pass
@@ -1228,6 +1233,11 @@ def verify_master_inspection(cli, output):
             assert set(paths) & diagnostics.keys() == (diagnostics.keys() if checking_ports else set())
             revision_alias = self.server.model != "AL1350"
             max_port = IFM_PORT_COUNTS[self.server.model]
+            if checking_ports:
+                assert {path for path in paths if path.rsplit("/", 1)[-1] in config_points} == {
+                    f"/iolinkmaster/port[{port}]/{point}"
+                    for port in range(1, max_port + 1) for point in config_points
+                }
             data = dict(master_points)
             data["/deviceinfo/productcode"] = self.server.model
             if revision_alias:
@@ -1254,7 +1264,23 @@ def verify_master_inspection(cli, output):
                     prefix, point = path.split("]/", 1)
                     assert prefix.startswith("/iolinkmaster/port[")
                     port = int(prefix.rsplit("[", 1)[1])
-                    assert 1 <= port <= max_port and point in port_points
+                    assert 1 <= port <= max_port and point in (port_points.keys() | config_points.keys())
+                    if point in config_points:
+                        if port == 2:
+                            if point == "validation_datastorage_mode":
+                                continue
+                            unavailable = {
+                                "mastercycletime_preset": {"code": 200, "data": "unusable"},
+                                "validation_vendorid": {"code": 200, "data": 65536},
+                                "validation_deviceid": {"code": 503, "data": 22},
+                            }
+                            values[path] = unavailable[point]
+                            continue
+                        value = config_points[point]
+                        if point == "mastercycletime_preset" and port == max_port:
+                            value = 3 if revision_alias else 3500
+                        values[path.lstrip("/")] = {"code": 200, "data": value}
+                        continue
                     if port == 2 and point == "comspeed":
                         continue
                     if port == 2 and point.startswith("iolinkdevice/"):
@@ -1295,6 +1321,9 @@ def verify_master_inspection(cli, output):
                     raw = tomllib.loads(run(cli, "inspect-master", unconverted))
                     assert raw["ports"][-1]["port_cycle_raw"] == "2"
                     assert "port_cycle_us" not in raw["ports"][-1]
+                    preset = raw["ports"][-1]["configuration"]
+                    assert preset["preset_cycle_raw"] == "3" and not preset["preset_cycle_automatic"]
+                    assert "preset_cycle_us" not in preset
                 unit = "microseconds" if model == "AL1350" else "milliseconds"
                 run(cli, "set-connection", template, route, "--gateway", name, "--endpoint", endpoint,
                     "--port", length, "--cycle-unit", unit, "--firmware", "3.1.42")
@@ -1314,10 +1343,29 @@ def verify_master_inspection(cli, output):
                 assert report["ports"][-1]["identity"]["device_id"] == 1
                 assert report["ports"][-1]["port_cycle_us"] == expected_cycle
                 assert report["ports"][-1]["comspeed_raw"] == "COM3"
+                automatic = report["ports"][0]["configuration"]
+                assert automatic == {
+                    "preset_cycle_raw": "0", "preset_cycle_automatic": True,
+                    "validation_mode_raw": "0x007F", "validation_vendor_id": 310,
+                    "validation_device_id": 0x010203, "unavailable": [],
+                }
+                preset = report["ports"][-1]["configuration"]
+                assert preset["preset_cycle_us"] == (3500 if model == "AL1350" else 3000)
+                assert not preset["preset_cycle_automatic"] and preset["unavailable"] == []
                 disabled = report["ports"][1]
                 assert disabled["mode"] == "Disabled" and disabled["identity"] == {}
                 assert {"path": "/iolinkmaster/port[2]/iolinkdevice/vendorid", "service_code": 503} in disabled["unavailable"]
                 assert {"path": "/iolinkmaster/port[2]/comspeed"} in disabled["unavailable"]
+                prefix = "/iolinkmaster/port[2]"
+                assert disabled["configuration"] == {
+                    "preset_cycle_raw": "unusable",
+                    "unavailable": [
+                        {"path": f"{prefix}/mastercycletime_preset", "service_code": 200},
+                        {"path": f"{prefix}/validation_datastorage_mode"},
+                        {"path": f"{prefix}/validation_vendorid", "service_code": 200},
+                        {"path": f"{prefix}/validation_deviceid", "service_code": 503},
+                    ],
+                }
                 assert route.read_bytes() == pinned
 
             before = len(server.requests)
@@ -2957,7 +3005,7 @@ kind = "bool"
 
     print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state names with Boolean CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
-          "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1351, AL1352 and AL1353 status, ISDU and capture across all ports, one-shot ifm master inspection with supply diagnostics and unavailable data points, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
+          "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1351, AL1352 and AL1353 status, ISDU and capture across all ports, one-shot ifm master inspection with supply diagnostics and read-only port configuration, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 
 

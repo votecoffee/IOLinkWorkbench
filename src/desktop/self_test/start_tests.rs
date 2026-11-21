@@ -231,7 +231,8 @@ fn consecutive_simulator_captures_keep_independent_owners_while_other_jobs_are_p
             .latest(crate::desktop::acyclic::Kind::Raw)
             .unwrap()
             .output
-            .as_deref()
+            .as_ref()
+            .map(|output| output.text.as_str())
             .unwrap(),
         "held acyclic result"
     );
