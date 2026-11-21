@@ -225,6 +225,7 @@ fn diagnostic_comparison_reports_wire_slot_positions_and_preserves_empty_slots()
     assert!(equal.ok());
     assert_eq!(equal.detailed_status_reply.same_wire_bytes, Some(true));
     assert_eq!(equal.changed_slots, Some(Vec::new()));
+    assert!(equal.pending_events.unwrap().changed_counts.is_empty());
 
     let mut right = left.clone();
     right.reads[0].raw_hex = Some("04".into());
@@ -237,6 +238,12 @@ fn diagnostic_comparison_reports_wire_slot_positions_and_preserves_empty_slots()
     assert!(
         difference
             .summary_text()
+            .contains("Recorded pending-event counts match")
+    );
+    assert!(
+        difference
+            .slot_changes_text()
+            .unwrap()
             .contains("Slot 3 · absent → 000000")
     );
     assert_eq!(
@@ -271,6 +278,54 @@ fn diagnostic_comparison_reports_wire_slot_positions_and_preserves_empty_slots()
 }
 
 #[test]
+fn diagnostic_comparison_counts_pending_qualifier_code_pairs_and_excludes_other_entries()
+-> Result<()> {
+    let (mut left, _) = read_snapshot(&profile()?)?;
+    left.reads[1].raw_hex = Some("E48DFEE48DFEEC8DFE".into());
+    let mut right = left.clone();
+    right.reads[1].raw_hex = Some("F48DFE000000E48DFEE48DFD".into());
+    let catalog = &mut right.profile.iodd.as_mut().unwrap().events;
+    catalog
+        .iter_mut()
+        .find(|event| event.code == 0x8dfe)
+        .unwrap()
+        .name = "Renamed range warning".into();
+    let comparison = compare(&left, &right)?;
+    assert!(comparison.ok());
+    let events = comparison.pending_events.as_ref().unwrap();
+    assert_eq!(
+        (
+            events.left_other_nonempty_entries,
+            events.right_other_nonempty_entries
+        ),
+        (1, 0)
+    );
+    let counts = events
+        .changed_counts
+        .iter()
+        .map(|event| (event.raw_hex.as_str(), event.left_count, event.right_count))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        counts,
+        [("E48DFD", 0, 1), ("E48DFE", 2, 1), ("F48DFE", 0, 1)]
+    );
+    let warning = &events.changed_counts[1];
+    assert_eq!(
+        warning.left_name.as_deref(),
+        Some("Synthetic range warning")
+    );
+    assert_eq!(warning.right_name.as_deref(), Some("Renamed range warning"));
+    assert!(events.changed_counts[0].right_name.is_none());
+    assert!(comparison.summary_text().contains("E48DFE · 2 → 1"));
+    assert!(
+        comparison
+            .summary_text()
+            .contains("Other nonempty entries excluded")
+    );
+    Ok(())
+}
+
+#[test]
 fn diagnostic_comparison_retains_replies_when_recorded_context_differs_or_is_missing() -> Result<()>
 {
     let (left, _) = read_snapshot(&profile()?)?;
@@ -280,7 +335,11 @@ fn diagnostic_comparison_retains_replies_when_recorded_context_differs_or_is_mis
         read.observation.as_mut().unwrap().port = 3;
     }
     let difference = compare(&left, &right)?;
-    assert!(difference.ok() && difference.changed_slots.is_none());
+    assert!(
+        difference.ok()
+            && difference.changed_slots.is_none()
+            && difference.pending_events.is_none()
+    );
     assert_eq!(difference.detailed_status_reply.same_wire_bytes, Some(true));
     assert_eq!(
         difference.detailed_status_reply.interpretation_issue,
@@ -301,6 +360,7 @@ fn diagnostic_comparison_retains_replies_when_recorded_context_differs_or_is_mis
         unavailable.ok()
             && unavailable.device_status_values.is_none()
             && unavailable.changed_slots.is_none()
+            && unavailable.pending_events.is_none()
     );
     assert_eq!(
         unavailable.detailed_status_reply.interpretation_issue,
@@ -319,6 +379,7 @@ fn diagnostic_comparison_keeps_independent_healthy_replies_and_checks_within_fil
     let report = compare(&left, &partial)?;
     assert!(!report.ok());
     assert!(report.device_status_values.is_some() && report.changed_slots.is_none());
+    assert!(report.pending_events.is_none());
     assert_eq!(report.device_status_reply.same_wire_bytes, Some(true));
     assert_eq!(report.detailed_status_reply.same_wire_bytes, None);
     assert_eq!(
@@ -329,14 +390,17 @@ fn diagnostic_comparison_keeps_independent_healthy_replies_and_checks_within_fil
     let mut malformed = left.clone();
     malformed.reads[1].raw_hex = Some("FF".into());
     let report = compare(&left, &malformed)?;
-    assert!(!report.ok() && report.changed_slots.is_none());
+    assert!(!report.ok() && report.changed_slots.is_none() && report.pending_events.is_none());
     assert_eq!(report.detailed_status_reply.same_wire_bytes, Some(false));
 
     let mut inconsistent = left.clone();
     inconsistent.reads[1].observation.as_mut().unwrap().firmware = "synthetic-2".into();
     let report = compare(&left, &inconsistent)?;
     assert!(
-        !report.ok() && report.changed_slots.is_none() && report.device_status_values.is_none()
+        !report.ok()
+            && report.changed_slots.is_none()
+            && report.pending_events.is_none()
+            && report.device_status_values.is_none()
     );
     assert_eq!(report.device_status_reply.same_wire_bytes, Some(true));
     assert_eq!(

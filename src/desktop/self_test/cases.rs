@@ -694,7 +694,7 @@ pub(super) fn render(
                 "layout-condition-whole" => Some("Reads the whole value for selector subindex 2"),
                 "acyclic-profile" => Some("Acyclic IODD layout"),
                 "offline-diagnostic-snapshot" => Some("37:0 · synthetic fixture reply unavailable"),
-                "offline-diagnostic-comparison" => Some("Slot 1 · E48DFE → 000000"),
+                "offline-diagnostic-comparison" => Some("Wire slot positions"),
                 "port-capture-review" => Some("Start capture set"),
                 "port-capture-results" => Some("Synthetic device identity mismatch"),
                 "port-status-results" => Some("Synthetic status request timed out"),
@@ -719,6 +719,12 @@ pub(super) fn render(
                     ensure!(
                         texts.contains(&"Nominal setting (true)"),
                         "named process value is missing"
+                    );
+                }
+                if label == "offline-diagnostic-comparison" {
+                    ensure!(
+                        texts.iter().any(|text| text.contains("E48DFE · 1 → 0")),
+                        "recorded pending-event count change is missing"
                     );
                 }
             }

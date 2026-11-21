@@ -11,7 +11,10 @@ use std::time::Instant;
 mod comparison;
 mod snapshot;
 pub use crate::snapshot_file::check_destination;
-pub use comparison::{Comparison, ReplyComparison, SlotChange, StatusValues, compare};
+pub use comparison::{
+    Comparison, PendingEventComparison, PendingEventCount, ReplyComparison, SlotChange,
+    StatusValues, compare,
+};
 pub use snapshot::{Review, SavedRead, Snapshot, read_snapshot};
 
 const SNAPSHOT_KIND: &str = "explicit acyclic snapshots; source event history/loss unknown";

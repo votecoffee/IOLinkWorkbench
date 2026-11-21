@@ -1,9 +1,9 @@
 //! Compare the two fixed ISDU replies in independently saved diagnostics.
-use super::{Review, SavedRead, Snapshot};
+use super::{DetailedStatus, Review, SavedRead, Snapshot};
 use crate::{parameter_snapshot::Observation, profile::Gateway};
 use anyhow::Result;
 use serde::Serialize;
-use std::fmt::Write as _;
+use std::{collections::BTreeMap, fmt::Write as _};
 
 #[derive(Debug, Serialize)]
 pub struct Comparison {
@@ -12,6 +12,7 @@ pub struct Comparison {
     pub device_status_reply: ReplyComparison,
     pub detailed_status_reply: ReplyComparison,
     pub device_status_values: Option<StatusValues>,
+    pub pending_events: Option<PendingEventComparison>,
     /// A comparison of slot positions in two saved payloads.
     pub changed_slots: Option<Vec<SlotChange>>,
 }
@@ -35,6 +36,23 @@ pub struct SlotChange {
     pub right_hex: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct PendingEventComparison {
+    pub left_other_nonempty_entries: usize,
+    pub right_other_nonempty_entries: usize,
+    pub changed_counts: Vec<PendingEventCount>,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+pub struct PendingEventCount {
+    pub raw_hex: String,
+    pub type_name: &'static str,
+    pub left_count: usize,
+    pub right_count: usize,
+    pub left_name: Option<String>,
+    pub right_name: Option<String>,
+}
+
 impl Comparison {
     pub fn ok(&self) -> bool {
         self.left.ok() && self.right.ok()
@@ -52,21 +70,61 @@ impl Comparison {
             );
         }
         self.detailed_status_reply.write_summary(&mut text, 37);
-        if let Some(slots) = &self.changed_slots {
-            if slots.is_empty() {
-                text.push_str("\nAll recorded slots match");
-            }
-            for slot in slots {
-                let _ = write!(
-                    text,
-                    "\nSlot {} · {} → {}",
-                    slot.slot,
-                    slot.left_hex.as_deref().unwrap_or("absent"),
-                    slot.right_hex.as_deref().unwrap_or("absent")
-                );
-            }
+        if let Some(events) = &self.pending_events {
+            events.write_summary(&mut text);
         }
         text
+    }
+
+    pub fn slot_changes_text(&self) -> Option<String> {
+        let slots = self.changed_slots.as_ref()?;
+        if slots.is_empty() {
+            return Some("All recorded slots match".into());
+        }
+        let mut text = String::new();
+        for slot in slots {
+            let _ = writeln!(
+                text,
+                "Slot {} · {} → {}",
+                slot.slot,
+                slot.left_hex.as_deref().unwrap_or("absent"),
+                slot.right_hex.as_deref().unwrap_or("absent")
+            );
+        }
+        Some(text)
+    }
+}
+
+impl PendingEventComparison {
+    fn write_summary(&self, text: &mut String) {
+        if self.changed_counts.is_empty() {
+            text.push_str("\nRecorded pending-event counts match");
+        } else {
+            text.push_str("\nRecorded pending-event counts · left → right");
+            for event in &self.changed_counts {
+                let _ = write!(
+                    text,
+                    "\n{} · {} → {} · {}",
+                    event.raw_hex, event.left_count, event.right_count, event.type_name
+                );
+                match (event.left_name.as_deref(), event.right_name.as_deref()) {
+                    (Some(left), Some(right)) if left != right => {
+                        let _ = write!(text, " · {left} → {right}");
+                    }
+                    (Some(name), _) | (_, Some(name)) => {
+                        let _ = write!(text, " · {name}");
+                    }
+                    (None, None) => {}
+                }
+            }
+        }
+        if self.left_other_nonempty_entries != 0 || self.right_other_nonempty_entries != 0 {
+            let _ = write!(
+                text,
+                "\nOther nonempty entries excluded from counts · {} left · {} right",
+                self.left_other_nonempty_entries, self.right_other_nonempty_entries
+            );
+        }
     }
 }
 
@@ -142,15 +200,16 @@ pub fn compare(left: &Snapshot, right: &Snapshot) -> Result<Comparison> {
     let device_status_values = status_values
         .filter(|_| device_status_reply.interpretation_issue.is_none())
         .map(|(left, right)| StatusValues { left, right });
-    let changed_slots = detailed
-        .filter(|_| detailed_status_reply.interpretation_issue.is_none())
-        .map(|(a, b)| compare_slots(&a.raw_hex, &b.raw_hex));
+    let detailed = detailed.filter(|_| detailed_status_reply.interpretation_issue.is_none());
+    let pending_events = detailed.map(|(a, b)| compare_pending_events(a, b));
+    let changed_slots = detailed.map(|(a, b)| compare_slots(&a.raw_hex, &b.raw_hex));
     Ok(Comparison {
         left,
         right,
         device_status_reply,
         detailed_status_reply,
         device_status_values,
+        pending_events,
         changed_slots,
     })
 }
@@ -202,6 +261,51 @@ fn device_identity_incomplete(observation: &Observation) -> bool {
             .serial
             .as_deref()
             .is_none_or(|serial| serial.trim().is_empty())
+}
+
+fn compare_pending_events(left: &DetailedStatus, right: &DetailedStatus) -> PendingEventComparison {
+    #[derive(Default)]
+    struct Count<'a> {
+        entries: usize,
+        name: Option<&'a str>,
+    }
+
+    // Compare complete qualifier/code pairs, independent of position or IODD text.
+    let mut counts = BTreeMap::<(u8, u16, &'static str), [Count<'_>; 2]>::new();
+    let mut other = [0, 0];
+    for (side, report) in [left, right].into_iter().enumerate() {
+        for event in &report.events {
+            if event.pending_shape {
+                let key = (event.qualifier, event.code, event.type_name);
+                let count = &mut counts.entry(key).or_default()[side];
+                count.entries += 1;
+                count.name = event
+                    .definition
+                    .as_ref()
+                    .map(|definition| definition.name.as_str());
+            } else {
+                other[side] += 1;
+            }
+        }
+    }
+    let changed_counts = counts
+        .into_iter()
+        .filter(|(_, [a, b])| a.entries != b.entries)
+        .map(|((qualifier, code, type_name), [a, b])| PendingEventCount {
+            raw_hex: format!("{qualifier:02X}{code:04X}"),
+            type_name,
+            left_count: a.entries,
+            right_count: b.entries,
+            left_name: a.name.map(str::to_owned),
+            right_name: b.name.map(str::to_owned),
+        })
+        .collect();
+    let [left_other_nonempty_entries, right_other_nonempty_entries] = other;
+    PendingEventComparison {
+        left_other_nonempty_entries,
+        right_other_nonempty_entries,
+        changed_counts,
+    }
 }
 
 fn compare_slots(left: &str, right: &str) -> Vec<SlotChange> {

@@ -57,6 +57,7 @@ impl Offline {
 struct SavedResult {
     ok: bool,
     text: String,
+    slot_details: Option<String>,
     comparison_reviews: Option<[String; 2]>,
 }
 
@@ -87,7 +88,8 @@ impl Saved {
         self.result = Some(Ok(if compare {
             SavedResult {
                 ok: true,
-                text: "Slot 1 · E48DFE → 000000".into(),
+                text: "Recorded pending-event counts · left → right\nE48DFE · 1 → 0 · Warning · Synthetic range warning".into(),
+                slot_details: Some("Slot 1 · E48DFE → 000000".into()),
                 comparison_reviews: Some([
                     "Synthetic left read".into(),
                     "Synthetic right read".into(),
@@ -97,6 +99,7 @@ impl Saved {
             SavedResult {
                 ok: false,
                 text: "37:0 · synthetic fixture reply unavailable".into(),
+                slot_details: None,
                 comparison_reviews: None,
             }
         }));
@@ -145,7 +148,7 @@ impl Saved {
             self.open(false);
         }
         ui.collapsing("Compare two snapshots", |ui| {
-            ui.small("Compare raw replies and, when the recorded context matches, Device Status and slot positions.");
+            ui.small("Compare raw replies. Matching recorded context enables Device Status, pending-event counts and slot details.");
             if ui
                 .add_enabled(
                     !busy,
@@ -175,6 +178,9 @@ impl Saved {
                         ui.colored_label(WARNING, "Snapshot needs review");
                     }
                     ui.monospace(&result.text);
+                    if let Some(slots) = &result.slot_details {
+                        ui.collapsing("Wire slot positions", |ui| ui.monospace(slots));
+                    }
                     if let Some([left, right]) = &result.comparison_reviews {
                         ui.collapsing("Left snapshot", |ui| ui.monospace(left));
                         ui.collapsing("Right snapshot", |ui| ui.monospace(right));
@@ -201,6 +207,7 @@ impl Saved {
                 return Ok(SavedResult {
                     ok: comparison.ok(),
                     text: comparison.summary_text(),
+                    slot_details: comparison.slot_changes_text(),
                     comparison_reviews: Some([comparison.left.text(), comparison.right.text()]),
                 });
             }
@@ -208,6 +215,7 @@ impl Saved {
             Ok(SavedResult {
                 ok: review.ok(),
                 text: review.text(),
+                slot_details: None,
                 comparison_reviews: None,
             })
         }) {
@@ -227,6 +235,7 @@ impl Saved {
             let _ = sender.send(Ok(SavedResult {
                 ok: true,
                 text: "Synthetic saved diagnostic review".into(),
+                slot_details: None,
                 comparison_reviews: None,
             }));
         })

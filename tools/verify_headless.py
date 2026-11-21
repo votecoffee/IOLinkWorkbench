@@ -1168,8 +1168,25 @@ def verify_diagnostic_snapshots(cli, profile, output, loopback=False):
     ]
     assert difference["left"]["detailed_status"]["raw_hex"] == "E48DFE000000"
     assert difference["right"]["detailed_status"]["raw_hex"] == "000000E48DFE000000"
+    assert difference["pending_events"] == {
+        "left_other_nonempty_entries": 0, "right_other_nonempty_entries": 0, "changed_counts": [],
+    }
     assert tomllib.loads(run(cli, "compare-diagnostics", path, path))["changed_slots"] == []
     assert path.read_bytes() == pinned and right.read_bytes() == saved_right
+
+    changed_counts = output / "pending-event-counts.json"
+    counts_fixture = json.loads(pinned)
+    counts_fixture["reads"][1]["raw_hex"] = "E48DFEEC8DFEF48DFEE48DFE"
+    changed_counts.write_text(json.dumps(counts_fixture), encoding="utf-8")
+    saved_counts = changed_counts.read_bytes()
+    counts = tomllib.loads(run(cli, "compare-diagnostics", path, changed_counts))["pending_events"]
+    assert counts["left_other_nonempty_entries"] == 0 and counts["right_other_nonempty_entries"] == 1
+    assert [(row["raw_hex"], row["left_count"], row["right_count"]) for row in counts["changed_counts"]] == [
+        ("E48DFE", 1, 2), ("F48DFE", 0, 1),
+    ]
+    assert [row["type_name"] for row in counts["changed_counts"]] == ["Warning", "Error"]
+    assert counts["changed_counts"][0]["right_name"] == "Synthetic range warning"
+    assert path.read_bytes() == pinned and changed_counts.read_bytes() == saved_counts
 
     another_port = output / "another-port.json"
     other["profile"]["connection"]["port"] = 4
@@ -1178,7 +1195,8 @@ def verify_diagnostic_snapshots(cli, profile, output, loopback=False):
     another_port.write_text(json.dumps(other), encoding="utf-8")
     diff_port = tomllib.loads(run(cli, "compare-diagnostics", path, another_port))
     assert "port" in diff_port["detailed_status_reply"]["interpretation_issue"]
-    assert "changed_slots" not in diff_port and not diff_port["detailed_status_reply"]["same_wire_bytes"]
+    assert "changed_slots" not in diff_port and "pending_events" not in diff_port
+    assert not diff_port["detailed_status_reply"]["same_wire_bytes"]
     assert not run(cli, "compare-diagnostics", path, wrong, expected=1)
     assert Gateway.requests == before_requests
 
@@ -1191,7 +1209,8 @@ def verify_diagnostic_snapshots(cli, profile, output, loopback=False):
         no_serial = tomllib.loads(run(cli, "compare-diagnostics", path, unavailable_master))
         assert no_serial["detailed_status_reply"]["same_wire_bytes"]
         assert "master serial" in no_serial["detailed_status_reply"]["interpretation_issue"]
-        assert "changed_slots" not in no_serial and Gateway.requests == before_requests
+        assert "changed_slots" not in no_serial and "pending_events" not in no_serial
+        assert Gateway.requests == before_requests
 
         partial_path = output / "partial.json"
         Gateway.fail_detailed = True
@@ -1210,7 +1229,8 @@ def verify_diagnostic_snapshots(cli, profile, output, loopback=False):
         assert partial_comparison["device_status_reply"]["same_wire_bytes"]
         assert partial_comparison["device_status_values"] == {"left": 2, "right": 2}
         assert "same_wire_bytes" not in partial_comparison["detailed_status_reply"]
-        assert "changed_slots" not in partial_comparison and Gateway.requests == before_requests
+        assert "changed_slots" not in partial_comparison and "pending_events" not in partial_comparison
+        assert Gateway.requests == before_requests
 
         empty_path = output / "empty-reply.json"
         Gateway.detailed_payload = ""
@@ -1238,7 +1258,8 @@ def verify_diagnostic_snapshots(cli, profile, output, loopback=False):
         conflict = tomllib.loads(run(cli, "compare-diagnostics", path, changed_path, expected=1))
         assert "within a snapshot" in conflict["device_status_reply"]["interpretation_issue"]
         assert conflict["detailed_status_reply"]["same_wire_bytes"]
-        assert "changed_slots" not in conflict and Gateway.requests == before_requests
+        assert "changed_slots" not in conflict and "pending_events" not in conflict
+        assert Gateway.requests == before_requests
 
 
 def verify_parameter_snapshots(cli, profile, output, loopback=False):
@@ -2610,7 +2631,7 @@ kind = "bool"
 
     print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state names with Boolean CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
-          "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
+          "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 
 
