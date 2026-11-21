@@ -1109,6 +1109,79 @@ def verify_port_statuses_and_captures(cli, output):
             worker.join()
 
 
+def verify_error_types(cli, output):
+    output.mkdir()
+    requests = Gateway.requests
+    standard_code = tomllib.loads(run(cli, "decode-error-type", "80 11"))
+    assert (standard_code["raw_hex"], standard_code["code"]) == ("8011", 0x8011)
+    assert standard_code["standard_meaning"] == "Index is unavailable"
+    assert "iodd_definition" not in standard_code and not standard_code["unresolved_standard_reference"]
+    assert "standard_meaning" not in tomllib.loads(run(cli, "decode-error-type", "FF11"))
+    for malformed in ("80", "801102", "80Q1"):
+        assert not run(cli, "decode-error-type", malformed, expected=1)
+
+    original = (ROOT / "samples/sensor.xml").read_text(encoding="utf-8")
+    entries = ('<ErrorTypeCollection><StdErrorTypeRef additionalCode="17"/>'
+               '<StdErrorTypeRef code="128" additionalCode="254"/>'
+               '<ErrorType additionalCode="17"><Name textId="vendorError"/>'
+               '<Description textId="eventdetail"/></ErrorType></ErrorTypeCollection>')
+    source = output / "device.xml"
+    document = original.replace("<EventCollection>", entries + "<EventCollection>")
+    name = '<Text id="vendorError" value="Synthetic vendor failure"/>'
+    source.write_text(document.replace("</PrimaryLanguage>", name + "</PrimaryLanguage>"), encoding="utf-8")
+    translation = output / "device-de.xml"
+    translated = (ROOT / "samples/sensor-de.xml").read_text(encoding="utf-8")
+    name = '<Text id="vendorError" value="Synthetischer Gerätefehler"/>'
+    translation.write_text(translated.replace("</Language>", name + "</Language>"), encoding="utf-8")
+    definitions = output / "definitions.xml"
+    definitions.write_text((ROOT / "samples/synthetic-standard-definitions.xml").read_text(encoding="utf-8")
+                           .replace("<EventCollection>", '<ErrorTypeCollection><ErrorType additionalCode="17">'
+                                    '<Name textId="standardevent"/></ErrorType></ErrorTypeCollection><EventCollection>'),
+                           encoding="utf-8")
+
+    catalog = tomllib.loads(run(cli, "iodd", source))
+    assert [entry["code"] for entry in catalog["error_types"]] == [0x8111]
+    assert catalog["standard_error_type_refs"] == [0x8011, 0x80FE]
+    profile = output / "device.toml"
+    run(cli, "import", source, profile, "--variant", "SIM-SENSOR", "--language", "de",
+        "--language-file", translation)
+    unresolved = tomllib.loads(run(cli, "decode-error-type", "8011", "--profile", profile))
+    assert unresolved["unresolved_standard_reference"]
+    assert unresolved["standard_meaning"] == standard_code["standard_meaning"]
+    resolved_profile = output / "resolved.toml"
+    run(cli, "import", source, resolved_profile, "--variant", "SIM-SENSOR", "--language", "de",
+        "--language-file", translation, "--standard-definitions", definitions,
+        "--standard-language-file", ROOT / "samples/synthetic-standard-definitions-de.xml")
+    offline_profile = output / "offline.toml"
+    run(cli, "set-connection", resolved_profile, offline_profile,
+        "--gateway", "ifm-al1350", "--endpoint", "http://127.0.0.1:1")
+    before = offline_profile.read_bytes()
+    for resource in (source, translation, definitions):
+        resource.rename(resource.with_suffix(".used.xml"))
+
+    vendor = tomllib.loads(run(cli, "decode-error-type", "81 11", "--profile", offline_profile))
+    assert vendor["error_code"] == 0x81 and vendor["additional_code"] == 17
+    assert vendor["iodd_definition"]["name"] == "Synthetischer Gerätefehler"
+    assert vendor["iodd_definition"]["description"].startswith("Simulatordiagnose.")
+    resolved = tomllib.loads(run(cli, "decode-error-type", "8011", "--profile", offline_profile))
+    assert not resolved["unresolved_standard_reference"]
+    assert resolved["standard_meaning"] == standard_code["standard_meaning"]
+    assert resolved["iodd_definition"]["origin"].startswith("definitions.xml")
+    assert resolved["iodd_definition"]["name"] == "Synthetischer Standardalarm"
+    unknown = tomllib.loads(run(cli, "decode-error-type", "80FE", "--profile", offline_profile))
+    assert unknown["unresolved_standard_reference"] and "standard_meaning" not in unknown
+    assert offline_profile.read_bytes() == before and Gateway.requests == requests
+
+    bad_source = output / "invalid.xml"
+    for invalid in (
+        entries.replace("</ErrorTypeCollection>", '<StdErrorTypeRef additionalCode="17"/></ErrorTypeCollection>'),
+        entries.replace('<ErrorType additionalCode="17">', '<ErrorType code="128" additionalCode="17">'),
+        entries.replace('additionalCode="254"', 'additionalCode="256"'),
+    ):
+        bad_source.write_text(original.replace("<EventCollection>", invalid + "<EventCollection>"), encoding="utf-8")
+        assert not run(cli, "iodd", bad_source, expected=1)
+
+
 def verify_diagnostic_snapshots(cli, profile, output, loopback=False):
     output.mkdir()
     source = profile.read_bytes()
@@ -2191,6 +2264,7 @@ def main():
     verify_stamps(cli, scratch / "stamps")
     communication_profile = verify_communication(cli, scratch / "communication")
     standard_range_profile = verify_standard_ranges(cli, scratch / "standard-ranges")
+    verify_error_types(cli, scratch / "error-types")
     verify_defaults(cli, scratch / "defaults")
     verify_temporal_defaults(cli, scratch / "temporal-defaults")
     verify_connection_settings(cli, scratch / "connection-settings")
@@ -2631,7 +2705,7 @@ kind = "bool"
 
     print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state names with Boolean CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
-          "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
+          "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 
 

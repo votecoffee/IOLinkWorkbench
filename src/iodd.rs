@@ -19,6 +19,8 @@ const XSI: &str = "http://www.w3.org/2001/XMLSchema-instance";
 mod array;
 mod communication;
 pub use communication::{Bitrate, Communication};
+mod error_types;
+pub use error_types::ErrorTypeDefinition;
 mod output;
 pub use output::{DecodedOutput, DecodedOutputField};
 mod events;
@@ -292,12 +294,17 @@ pub struct Catalog {
     pub localization: Option<Localization>,
     pub events: Vec<EventDefinition>,
     pub standard_event_refs: Vec<u16>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub error_types: Vec<ErrorTypeDefinition>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub standard_error_type_refs: Vec<u16>,
 }
 
 #[derive(Default)]
 pub(super) struct Definitions {
     pub parameters: Vec<Parameter>,
     pub events: Vec<EventDefinition>,
+    pub error_types: Vec<ErrorTypeDefinition>,
     pub localization: Option<StandardLocalization>,
 }
 
@@ -405,6 +412,8 @@ impl Catalog {
                 localization: self.localization.clone(),
                 events: self.events.clone(),
                 standard_event_refs: self.standard_event_refs.clone(),
+                error_types: self.error_types.clone(),
+                standard_error_type_refs: self.standard_error_type_refs.clone(),
             },
         ))
     }
@@ -522,6 +531,18 @@ pub fn load_with_options(path: &Path, options: &LoadOptions<'_>) -> Result<Catal
     catalog.standard_event_refs.retain(|code| {
         if let Some(event) = definitions.events.iter().find(|event| event.code == *code) {
             catalog.events.push(event.clone());
+            false
+        } else {
+            true
+        }
+    });
+    catalog.standard_error_type_refs.retain(|code| {
+        if let Some(definition) = definitions
+            .error_types
+            .iter()
+            .find(|item| item.code == *code)
+        {
+            catalog.error_types.push(definition.clone());
             false
         } else {
             true
@@ -978,6 +999,7 @@ fn parse_resources(
     let (parameters, standard_parameter_refs) =
         parameters::parse(function, &types, &texts, &definitions, units)?;
     let (events, standard_event_refs) = events::parse(function, &texts)?;
+    let (error_types, standard_error_type_refs) = error_types::parse(function, &texts, false)?;
     let mut layouts = Vec::new();
     let mut output_only_layouts = Vec::new();
     let mut acyclic_layouts = Vec::new();
@@ -1070,6 +1092,8 @@ fn parse_resources(
         localization: Some(selected.metadata),
         events,
         standard_event_refs,
+        error_types,
+        standard_error_type_refs,
     })
 }
 

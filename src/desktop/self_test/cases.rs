@@ -520,6 +520,7 @@ pub(super) fn render(
                     "offline-events" => {
                         app.tab = Tab::Offline;
                         app.workspace.offline = OfflinePage::Events;
+                        app.offline_diagnostics.stage_error_type_fixture();
                     }
                     "offline-diagnostic-snapshot" | "offline-diagnostic-comparison" => {
                         app.tab = Tab::Offline;
@@ -695,6 +696,9 @@ pub(super) fn render(
                 "acyclic-profile" => Some("Acyclic IODD layout"),
                 "offline-diagnostic-snapshot" => Some("37:0 · synthetic fixture reply unavailable"),
                 "offline-diagnostic-comparison" => Some("Wire slot positions"),
+                "offline-events" => Some(
+                    "ErrorType 0x8011 · Standard device application error\nIndex is unavailable",
+                ),
                 "port-capture-review" => Some("Start capture set"),
                 "port-capture-results" => Some("Synthetic device identity mismatch"),
                 "port-status-results" => Some("Synthetic status request timed out"),

@@ -131,9 +131,18 @@ fn parse_localized(
     for event in &mut events {
         event.origin = Some(format!("{source} · {version}"));
     }
+    let (mut error_types, references) = crate::iodd::error_types::parse(root, &texts, true)?;
+    ensure!(
+        references.is_empty(),
+        "standard definitions contain ErrorType references"
+    );
+    for definition in &mut error_types {
+        definition.origin = Some(format!("{source} · {version}"));
+    }
     Ok(crate::iodd::Definitions {
         parameters,
         events,
+        error_types,
         localization: Some(crate::iodd::StandardLocalization {
             source: source.into(),
             version: version.into(),

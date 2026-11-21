@@ -138,6 +138,17 @@ The **pending_events** result compares occurrences of each exact qualifier/code 
 
 Expand **Wire slot positions** in the GUI or inspect **changed_slots** in CLI output to compare positions in the two payloads. An omitted slot value denotes an absent position and **000000** denotes a present, empty slot. An empty list denotes matching slots. If **pending_events** and **changed_slots** are absent, **detailed_status_reply** gives the reason. Exit 1 flags an incomplete, malformed or internally inconsistent snapshot. Two valid files with differing recorded targets can still report raw equality and exit 0.
 
+### Decode an ISDU ErrorType
+
+Use the two ErrorType bytes from a recorded negative ISDU reply. Paste them into **Offline → Event codes → ISDU ErrorType** or run the CLI lookup. The bytes are the ErrorCode followed by the AdditionalCode. The built-in table covers standard device application codes, and unsupported values retain the exact raw bytes. Gateway HTTP and IoT Core status codes have their own formats. [IO-Link Interface and System Specification, Annex C.2](https://io-link.com/fileadmin/user_upload/Downloads/Package_2024/IOL-Interface-Spec_10002_V114_Jun24.pdf)
+
+```powershell
+.\iolink-cli.exe decode-error-type "80 11"
+.\iolink-cli.exe decode-error-type "81 11" --profile .\sensor.toml
+```
+
+Import the IODD to save its vendor ErrorType names and descriptions in the selected language. Supply `--standard-definitions` and the optional `--standard-language-file` at import to resolve and localize standard references. The lookup uses the applied GUI profile or the profile supplied on the CLI. Unresolved standard references remain visible alongside any built-in meaning. This is an offline lookup. Profile files containing the imported ErrorType catalog or its references require v0.100.0 or later.
+
 ## Choose logging and inspect its plan
 
 ```powershell

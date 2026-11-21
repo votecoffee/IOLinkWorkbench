@@ -173,6 +173,12 @@ enum Command {
         #[arg(long)]
         device_status: Option<String>,
     },
+    /// Decode the two ErrorType bytes from a recorded negative ISDU reply.
+    DecodeErrorType {
+        payload: String,
+        #[arg(long)]
+        profile: Option<PathBuf>,
+    },
     /// Read one named IODD parameter through the independent acyclic client.
     ReadParameter {
         profile: PathBuf,
@@ -569,6 +575,12 @@ fn main() -> Result<()> {
                 ok,
                 "diagnostic payload needs decoding review; raw bytes are retained above"
             );
+        }
+        Command::DecodeErrorType { payload, profile } => {
+            let profile = profile.as_deref().map(Profile::load).transpose()?;
+            let bytes = decode::parse_hex_bounded(&payload, 2)?;
+            let report = diagnostics::decode_error_type(profile.as_ref(), &bytes)?;
+            print!("{}", toml::to_string_pretty(&report)?);
         }
         Command::Parameters { profile } => {
             let profile = Profile::load(&profile)?;

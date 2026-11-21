@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Decode recorded device application ErrorTypes in GUI and CLI. The offline lookup reads both code bytes and resolves localized vendor terms and standard references from the saved IODD catalog.
+
 - Cyclic Boolean and integer fields show localized IODD state names in live, offline and reviewed output views. Names match exact raw values, including packed record members and array elements. Typed CSV cells retain their Boolean and engineering representation.
 
 - GUI multi-port status reads use reviewed profiles and report master, identity and diagnostics for each port. Results stay visible when another port fails. Acyclic-only and output-only profiles support status checks before a CSV destination is selected.

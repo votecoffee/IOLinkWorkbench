@@ -92,6 +92,8 @@ The multi-port GUI controller shares the CLI's capture engine and port status pa
 
 Diagnostic comparison tests verify pending-event counts for moved and repeated qualifier/code pairs, exclusion of other entries, and unavailable comparisons for incompatible contexts. The headless suite runs these comparisons on saved simulator and loopback replies, with original snapshot bytes checked after review.
 
+The ErrorType checks cover exact message width, built-in application codes, IODD vendor terms and standard references, imported language selection and lookup from a saved profile after its source files are moved.
+
 The GUI verifier checks a capability marker before launching, then creates a hidden native GL context and paints built-in profile/tab views offscreen. It verifies its own HWND stays hidden, worker denial, framebuffer/GL state and a non-overwriting receipt. It sends no input, takes no screenshot and reads no pixels. It does not establish visible interaction, DPI, presentation or hardware acceptance. Older GUI binaries may ignore arguments; never launch them to probe self-test support.
 
 Keep private/vendor material and evidence under ignored `.local/`. Public samples are original synthetic descriptions. Optional XSD tests validate local schema closures with bounded System.Xml execution; CRC receipts do not prove authenticity or full Checker compliance. Retain old profiles and capture/snapshot fixtures when testing compatible schema evolution. Avoid desktop automation without an explicit request and keep GitHub Actions manual-only if added.

@@ -6,9 +6,14 @@ use iolink_workbench::{decode, diagnostics, profile::Profile};
 pub struct Offline {
     device_status: String,
     detailed: String,
+    error_type: String,
 }
 
 impl Offline {
+    pub(super) fn stage_error_type_fixture(&mut self) {
+        self.error_type = "80 11".into();
+    }
+
     pub fn show(&mut self, ui: &mut Ui, profile: &Profile) {
         ui.heading("Offline device diagnostics");
         ui.small("Paste a recorded 37:0 response as three-byte qualifier/code slots. An optional 36:0 byte gives Device Status. These are read snapshots.");
@@ -51,6 +56,27 @@ impl Offline {
                 }
             }
         }
+        egui::CollapsingHeader::new("ISDU ErrorType")
+            .default_open(!self.error_type.is_empty())
+            .show(ui, |ui| {
+                ui.small("Paste the two ErrorType bytes from a recorded negative ISDU reply.");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.error_type)
+                        .hint_text("ErrorType bytes, e.g. 80 11"),
+                );
+                if !self.error_type.trim().is_empty() {
+                    match decode::parse_hex_bounded(&self.error_type, 2)
+                        .and_then(|bytes| diagnostics::decode_error_type(Some(profile), &bytes))
+                    {
+                        Ok(report) => {
+                            ui.monospace(report.text());
+                        }
+                        Err(error) => {
+                            ui.colored_label(WARNING, error.to_string());
+                        }
+                    }
+                }
+            });
     }
 }
 

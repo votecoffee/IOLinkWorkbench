@@ -189,6 +189,10 @@ pub struct Imported {
     pub events: Vec<crate::iodd::EventDefinition>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub standard_event_refs: Vec<u16>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub error_types: Vec<crate::iodd::ErrorTypeDefinition>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub standard_error_type_refs: Vec<u16>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -549,6 +553,24 @@ impl Profile {
                 ensure!(
                     codes.insert(*code),
                     "duplicate or resolved standard event reference"
+                );
+            }
+            let mut error_codes = HashSet::new();
+            for definition in &imported.error_types {
+                definition.validate()?;
+                ensure!(
+                    error_codes.insert(definition.code),
+                    "duplicate saved IODD error type"
+                );
+            }
+            for code in &imported.standard_error_type_refs {
+                ensure!(
+                    code >> 8 == 0x80,
+                    "standard ErrorType references require ErrorCode 0x80"
+                );
+                ensure!(
+                    error_codes.insert(*code),
+                    "duplicate or resolved standard ErrorType reference"
                 );
             }
             let mut indexes = HashSet::new();
