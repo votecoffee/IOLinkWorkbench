@@ -5,6 +5,7 @@ use iolink_workbench::profile::{Connection, CycleUnit, Gateway, Profile};
 enum GatewayChoice {
     Simulator,
     IfmAl1350,
+    IfmAl1352,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -55,6 +56,7 @@ impl Arguments {
             connection.gateway = match gateway {
                 GatewayChoice::Simulator => Gateway::Simulator,
                 GatewayChoice::IfmAl1350 => Gateway::IfmAl1350,
+                GatewayChoice::IfmAl1352 => Gateway::IfmAl1352,
             };
         }
         macro_rules! update {

@@ -141,8 +141,12 @@ impl App {
                         Gateway::Simulator => {
                             format!("Simulator · Port {}", self.profile.connection.port)
                         }
-                        Gateway::IfmAl1350 => {
-                            format!("AL1350 · Port {}", self.profile.connection.port)
+                        gateway => {
+                            format!(
+                                "{} · Port {}",
+                                gateway.label(),
+                                self.profile.connection.port
+                            )
                         }
                     });
                 }
@@ -508,8 +512,9 @@ impl App {
                 ui.label(match self.profile.connection.gateway {
                     Gateway::Simulator if !self.profile.has_process_input() => "Offline simulator".into(),
                     Gateway::Simulator => "Offline simulator · synthetic input".into(),
-                    Gateway::IfmAl1350 if matches!(&route, Err(session_review::RouteIssue::Connection(_))) => "ifm AL1350 · review the configured endpoint".into(),
-                    Gateway::IfmAl1350 => format!("ifm AL1350 · {}", self.profile.connection.endpoint),
+                    gateway if matches!(&route, Err(session_review::RouteIssue::Connection(_))) =>
+                        format!("{} · review the configured endpoint", gateway.label()),
+                    gateway => format!("{} · {}", gateway.label(), self.profile.connection.endpoint),
                 });
                 if !self.profile.has_process_input() {
                     if let Err(issue) = &route { self.show_route_issue(ui, issue); }

@@ -26,13 +26,17 @@ impl Editor {
                         "Offline simulator"
                     });
                 }
-                Gateway::IfmAl1350 => {
+                gateway => {
                     if profile.connection.endpoint.trim().is_empty() {
                         ui.colored_label(WARNING, "Needs input · master endpoint is empty");
                     } else if let Err(error) = transport::check_route(profile) {
                         ui.colored_label(WARNING, format!("{error:#}"));
                     } else {
-                        ui.label(format!("ifm AL1350 · {}", profile.connection.endpoint));
+                        ui.label(format!(
+                            "{} · {}",
+                            gateway.label(),
+                            profile.connection.endpoint
+                        ));
                     }
                     ui.small("Documented adapter target; confirm the selected master, firmware and existing port setup before reading.");
                 }

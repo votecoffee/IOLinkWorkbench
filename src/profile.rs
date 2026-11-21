@@ -75,6 +75,34 @@ pub enum Gateway {
     #[default]
     Simulator,
     IfmAl1350,
+    IfmAl1352,
+}
+
+pub const MAX_PORTS: usize = 8;
+
+impl Gateway {
+    pub fn max_port(self) -> u8 {
+        match self {
+            Self::Simulator | Self::IfmAl1350 => 4,
+            Self::IfmAl1352 => MAX_PORTS as u8,
+        }
+    }
+
+    pub fn ifm_model(self) -> Option<&'static str> {
+        match self {
+            Self::Simulator => None,
+            Self::IfmAl1350 => Some("AL1350"),
+            Self::IfmAl1352 => Some("AL1352"),
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Simulator => "Offline simulator",
+            Self::IfmAl1350 => "ifm AL1350",
+            Self::IfmAl1352 => "ifm AL1352",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -504,7 +532,11 @@ impl Profile {
                 "zero input width requires a matching imported output-only layout and no imported input fields"
             );
         }
-        ensure!((1..=4).contains(&self.connection.port), "port must be 1–4");
+        let max_port = self.connection.gateway.max_port();
+        ensure!(
+            (1..=max_port).contains(&self.connection.port),
+            "port must be 1–{max_port}"
+        );
         ensure!(
             (100..=60_000_000).contains(&self.connection.poll_us),
             "poll_us must be 100–60000000"

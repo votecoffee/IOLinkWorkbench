@@ -356,7 +356,7 @@ pub fn probe(profile: &Profile) -> Result<(Status, &'static str)> {
 /// Check the confirmation required before reading a conditional physical layout.
 pub fn check_layout(profile: &Profile) -> Result<()> {
     profile.require_process_input()?;
-    if profile.connection.gateway == crate::profile::Gateway::IfmAl1350
+    if profile.connection.gateway.ifm_model().is_some()
         && let Some(condition) = profile
             .iodd
             .as_ref()

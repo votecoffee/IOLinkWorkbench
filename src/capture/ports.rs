@@ -1,7 +1,7 @@
 //! Concurrent independent cyclic captures for explicitly selected ports.
 use super::{Live, LiveQueue, Options, Report, Stop, check_layout, run};
 use crate::{
-    profile::{Gateway, Profile},
+    profile::{Gateway, MAX_PORTS, Profile},
     transport::ports::{master_conflict, run_port_workers, validate_selection},
 };
 use anyhow::{Context, Result, ensure};
@@ -10,7 +10,7 @@ use std::{fs, io::Write, path::PathBuf, sync::Arc, time::Duration};
 
 /// One latest-observation slot for each possible port. Slow readers skip old views.
 #[derive(Clone)]
-pub struct PortLive([LiveQueue; 4]);
+pub struct PortLive([LiveQueue; MAX_PORTS]);
 
 impl Default for PortLive {
     fn default() -> Self {

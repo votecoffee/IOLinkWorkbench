@@ -62,27 +62,21 @@ impl Form {
             .show(ui, |ui| {
                 ui.label("Gateway");
                 egui::ComboBox::from_id_salt("host-gateway")
-                    .selected_text(match self.draft.gateway {
-                        Gateway::Simulator => "Offline simulator",
-                        Gateway::IfmAl1350 => "ifm AL1350",
-                    })
+                    .selected_text(self.draft.gateway.label())
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(
-                            &mut self.draft.gateway,
-                            Gateway::Simulator,
-                            "Offline simulator",
-                        );
-                        ui.selectable_value(
-                            &mut self.draft.gateway,
-                            Gateway::IfmAl1350,
-                            "ifm AL1350",
-                        );
+                        for gateway in [Gateway::Simulator, Gateway::IfmAl1350, Gateway::IfmAl1352]
+                        {
+                            ui.selectable_value(&mut self.draft.gateway, gateway, gateway.label());
+                        }
                     });
                 ui.end_row();
                 ui.label("Port");
-                ui.add(egui::DragValue::new(&mut self.draft.port).range(1..=4));
+                ui.add(
+                    egui::DragValue::new(&mut self.draft.port)
+                        .range(1..=self.draft.gateway.max_port()),
+                );
                 ui.end_row();
-                let ifm = self.draft.gateway == Gateway::IfmAl1350;
+                let ifm = self.draft.gateway.ifm_model().is_some();
                 ui.label("Master endpoint");
                 ui.add_enabled(
                     ifm,
@@ -105,7 +99,7 @@ impl Form {
                     .num_columns(2)
                     .spacing([16.0, 6.0])
                     .show(ui, |ui| {
-                        let ifm = self.draft.gateway == Gateway::IfmAl1350;
+                        let ifm = self.draft.gateway.ifm_model().is_some();
                         ui.label("Expected firmware (optional)");
                         ui.add_enabled(
                             ifm,
@@ -178,7 +172,7 @@ impl Form {
                     });
             },
         );
-        if self.draft.gateway == Gateway::IfmAl1350 && self.draft.endpoint.trim().is_empty() {
+        if self.draft.gateway.ifm_model().is_some() && self.draft.endpoint.trim().is_empty() {
             ui.small("Unfinished bench template: enter the master endpoint before connecting. Numeric mode and cycle units must come from the installed master documentation/configuration.");
         }
         let mut applied = false;

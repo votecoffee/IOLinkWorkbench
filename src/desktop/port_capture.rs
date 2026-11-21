@@ -1,6 +1,7 @@
 //! Review saved port profiles, read status, and control independent captures.
 use super::*;
 use anyhow::{Context as _, Result, ensure};
+use iolink_workbench::profile::MAX_PORTS;
 use iolink_workbench::transport::PortStatusReport;
 
 struct Active {
@@ -29,7 +30,7 @@ pub(super) struct Panel {
     status_result: Option<Result<PortStatusReport>>,
     active: Option<Active>,
     finished: Option<Finished>,
-    observations: [Live; 4],
+    observations: [Live; MAX_PORTS],
     error: Option<String>,
 }
 
@@ -413,7 +414,7 @@ impl Panel {
         ui.horizontal_wrapped(|ui| {
             if ui
                 .add_enabled(
-                    self.profile_paths.len() < 4,
+                    self.profile_paths.len() < MAX_PORTS,
                     egui::Button::new("Add profile"),
                 )
                 .clicked()
@@ -496,7 +497,11 @@ fn show_profiles(ui: &mut Ui, profiles: &[Profile]) {
     };
     match first.connection.gateway {
         Gateway::Simulator => ui.strong("Simulator · synthetic input"),
-        Gateway::IfmAl1350 => ui.strong(format!("ifm AL1350 · {}", first.connection.endpoint)),
+        gateway => ui.strong(format!(
+            "{} · {}",
+            gateway.label(),
+            first.connection.endpoint
+        )),
     };
     for profile in profiles {
         ui.label(format!(

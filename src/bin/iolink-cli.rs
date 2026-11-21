@@ -245,9 +245,9 @@ enum Command {
         #[arg(long)]
         verify_product_id: bool,
     },
-    /// Read status for one to four explicitly profiled ports of the same master.
+    /// Read status for explicitly profiled ports of the same master, up to its port limit.
     StatusPorts {
-        #[arg(required = true, num_args = 1..=4)]
+        #[arg(required = true, num_args = 1..=iolink_workbench::profile::MAX_PORTS)]
         profiles: Vec<PathBuf>,
     },
     /// Read one explicit acyclic ISDU parameter using a separate client.
@@ -257,10 +257,10 @@ enum Command {
         #[arg(default_value_t = 0)]
         subindex: u8,
     },
-    /// Capture one to four explicitly profiled ports of the same master concurrently.
+    /// Capture explicitly profiled ports of the same master concurrently, up to its port limit.
     CapturePorts {
         output: PathBuf,
-        #[arg(required = true, num_args = 1..=4)]
+        #[arg(required = true, num_args = 1..=iolink_workbench::profile::MAX_PORTS)]
         profiles: Vec<PathBuf>,
         #[arg(long, default_value_t = 10.0)]
         seconds: f64,

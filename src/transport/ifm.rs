@@ -1,7 +1,7 @@
 use super::{Freshness, Input, InputTransport, Payload, Status, Validity};
 use crate::{
     decode,
-    profile::{Connection, CycleUnit, Identity},
+    profile::{Connection, CycleUnit, Gateway, Identity},
 };
 use anyhow::{Context, Result, ensure};
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -14,6 +14,8 @@ use std::{
 };
 
 const RESPONSE_LIMIT: u64 = 64 * 1024;
+const SOFTWARE_REVISION: &str = "/deviceinfo/swrevision";
+const AL1352_REVISION: &str = "/deviceinfo/revision";
 
 pub mod write;
 
@@ -27,11 +29,16 @@ pub struct Client {
     device: String,
     mode: Option<String>,
     pinned_identity: Option<Identity>,
+    model: &'static str,
     route: &'static str,
 }
 
 impl Client {
     pub fn new(settings: &Connection) -> Result<Self> {
+        let model = settings
+            .gateway
+            .ifm_model()
+            .context("an ifm profile is required")?;
         let password = configured_password();
         let url = checked_origin(settings, password.is_some())?;
         let host = url.host_str().unwrap_or_default().trim_matches(['[', ']']);
@@ -59,10 +66,12 @@ impl Client {
             port,
             mode: None,
             pinned_identity: None,
-            route: if loopback {
-                "AL1350 loopback fixture"
-            } else {
-                "AL1350 network endpoint"
+            model,
+            route: match (settings.gateway, loopback) {
+                (Gateway::IfmAl1352, true) => "AL1352 loopback fixture",
+                (Gateway::IfmAl1352, false) => "AL1352 network endpoint",
+                (_, true) => "AL1350 loopback fixture",
+                (_, false) => "AL1350 network endpoint",
             },
         })
     }
@@ -71,7 +80,8 @@ impl Client {
         let (received, response) = self.exchange(address, data)?;
         ensure!(
             response["code"].as_u64() == Some(200),
-            "AL1350 service code {}",
+            "{} service code {}",
+            self.model,
             response["code"]
         );
         Ok((received, response))
@@ -89,10 +99,11 @@ impl Client {
             .post(self.url.clone())
             .json(&request)
             .send()
-            .context("AL1350 HTTP request failed")?;
+            .with_context(|| format!("{} HTTP request failed", self.model))?;
         ensure!(
             response.status().is_success(),
-            "AL1350 HTTP {}",
+            "{} HTTP {}",
+            self.model,
             response.status()
         );
         let mut body = Vec::new();
@@ -100,12 +111,14 @@ impl Client {
         let received = Instant::now();
         ensure!(
             body.len() as u64 <= RESPONSE_LIMIT,
-            "AL1350 response exceeds 64 KiB"
+            "{} response exceeds 64 KiB",
+            self.model
         );
         let response: Value = serde_json::from_slice(&body)?;
         ensure!(
             response["cid"].as_i64() == Some(self.cid),
-            "AL1350 response correlation ID mismatch"
+            "{} response correlation ID mismatch",
+            self.model
         );
         Ok((received, response))
     }
@@ -157,10 +170,11 @@ impl Client {
         let (_, response) = self.request(&adr, json!({"index":index, "subindex":subindex}))?;
         let value = response["data"]["value"]
             .as_str()
-            .context("AL1350 ISDU response has no hex value")?;
+            .with_context(|| format!("{} ISDU response has no hex value", self.model))?;
         ensure!(
             value.len() <= 464 && value.len().is_multiple_of(2) && value.is_ascii(),
-            "AL1350 ISDU response has an invalid length"
+            "{} ISDU response has an invalid length",
+            self.model
         );
         (0..value.len())
             .step_by(2)
@@ -179,7 +193,8 @@ fn checked_origin(settings: &Connection, credentials: bool) -> Result<Url> {
     let url = settings.origin()?;
     ensure!(
         !credentials || url.scheme() == "https",
-        "AL1350 credentials require HTTPS"
+        "{} credentials require HTTPS",
+        settings.gateway.ifm_model().unwrap_or("ifm")
     );
     Ok(url)
 }
@@ -216,11 +231,16 @@ impl InputTransport for Client {
         paths.extend(
             [
                 "/deviceinfo/productcode",
-                "/deviceinfo/swrevision",
+                SOFTWARE_REVISION,
                 "/deviceinfo/serialnumber",
             ]
             .map(str::to_owned),
         );
+        let al1352 = self.settings.gateway == Gateway::IfmAl1352;
+        if al1352 {
+            // The manual lists swrevision in the deviceinfo profile and revision in §9.2.17.
+            paths.push(AL1352_REVISION.into());
+        }
         paths.extend([
             mode_path.clone(),
             format!("{port}/mastercycletime_actual"),
@@ -230,22 +250,32 @@ impl InputTransport for Client {
         ]);
         let (_, response) = self.multi(&paths)?;
         let get = |path: &str| Self::data(&response, path);
-        let model =
-            label(get("/deviceinfo/productcode")).context("AL1350 product code unavailable")?;
+        let model = label(get("/deviceinfo/productcode"))
+            .with_context(|| format!("{} product code unavailable", self.model))?;
         ensure!(
-            model == "AL1350",
-            "expected master AL1350, observed {model}"
+            model == self.model,
+            "expected master {}, observed {model}",
+            self.model
         );
-        let firmware =
-            label(get("/deviceinfo/swrevision")).context("AL1350 firmware unavailable")?;
+        let firmware = if al1352 {
+            [SOFTWARE_REVISION, AL1352_REVISION]
+                .into_iter()
+                .find_map(|path| get(path).as_str().filter(|text| !text.trim().is_empty()))
+                .map(str::to_owned)
+        } else {
+            label(get(SOFTWARE_REVISION))
+        }
+        .with_context(|| format!("{} firmware unavailable", self.model))?;
         if !self.settings.ifm_firmware.is_empty() {
             ensure!(
                 firmware == self.settings.ifm_firmware,
-                "AL1350 firmware pin mismatch, observed {firmware}"
+                "{} firmware pin mismatch, observed {firmware}",
+                self.model
             );
         }
         let mode = get(&mode_path);
-        let port_mode = label(mode).context("AL1350 port mode unavailable")?;
+        let port_mode =
+            label(mode).with_context(|| format!("{} port mode unavailable", self.model))?;
         let text_matches = mode
             .as_str()
             .is_some_and(|mode| mode.eq_ignore_ascii_case("io-link"));
@@ -298,7 +328,8 @@ impl InputTransport for Client {
         let (received, response) = self.multi(&paths)?;
         ensure!(
             label(Self::data(&response, &mode_path)) == self.mode,
-            "AL1350 port mode changed or is unavailable"
+            "{} port mode changed or is unavailable",
+            self.model
         );
         let identity = self.identity(&response);
         let pinned = self
@@ -309,23 +340,22 @@ impl InputTransport for Client {
         let code = point["code"]
             .as_u64()
             .and_then(|n| u16::try_from(n).ok())
-            .context("AL1350 response missing process-data status code")?;
+            .with_context(|| format!("{} response missing process-data status code", self.model))?;
         // Unavailable means no usable connection. Preserve an invalid row for documented PD errors.
-        ensure!(code != 503, "AL1350 process data unavailable (503)");
+        ensure!(code != 503, "{} process data unavailable (503)", self.model);
         if code == 200 {
             ensure!(
                 identity == *pinned,
-                "AL1350 port identity changed or is unavailable"
+                "{} port identity changed or is unavailable",
+                self.model
             );
         }
         let (validity, payload) = match code {
             200 => (
                 Validity::Valid,
-                decode::parse_hex(
-                    point["data"]
-                        .as_str()
-                        .context("AL1350 process data is not a hex string")?,
-                )?,
+                decode::parse_hex(point["data"].as_str().with_context(|| {
+                    format!("{} process data is not a hex string", self.model)
+                })?)?,
             ),
             530 | 531 => (Validity::Invalid, Vec::new()),
             _ => (Validity::Unknown, Vec::new()),

@@ -1,4 +1,4 @@
-"""Windows CLI acceptance using synthetic data and a loopback-only AL1350 fixture."""
+"""Windows CLI acceptance using synthetic data and loopback-only ifm fixtures."""
 
 import argparse
 import csv
@@ -920,15 +920,18 @@ def verify_port_statuses_and_captures(cli, output):
     output.mkdir()
     source = (ROOT / "samples/simulator.toml").read_text(encoding="utf-8")
 
-    def profile(name, port, origin=None, firmware=None):
+    def profile(name, port, origin=None, firmware=None, gateway="ifm_al1350"):
+        unit = "milliseconds" if gateway == "ifm_al1352" else "microseconds"
         endpoint = "" if origin is None else (
-            f'endpoint = "{origin}"\nifm_mode = 3\nifm_cycle_unit = "microseconds"\n'
+            f'endpoint = "{origin}"\nifm_mode = 3\nifm_cycle_unit = "{unit}"\n'
         )
         if firmware is not None:
             endpoint += f'ifm_firmware = "{firmware}"\n'
         contents = source.replace("port = 1\n", f"port = {port}\n{endpoint}timeout_ms = 4500\n")
         if origin is not None:
-            contents = contents.replace('gateway = "simulator"', 'gateway = "ifm_al1350"')
+            contents = contents.replace('gateway = "simulator"', f'gateway = "{gateway}"')
+        if gateway == "ifm_al1352":
+            contents = contents.replace("poll_us = 1000", "poll_us = 20000")
         path = output / f"{name}.toml"
         path.write_text(contents, encoding="utf-8")
         return path
@@ -994,9 +997,16 @@ def verify_port_statuses_and_captures(cli, output):
         def do_POST(self):
             request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             self.server.requests.append(request)
-            assert request["adr"] == "/getdatamulti" and self.path == "/"
+            assert self.path == "/"
+            if self.server.model == "AL1352" and request["adr"] == "/iolinkmaster/port[8]/iolinkdevice/iolreadacyclic":
+                index = request["data"]["index"]
+                assert request["data"]["subindex"] == 0 and index in (36, 37, 64)
+                self.respond(request, {"value": {36: "02", 37: "E48DFE000000", 64: "01F4"}[index]})
+                return
+            assert request["adr"] == "/getdatamulti"
             paths = request["data"]["datatosend"]
-            port = next(n for n in range(1, 5) if f"/iolinkmaster/port[{n}]/mode" in paths)
+            max_port = 8 if self.server.model == "AL1352" else 4
+            port = next(n for n in range(1, max_port + 1) if f"/iolinkmaster/port[{n}]/mode" in paths)
             prefix = f"/iolinkmaster/port[{port}]"
             pdin = prefix + "/iolinkdevice/pdin"
             polling = pdin in paths
@@ -1006,27 +1016,46 @@ def verify_port_statuses_and_captures(cli, output):
             if not polling and port in (1, 2) and self.server.barrier is not None:
                 self.server.barrier.wait(timeout=3)
             data = dict(Gateway.data)
+            data["/deviceinfo/productcode"] = self.server.model
             data[Gateway.port + "/iolinkdevice/deviceid"] = 2 if port == 3 else 1
             data[Gateway.port + "/mastercycletime_actual"] = 1200 * port
             data[Gateway.port + "/mode"] = 0 if port == 4 else 3
+            al1352 = self.server.model == "AL1352"
+            if al1352:
+                data["/deviceinfo/revision"] = data.pop("/deviceinfo/swrevision")
+                data[Gateway.port + "/iolinkdevice/deviceid"] = 1
+                data[Gateway.port + "/mastercycletime_actual"] = port
+                data[Gateway.port + "/mode"] = 3
             if port == self.server.different_master_port:
                 data["/deviceinfo/serialnumber"] = "OTHER-MASTER"
             allowed = {key.replace(Gateway.port, prefix): value for key, value in data.items()}
-            allowed[pdin] = {1: "0002", 2: "0005", 3: "0006", 4: "0009"}[port]
-            assert all(key in allowed for key in paths), paths
-            response = {
-                "code": 200, "cid": request["cid"],
-                "data": {key: {"code": 200, "data": allowed[key]} for key in paths},
-            }
-            body = json.dumps(response).encode()
+            allowed[pdin] = f"{port:04X}" if al1352 else {1: "0002", 2: "0005", 3: "0006", 4: "0009"}[port]
+            values = {}
+            for key in paths:
+                if al1352 and key == "/deviceinfo/swrevision":
+                    values[key] = {"code": 503}
+                elif al1352 and port == 8 and key == pdin and not self.server.invalid_seen:
+                    values[key] = {"code": 530}
+                    self.server.invalid_seen = True
+                else:
+                    values[key] = {"code": 200, "data": allowed[key]}
+            self.respond(request, values)
+
+        def respond(self, request, data):
+            body = json.dumps({"code": 200, "cid": request["cid"], "data": data}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
 
-    with ThreadingHTTPServer(("127.0.0.1", 0), PortGateway) as server:
+    class PortServer(ThreadingHTTPServer):
+        request_queue_size = 16
+
+    with PortServer(("127.0.0.1", 0), PortGateway) as server:
         server.requests = []
+        server.model = "AL1350"
+        server.invalid_seen = False
         server.barrier = threading.Barrier(2)
         server.poll_barrier = None
         server.entered_polls = set()
@@ -1104,6 +1133,51 @@ def verify_port_statuses_and_captures(cli, output):
             assert batch["observed_master_conflict"] and all(entry["success"] for entry in batch["ports"])
             for entry in batch["ports"]:
                 port_capture(destination, entry)
+
+            server.model = "AL1352"
+            server.different_master_port = None
+            new_ports = [profile(f"al1352-{port}", port, host, "3.1.42", "ifm_al1352")
+                         for port in range(1, 9)]
+            ninth = profile("al1352-9", 9, host, "3.1.42", "ifm_al1352")
+            before = len(server.requests)
+            run(cli, "status-ports", ninth, expected=1)
+            run(cli, "status-ports", new_ports[0], ports[1], expected=1)
+            assert len(server.requests) == before
+            run(cli, "status", ports[0], expected=1)
+            assert len(server.requests) == before + 1
+            report = tomllib.loads(run(cli, "status-ports", *reversed(new_ports)))
+            assert report["gateway"] == "ifm_al1352" and not report["observed_master_conflict"]
+            assert [entry["port"] for entry in report["ports"]] == list(range(8, 0, -1))
+            for entry in report["ports"]:
+                status = entry["status"]
+                assert status["route"] == "AL1352 loopback fixture" and status["firmware"] == "3.1.42"
+                assert status["port_cycle_us"] == 1000 * entry["port"] and status["freshness"] == "snapshots"
+
+            before = len(server.requests)
+            run(cli, "write", new_ports[-1], "--master-serial", "FIXTURE-MASTER",
+                "isdu", "--index", 64, "--expected", "01F4", "--desired", "01F5", expected=1)
+            run(cli, "read-current", new_ports[-1], "--master-serial", "FIXTURE-MASTER", "port-mode", expected=1)
+            assert len(server.requests) == before
+            assert "01F4" in run(cli, "isdu", new_ports[-1], 64)
+            snapshot = output / "al1352-port8-diagnostics.json"
+            result = tomllib.loads(run(cli, "read-diagnostics", new_ports[-1], "--snapshot", snapshot))
+            assert result["device_status"]["value"] == 2 and result["detailed_status"]["raw_hex"] == "E48DFE000000"
+            before = len(server.requests)
+            saved = tomllib.loads(run(cli, "review-diagnostics", snapshot))
+            assert saved["reads"][1]["observation"]["port"] == 8 and len(server.requests) == before
+
+            destination = output / "al1352-set"
+            batch = capture_set(destination, new_ports, 0, "--seconds", ".9")
+            assert batch["gateway"] == "ifm_al1352" and len(batch["ports"]) == 8
+            for entry in batch["ports"]:
+                report, rows = port_capture(destination, entry)
+                assert rows and report["source_update_loss"] == "unknown"
+                assert report["last_status"]["port_cycle_us"] == 1000 * entry["port"]
+                assert all(row["row_kind"] == "host_poll" and not row["source_counter"] for row in rows)
+                valid = {row["raw_hex"] for row in rows if row["validity"] == "valid"}
+                assert valid == {f"{entry['port']:04X}"}
+                if entry["port"] == 8:
+                    assert report["counts"]["invalid"] == 1
         finally:
             server.shutdown()
             worker.join()
@@ -2705,7 +2779,7 @@ kind = "bool"
 
     print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state names with Boolean CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
-          "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
+          "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1352 status and capture across eight ports, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 
 

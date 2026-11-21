@@ -1,5 +1,23 @@
 use super::*;
-use crate::profile::CycleUnit;
+use crate::profile::{CycleUnit, Gateway};
+
+#[test]
+fn only_al1352_profiles_accept_high_port_numbers() -> Result<()> {
+    let mut profile = Profile::parse(include_str!("../../../samples/ifm-al1352.toml"))?;
+    profile.connection.port = 8;
+    profile.validate()?;
+    assert_eq!(Profile::parse(&toml::to_string(&profile)?)?, profile);
+    for port in [0, 9] {
+        profile.connection.port = port;
+        assert!(profile.validate().is_err());
+    }
+    profile.connection.port = 8;
+    for gateway in [Gateway::IfmAl1350, Gateway::Simulator] {
+        profile.connection.gateway = gateway;
+        assert!(profile.validate().is_err());
+    }
+    Ok(())
+}
 
 #[test]
 fn host_edits_preserve_every_other_profile_setting_and_the_source() -> Result<()> {

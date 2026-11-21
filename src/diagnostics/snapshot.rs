@@ -50,10 +50,10 @@ impl SavedRead {
         if let Some(observation) = &self.observation {
             observation.validate_for(profile)?;
             let connection = &profile.connection;
-            if connection.gateway == Gateway::IfmAl1350 {
+            if let Some(model) = connection.gateway.ifm_model() {
                 ensure!(
-                    observation.model == "AL1350",
-                    "recorded model differs from the AL1350 route"
+                    observation.model == model,
+                    "recorded model differs from the {model} route"
                 );
                 ensure!(
                     connection.ifm_firmware.is_empty()

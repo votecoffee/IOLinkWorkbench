@@ -1,0 +1,25 @@
+version = 1
+name = "AL1352 read-only bench template"
+# Set the connected sensor's input width and apply its IODD or manual mapping.
+input_bytes = 2
+
+[connection]
+gateway = "ifm_al1352"
+port = 1
+endpoint = ""
+poll_us = 20000
+timeout_ms = 1000
+reconnect_ms = 500
+# ifm_mode = <confirmed numeric IO-Link mode code>
+# ifm_firmware = "<installed firmware revision>"
+# The ifm firmware 3.1.x manual, section 9.2.8, specifies milliseconds.
+ifm_cycle_unit = "milliseconds"
+
+[expected_identity]
+# vendor_id = <connected sensor vendor ID>
+# device_id = <connected sensor device ID>
+# product_id = "<selected IODD Product ID>"
+
+[logging]
+mode = "every_update"
+queue_capacity = 8192

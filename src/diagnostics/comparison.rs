@@ -1,6 +1,6 @@
 //! Compare the two fixed ISDU replies in independently saved diagnostics.
 use super::{DetailedStatus, Review, SavedRead, Snapshot};
-use crate::{parameter_snapshot::Observation, profile::Gateway};
+use crate::parameter_snapshot::Observation;
 use anyhow::Result;
 use serde::Serialize;
 use std::{collections::BTreeMap, fmt::Write as _};
@@ -239,7 +239,7 @@ fn match_context(left: &SavedRead, right: &SavedRead) -> Result<(), &'static str
         .filter(|(a, b)| !a.trim().is_empty() && !b.trim().is_empty());
     match master_serials {
         Some((a, b)) if a != b => return Err("Recorded master serials differ"),
-        None if a.gateway == Gateway::IfmAl1350 => {
+        None if a.gateway.ifm_model().is_some() => {
             return Err("Recorded master serial is unavailable");
         }
         _ => {}

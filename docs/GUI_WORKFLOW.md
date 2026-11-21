@@ -16,7 +16,7 @@ The workspace follows EthernetIP Workbench's Device → Inputs → Logging patte
 ## First session
 
 1. The bundled typed simulator is already applied at startup. **Device → Overview** summarizes the applied connection, description/mapping, identity expectations and CSV values, with links to each task. It flags an empty hardware endpoint, IODD review notes and an unconfirmed layout condition without claiming physical readiness.
-2. Use **Profiles… → Start a profile** to choose the typed simulator, raw-only simulator or incomplete AL1350 template, then **Use starting profile**. Selecting a choice alone changes nothing. Use replaces settings in memory, clears the old save destination and returns to Device overview. **Open & save** loads a saved TOML or saves/replaces the applied profile at an explicit path. Successful loads also return to the overview; failed loads preserve applied settings. Neither action connects.
+2. Use **Profiles… → Start a profile** to choose the typed simulator, raw-only simulator, AL1350 template or AL1352 read-only template, then **Use starting profile**. Selecting a choice alone changes nothing. Use replaces settings in memory, clears the old save destination and returns to Device overview. **Open & save** loads a saved TOML or saves/replaces the applied profile at an explicit path. Successful loads also return to the overview; failed loads preserve applied settings. Neither action connects.
 3. In **Device**, choose the host connection. Import a local description in **IODD import**, selecting its exact variant and input layout. Review **Identity expectations** separately from observed identity. Language, standard resources and validation options expand when needed.
 4. In **Mappings**, review the effective fields and unresolved input. Apply or discard edits before leaving a draft pending. **Profiles… → Open & save** saves the applied profile, including logging selections.
 5. Choose **Connect…**, review the actual route, port, poll interval, expected identity and enabled feeds, then **Start monitor**. The app opens **Inputs**. Inspect **Diagnostics → Connection & identity** for observations. Import and configured expectations do not verify the device.
@@ -45,7 +45,7 @@ Switch to **Input bytes** to keep working with your existing entry under the cur
 
 ## Review the route before starting
 
-**Connect…** opens the route review. Both this dialog and **Logging** check the configured AL1350 endpoint, the HTTPS requirement for configured credentials, and confirmation of any conditional physical IODD layout. If a check fails, use **Go to connection settings** or **Review IODD layout** to resolve it. You can continue preparing the CSV options.
+**Connect…** opens the route review. Both this dialog and **Logging** check the configured ifm endpoint, the HTTPS requirement for configured credentials, and confirmation of any conditional physical IODD layout. If a check fails, use **Go to connection settings** or **Review IODD layout** to resolve it. You can continue preparing the CSV options.
 
 These checks run locally. The read verifies reachability and observes master and device identity after startup. Confirm a conditional layout only after checking which condition is active on the device.
 

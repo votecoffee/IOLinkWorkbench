@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Read-only ifm AL1352 routing supports status, cyclic input capture and explicit ISDU reads on ports 1–8. Loopback verifies the high port addresses, model check and eight independent capture bundles.
+
 - Decode recorded device application ErrorTypes in GUI and CLI. The offline lookup reads both code bytes and resolves localized vendor terms and standard references from the saved IODD catalog.
 
 - Cyclic Boolean and integer fields show localized IODD state names in live, offline and reviewed output views. Names match exact raw values, including packed record members and array elements. Typed CSV cells retain their Boolean and engineering representation.

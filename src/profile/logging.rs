@@ -65,7 +65,7 @@ impl Profile {
         self.validate()?;
         let snapshots = match self.connection.gateway {
             Gateway::Simulator => self.connection.simulate_snapshots,
-            Gateway::IfmAl1350 => true,
+            Gateway::IfmAl1350 | Gateway::IfmAl1352 => true,
         };
         let fields = self.effective_fields();
         let selected_fields = self

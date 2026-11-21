@@ -1,11 +1,16 @@
 //! Offline host settings. These methods never connect or configure a master.
-use super::{Connection, Gateway, Profile};
+use super::{Connection, Profile};
 use anyhow::{Context, Result, ensure};
 use reqwest::Url;
 
 impl Connection {
     pub(crate) fn origin(&self) -> Result<Url> {
-        let url = Url::parse(&self.endpoint).context("enter an explicit http(s) AL1350 origin")?;
+        let model = self
+            .gateway
+            .ifm_model()
+            .context("an ifm profile is required")?;
+        let url = Url::parse(&self.endpoint)
+            .with_context(|| format!("enter an explicit http(s) {model} origin"))?;
         ensure!(
             matches!(url.scheme(), "http" | "https")
                 && url.host().is_some()
@@ -14,7 +19,7 @@ impl Connection {
                 && url.path() == "/"
                 && url.query().is_none()
                 && url.fragment().is_none(),
-            "AL1350 endpoint must be an http(s) origin without path or credentials"
+            "{model} endpoint must be an http(s) origin without path or credentials"
         );
         Ok(url)
     }
@@ -26,7 +31,7 @@ impl Profile {
     pub fn with_connection(&self, mut connection: Connection) -> Result<Self> {
         connection.endpoint = connection.endpoint.trim().to_owned();
         connection.ifm_firmware = connection.ifm_firmware.trim().to_owned();
-        if connection.gateway == Gateway::IfmAl1350 && !connection.endpoint.is_empty() {
+        if connection.gateway.ifm_model().is_some() && !connection.endpoint.is_empty() {
             connection.origin()?;
         }
         let mut candidate = self.clone();

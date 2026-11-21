@@ -248,6 +248,7 @@ pub(super) fn render(
                 "port-status-results",
                 "connection-dialog",
                 "connection-needs-endpoint",
+                "al1352-connection",
                 "connection-feed-settings",
             ] {
                 let mut app = App::new();
@@ -555,9 +556,17 @@ pub(super) fn render(
                         }
                     }
                     "connection-dialog" => app.workspace.connect_dialog = true,
-                    "connection-needs-endpoint" => {
-                        app.profile =
-                            Profile::parse(include_str!("../../../samples/ifm-al1350.toml"))?;
+                    "connection-needs-endpoint" | "al1352-connection" => {
+                        app.profile = Profile::parse(if label == "al1352-connection" {
+                            include_str!("../../../samples/ifm-al1352.toml")
+                        } else {
+                            include_str!("../../../samples/ifm-al1350.toml")
+                        })?;
+                        if label == "al1352-connection" {
+                            app.profile.connection.port = 8;
+                            app.profile.connection.endpoint = "http://127.0.0.1:1".into();
+                            app.profile.validate()?;
+                        }
                         app.setup.sync(&app.profile);
                         app.workspace.connect_dialog = true;
                     }
@@ -696,6 +705,7 @@ pub(super) fn render(
                 "acyclic-profile" => Some("Acyclic IODD layout"),
                 "offline-diagnostic-snapshot" => Some("37:0 · synthetic fixture reply unavailable"),
                 "offline-diagnostic-comparison" => Some("Wire slot positions"),
+                "al1352-connection" => Some("ifm AL1352 · http://127.0.0.1:1"),
                 "offline-events" => Some(
                     "ErrorType 0x8011 · Standard device application error\nIndex is unavailable",
                 ),
@@ -810,7 +820,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 118);
+        assert_eq!(cases.len(), 119);
         assert!(
             cases
                 .iter()

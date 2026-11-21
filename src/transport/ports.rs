@@ -1,6 +1,6 @@
 //! Explicit, independent read-only status observations for ports on one configured master.
 use super::{Status, check_route, read_status};
-use crate::profile::{Gateway, Profile};
+use crate::profile::{Gateway, MAX_PORTS, Profile};
 use anyhow::{Context, Result, ensure};
 use serde::Serialize;
 use std::{thread, time::Instant};
@@ -94,12 +94,18 @@ pub(crate) fn master_conflict<'a>(mut statuses: impl Iterator<Item = &'a Status>
 
 /// Check saved routes for a port status query without opening a client.
 pub fn validate_selection(profiles: &[Profile]) -> Result<Gateway> {
+    let gateway = profiles
+        .first()
+        .context("select at least one port profile")?
+        .connection
+        .gateway;
+    let max_port = usize::from(gateway.max_port());
     ensure!(
-        (1..=4).contains(&profiles.len()),
-        "select one to four port profiles"
+        profiles.len() <= max_port,
+        "select up to {max_port} port profiles for {}",
+        gateway.label()
     );
-    let gateway = profiles[0].connection.gateway;
-    let mut seen = [false; 4];
+    let mut seen = [false; MAX_PORTS];
     let mut origin = None;
     let mut firmware = None;
     for profile in profiles {
@@ -114,18 +120,18 @@ pub fn validate_selection(profiles: &[Profile]) -> Result<Gateway> {
         let port = &mut seen[usize::from(connection.port - 1)];
         ensure!(!*port, "port {} is listed more than once", connection.port);
         *port = true;
-        if gateway == Gateway::IfmAl1350 {
+        if let Some(model) = gateway.ifm_model() {
             let target = connection.origin()?;
             ensure!(
                 origin.as_ref().is_none_or(|origin| origin == &target),
-                "AL1350 port profiles must target the same configured origin"
+                "{model} port profiles must target the same configured origin"
             );
             origin = Some(target);
             if !connection.ifm_firmware.is_empty() {
                 let pin = connection.ifm_firmware.as_str();
                 ensure!(
                     firmware.is_none_or(|firmware| firmware == pin),
-                    "AL1350 port profiles have conflicting firmware pins"
+                    "{model} port profiles have conflicting firmware pins"
                 );
                 firmware = Some(pin);
             }
