@@ -213,6 +213,7 @@ pub(super) fn render(
                 "writes-boolean-output",
                 "device-advanced",
                 "mapping-editor",
+                "layout-condition",
                 "parameters-raw",
                 "parameters-selected-record",
                 "integration-mqtt",
@@ -267,6 +268,23 @@ pub(super) fn render(
                         if let Some((field, origin)) = app.profile.effective_fields().first() {
                             app.setup.edit_field((*field).clone(), *origin != "IODD");
                         }
+                    }
+                    "layout-condition" => {
+                        use iolink_workbench::transport::layout_condition::Plan;
+                        let xml = include_str!("../../../samples/sensor.xml").replace(
+                            r#"<ProcessData id="PD">"#,
+                            r#"<ProcessData id="PD"><Condition variableId="V_SIM_Threshold" value="1"/>"#,
+                        );
+                        let catalog = iodd::parse(&xml, "synthetic condition view".into())?;
+                        let (identity, imported) =
+                            catalog.select(Some("SIM-SENSOR"), Some("IN"))?;
+                        app.profile.apply_iodd(identity, imported);
+                        app.setup.sync(&app.profile);
+                        app.tab = Tab::Mappings;
+                        app.acyclic.store_result(
+                            Query::LayoutCondition(Plan::from_profile(&app.profile)?),
+                            Ok("Condition matched · expected 1 · observed 1".into()),
+                        );
                     }
                     "parameters-raw" => {
                         app.tab = Tab::Parameters;
@@ -655,6 +673,7 @@ pub(super) fn render(
                     Some("Invalid StringT (nonzero string padding follows the first NUL)")
                 }
                 "offline-temporal-input" => Some("1984-01-01 00:00:00.500 UTC"),
+                "layout-condition" => Some("Condition matched · expected 1 · observed 1"),
                 "acyclic-profile" => Some("Acyclic IODD layout"),
                 "offline-diagnostic-snapshot" => Some("37:0 · synthetic fixture reply unavailable"),
                 "offline-diagnostic-comparison" => Some("Slot 1 · E48DFE → 000000"),
@@ -756,7 +775,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 115);
+        assert_eq!(cases.len(), 116);
         assert!(
             cases
                 .iter()

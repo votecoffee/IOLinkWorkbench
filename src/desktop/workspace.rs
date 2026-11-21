@@ -243,7 +243,10 @@ impl App {
                 let changed = match self.tab {
                     Tab::Device if self.setup.page == setup::Page::Writes => { self.write_page(ui); false }
                     Tab::Device => self.setup.show(ui, &mut self.profile, &mut self.message, editable, &mut self.tab),
-                    Tab::Mappings => self.setup.show_mappings(ui, &mut self.profile, &mut self.message, editable),
+                    Tab::Mappings => {
+                        self.layout_condition_page(ui);
+                        self.setup.show_mappings(ui, &mut self.profile, &mut self.message, editable && !self.acyclic.busy())
+                    }
                     Tab::Inputs => { self.inputs(ui); false }
                     Tab::Logging => {
                         match self.workspace.logging {

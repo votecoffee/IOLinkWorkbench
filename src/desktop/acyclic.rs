@@ -1,6 +1,7 @@
 //! One explicit acyclic operation at a time, with results routed by request.
 use super::{App, WARNING, Worker, background, poll_worker};
-use eframe::egui::Ui;
+use eframe::egui::{self, Ui};
+use iolink_workbench::transport::layout_condition;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Kind {
@@ -8,6 +9,7 @@ pub(super) enum Kind {
     Raw,
     ProductId,
     Events,
+    LayoutCondition,
 }
 
 pub(super) enum Query {
@@ -19,6 +21,7 @@ pub(super) enum Query {
     Raw(u16, u8),
     ProductId(String),
     Events,
+    LayoutCondition(layout_condition::Plan),
 }
 
 impl Query {
@@ -28,6 +31,7 @@ impl Query {
             Self::Raw(..) => Kind::Raw,
             Self::ProductId(_) => Kind::ProductId,
             Self::Events => Kind::Events,
+            Self::LayoutCondition(_) => Kind::LayoutCondition,
         }
     }
 
@@ -43,6 +47,10 @@ impl Query {
                 format!("Product ID check · index 19:0 · expected {expected}")
             }
             Self::Events => "Device diagnostics · indexes 36:0 and 37:0".into(),
+            Self::LayoutCondition(plan) => format!(
+                "Layout {} · {} · index {}:{}",
+                plan.layout, plan.parameter_id, plan.index, plan.subindex
+            ),
         }
     }
 }
@@ -55,7 +63,7 @@ pub(super) struct Reading {
 #[derive(Default)]
 pub(super) struct Reads {
     pending: Option<(Query, Worker<String>)>,
-    latest: [Option<Reading>; 4],
+    latest: [Option<Reading>; 5],
 }
 
 impl Reads {
@@ -101,6 +109,49 @@ impl Reads {
 }
 
 impl App {
+    pub(super) fn layout_condition_page(&mut self, ui: &mut Ui) {
+        if self
+            .profile
+            .iodd
+            .as_ref()
+            .and_then(|import| import.condition.as_ref())
+            .is_none()
+        {
+            return;
+        }
+        egui::CollapsingHeader::new("Layout condition")
+            .default_open(true)
+            .show(ui, |ui| {
+                let plan = match layout_condition::Plan::from_profile(&self.profile) {
+                    Ok(plan) => plan,
+                    Err(error) => {
+                        ui.colored_label(WARNING, format!("{error:#}"));
+                        return;
+                    }
+                };
+                ui.label(format!(
+                    "{} · {} · ISDU {}:{}",
+                    plan.layout, plan.parameter_name, plan.index, plan.subindex
+                ));
+                ui.monospace(&plan.declaration);
+                let blocked = self.acyclic_block_reason();
+                let button =
+                    ui.add_enabled(blocked.is_none(), egui::Button::new("Read layout selector"));
+                if let Some(reason) = blocked {
+                    button.on_disabled_hover_text(reason);
+                } else if button.clicked() {
+                    let profile = self.profile.clone();
+                    self.start_acyclic(Query::LayoutCondition(plan), move || {
+                        Ok(layout_condition::read(&profile)?.text())
+                    });
+                }
+                self.acyclic_result(ui, Kind::LayoutCondition);
+                ui.small(
+                    "Review the reading before confirming the active condition in the mapping.",
+                );
+            });
+    }
+
     pub(super) fn acyclic_block_reason(&self) -> Option<&'static str> {
         if self.closing {
             Some("Application is closing")

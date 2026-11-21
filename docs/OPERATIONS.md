@@ -42,6 +42,19 @@ In Device → IODD import, select the IODD variant/layout and apply it. Effectiv
 
 Editing an imported name creates an override; removing it restores the imported definition. Removing a standalone field selected explicitly for CSV is rejected until the saved selection is reset. Do not guess scaling or units from an unfamiliar payload. Save unresolved fields for input and keep raw logging available.
 
+### Check a conditional layout
+
+Select the IODD layout in the profile. In **Mappings → Layout condition**, review the selector's ISDU index, subindex, and declared value. Use **Read layout selector** for one acyclic observation.
+
+```powershell
+iolink-cli check-layout profile.toml
+iolink-cli check-layout profile.toml --read
+```
+
+The first command resolves the selector offline. With `--read`, Workbench checks the configured connection and identity pins, reads the selector, and compares its unscaled Boolean or integer value with the IODD value. The report includes the observed port and identity, host read time, and raw reply. A mismatch or undecodable reply returns exit code 1 and keeps the report on stdout.
+
+The read uses the existing acyclic path and supports readable scalars and permitted individual subindexes. An unresolved selector or a prohibited read is reported before transport access. Before cyclic acquisition or live output review, use **Confirmed active condition on the device** after checking the layout on the device. The check works with existing profiles whose stored condition resolves to an imported parameter.
+
 ### Acyclic-only IODDs
 
 Select the acyclic-only layout in **Device → IODD import**. The CLI uses the ID of the empty `ProcessData` item with `import --layout ID`. The sole unconditional layout is selected automatically.

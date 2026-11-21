@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Instant;
 
 mod ifm;
+pub mod layout_condition;
 pub(crate) mod ports;
 mod simulator;
 

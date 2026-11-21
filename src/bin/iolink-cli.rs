@@ -183,6 +183,13 @@ enum Command {
         #[arg(long)]
         snapshot: Option<PathBuf>,
     },
+    /// Resolve the selected IODD layout condition offline or explicitly read its selector.
+    CheckLayout {
+        profile: PathBuf,
+        /// Read the resolved selector through the independent acyclic client.
+        #[arg(long)]
+        read: bool,
+    },
     /// Reopen a saved parameter snapshot offline, using its embedded profile.
     ReviewParameter { snapshot: PathBuf },
     /// Compare exact bytes, saved definitions, diagnostics and decoded values from two snapshots.
@@ -614,6 +621,24 @@ fn main() -> Result<()> {
                     toml::to_string_pretty(&transport::read_parameter_at(
                         &profile, &id, subindex
                     )?)?
+                );
+            }
+        }
+        Command::CheckLayout { profile, read } => {
+            use transport::layout_condition::{self, Outcome, Plan};
+            let profile = Profile::load(&profile)?;
+            if read {
+                let result = layout_condition::read(&profile)?;
+                print!("{}", toml::to_string_pretty(&result)?);
+                match result.outcome {
+                    Outcome::Matched => {}
+                    Outcome::Mismatch => anyhow::bail!("layout condition mismatch"),
+                    Outcome::Unavailable => anyhow::bail!("layout selector value unavailable"),
+                }
+            } else {
+                print!(
+                    "{}",
+                    toml::to_string_pretty(&Plan::from_profile(&profile)?)?
                 );
             }
         }
