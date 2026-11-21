@@ -249,7 +249,9 @@ pub(super) fn render(
                 "port-status-results",
                 "connection-dialog",
                 "connection-needs-endpoint",
+                "al1351-connection",
                 "al1352-connection",
+                "al1353-connection",
                 "connection-feed-settings",
             ] {
                 let mut app = App::new();
@@ -568,14 +570,18 @@ pub(super) fn render(
                         }
                     }
                     "connection-dialog" => app.workspace.connect_dialog = true,
-                    "connection-needs-endpoint" | "al1352-connection" => {
-                        app.profile = Profile::parse(if label == "al1352-connection" {
-                            include_str!("../../../samples/ifm-al1352.toml")
-                        } else {
-                            include_str!("../../../samples/ifm-al1350.toml")
+                    "connection-needs-endpoint"
+                    | "al1351-connection"
+                    | "al1352-connection"
+                    | "al1353-connection" => {
+                        app.profile = Profile::parse(match label {
+                            "al1351-connection" => include_str!("../../../samples/ifm-al1351.toml"),
+                            "al1352-connection" => include_str!("../../../samples/ifm-al1352.toml"),
+                            "al1353-connection" => include_str!("../../../samples/ifm-al1353.toml"),
+                            _ => include_str!("../../../samples/ifm-al1350.toml"),
                         })?;
-                        if label == "al1352-connection" {
-                            app.profile.connection.port = 8;
+                        if label != "connection-needs-endpoint" {
+                            app.profile.connection.port = app.profile.connection.gateway.max_port();
                             app.profile.connection.endpoint = "http://127.0.0.1:1".into();
                             app.profile.validate()?;
                         }
@@ -717,7 +723,9 @@ pub(super) fn render(
                 "acyclic-profile" => Some("Acyclic IODD layout"),
                 "offline-diagnostic-snapshot" => Some("37:0 · synthetic fixture reply unavailable"),
                 "offline-diagnostic-comparison" => Some("Wire slot positions"),
+                "al1351-connection" => Some("ifm AL1351 · http://127.0.0.1:1"),
                 "al1352-connection" => Some("ifm AL1352 · http://127.0.0.1:1"),
+                "al1353-connection" => Some("ifm AL1353 · http://127.0.0.1:1"),
                 "master-inspection" => Some("Port 8 · mode Disabled · Device identity unavailable"),
                 "offline-events" => Some(
                     "ErrorType 0x8011 · Standard device application error\nIndex is unavailable",
@@ -833,7 +841,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 120);
+        assert_eq!(cases.len(), 122);
         assert!(
             cases
                 .iter()

@@ -63,10 +63,8 @@ impl Profile {
     pub fn logging_plan(&self) -> Result<CapturePlan<'_>> {
         self.require_process_input()?;
         self.validate()?;
-        let snapshots = match self.connection.gateway {
-            Gateway::Simulator => self.connection.simulate_snapshots,
-            Gateway::IfmAl1350 | Gateway::IfmAl1352 => true,
-        };
+        let snapshots =
+            self.connection.gateway != Gateway::Simulator || self.connection.simulate_snapshots;
         let fields = self.effective_fields();
         let selected_fields = self
             .log_fields()

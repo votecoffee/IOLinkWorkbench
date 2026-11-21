@@ -132,7 +132,7 @@ fn open_client(profile: &Profile, simulate_faults: bool) -> Result<Box<dyn Input
             profile,
             simulate_faults,
         ))),
-        Gateway::IfmAl1350 | Gateway::IfmAl1352 => {
+        Gateway::IfmAl1350 | Gateway::IfmAl1351 | Gateway::IfmAl1352 | Gateway::IfmAl1353 => {
             Ok(Box::new(ifm::Client::new(&profile.connection)?))
         }
     }
@@ -147,7 +147,9 @@ pub fn read_isdu(profile: &Profile, index: u16, subindex: u8) -> Result<Vec<u8>>
 pub fn check_route(profile: &Profile) -> Result<()> {
     match profile.connection.gateway {
         Gateway::Simulator => Ok(()),
-        Gateway::IfmAl1350 | Gateway::IfmAl1352 => ifm::check_route(&profile.connection),
+        Gateway::IfmAl1350 | Gateway::IfmAl1351 | Gateway::IfmAl1352 | Gateway::IfmAl1353 => {
+            ifm::check_route(&profile.connection)
+        }
     }
 }
 
@@ -173,7 +175,7 @@ pub(crate) fn read_isdu_attempt(
             profile.expected_identity.verify(&status.identity)?;
             Ok((status, simulator::read_isdu(index, subindex)))
         }
-        Gateway::IfmAl1350 | Gateway::IfmAl1352 => {
+        Gateway::IfmAl1350 | Gateway::IfmAl1351 | Gateway::IfmAl1352 | Gateway::IfmAl1353 => {
             let mut client = ifm::Client::new(&profile.connection)?;
             let status = client.connect()?;
             profile.expected_identity.verify(&status.identity)?;

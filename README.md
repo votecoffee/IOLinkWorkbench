@@ -1,6 +1,6 @@
 # IOLinkWorkbench
 
-Read and log IO-Link devices from a portable Windows x64 desktop application or headless CLI. The application opens offline with a synthetic sensor. Hardware reads target the ifm AL1350 and AL1352 IoT Core HTTP(S) snapshot APIs.
+Read and log IO-Link devices from a portable Windows x64 desktop application or headless CLI. The application opens offline with a synthetic sensor. Hardware reads target the ifm AL1350, AL1351, AL1352 and AL1353 IoT Core HTTP(S) snapshot API.
 
 The GUI and CLI also support checked current-value reads and explicitly confirmed AL1350 writes. [Reviewed write operations](docs/WRITES.md)
 
@@ -225,7 +225,7 @@ These controls change local cyclic decoding only, with no gateway access, port c
 
 **Offline connection editing (0.27.0+).** **set-connection INPUT.toml OUTPUT.toml OPTIONS** updates only the saved **connection** table. At least one option is required. It preserves the IODD catalog/receipts, mappings and overrides, device identity pins, selected displays, CSV selection and logging settings. Input bytes, comments and formatting remain untouched. The output is a newly generated normalized TOML profile; source comments/formatting are not copied. Publication is atomic and refuses an existing destination, including the input path. Invalid settings leave both files intact.
 
-Options include **--gateway simulator|ifm-al1350|ifm-al1352**, **--endpoint URL**, **--port N**, **--firmware TEXT**, **--expected-mode N**, **--clear-expected-mode**, **--cycle-unit unknown|microseconds|milliseconds**, **--poll-us N**, **--timeout-ms N**, **--stale-us N**, **--reconnect-ms N**, and **--simulator-snapshots true|false**. The ifm gateway values in TOML are **ifm_al1350** and **ifm_al1352**. Endpoint and firmware text are trimmed. A nonblank ifm endpoint must be an HTTP(S) origin without a path, query, fragment or credentials, using the same check as the transport. Existing profile timing/port bounds apply. Empty endpoints are permitted for unfinished templates; saving a profile does not establish connection readiness or hardware acceptance. Switching gateways retains inactive connection fields; clearing mode/unit pins is explicit.
+Options include **--gateway simulator|ifm-al1350|ifm-al1351|ifm-al1352|ifm-al1353**, **--endpoint URL**, **--port N**, **--firmware TEXT**, **--expected-mode N**, **--clear-expected-mode**, **--cycle-unit unknown|microseconds|milliseconds**, **--poll-us N**, **--timeout-ms N**, **--stale-us N**, **--reconnect-ms N**, and **--simulator-snapshots true|false**. The ifm gateway values in TOML use underscores, for example **ifm_al1353**. Endpoint and firmware text are trimmed. A nonblank ifm endpoint must be an HTTP(S) origin without a path, query, fragment or credentials, using the same check as the transport. Existing profile timing/port bounds apply. Empty endpoints are permitted for unfinished templates; saving a profile does not establish connection readiness or hardware acceptance. Switching gateways retains inactive connection fields; clearing mode/unit pins is explicit.
 
 GUI and CLI edits perform no gateway access. Expected firmware/mode values are checks against the installed setup; cycle units require operator confirmation. They do not change firmware, port mode/configuration, ISDU parameters, commands or process outputs. A simulator freshness choice controls synthetic metadata only, and a requested poll interval does not establish the sensor/gateway update rate. Device-changing operations use the separate reviewed workflow in Device → Writes and the CLI. Profile and snapshot storage formats are unchanged, including older files containing incomplete routes. Headless tests cover complete and partial edits, malformed origins, value bounds, unchanged mappings/preferences, pending-draft gating, destination collisions, no-network execution, snapshots and cyclic capture; visible GUI interaction and the physical bench remain pending.
 
@@ -335,13 +335,21 @@ Monitoring and capture use documented data reads and explicitly requested ISDU r
 .\iolink-cli.exe capture .\.local\bench.toml .\.local\bench-run --seconds 30
 ~~~
 
-### AL1352 read-only setup
+### AL1351, AL1352 and AL1353 read-only setup
 
-Choose **Profiles… → Start a profile → ifm AL1352 read-only template** or copy [the AL1352 template](samples/ifm-al1352.toml). Enter the IoT endpoint and an existing IO-Link port from 1 through 8, then apply the sensor's IODD or manual mapping. The CLI uses `set-connection --gateway ifm-al1352` and TOML uses `ifm_al1352`. This route supports status, input capture, and explicit ISDU reads including diagnostics. [ifm AL1352 operating instructions for firmware 3.1.x](https://www.ifm.com/mounting/80284138UK.pdf)
+Under **Profiles… → Start a profile**, choose the matching read-only template or copy one of the sample files. Set the IoT Core origin and an existing IO-Link port, then apply the sensor's IODD or a manual mapping.
 
-The adapter checks the observed product code and obtains firmware from `swrevision` or `revision`. The template selects milliseconds for the port cycle per section 9.2.8. The portable app uses the same Windows HTTP and TLS runtime as its AL1350 route. Loopback tests cover the eight-port route. Physical qualification remains pending. [ifm AL1352 operating instructions](https://www.ifm.com/mounting/80284138UK.pdf)
+| Master | Ports | CLI gateway | Sample |
+| --- | --- | --- | --- |
+| AL1351 | 1–4 | `ifm-al1351` | [ifm-al1351.toml](samples/ifm-al1351.toml) |
+| AL1352 | 1–8 | `ifm-al1352` | [ifm-al1352.toml](samples/ifm-al1352.toml) |
+| AL1353 | 1–8 | `ifm-al1353` | [ifm-al1353.toml](samples/ifm-al1353.toml) |
 
-Use **status-ports PROFILE1 [PROFILE2 …]** to read status concurrently for up to four AL1350 or simulator ports, or up to eight AL1352 ports. Use one saved profile per distinct port. All ifm profiles in a batch must specify the same model, origin and compatible firmware pins. Each status includes its own host UTC finish time, elapsed duration, observed mode, identity check and available diagnostics. CLI output retains successful observations alongside failures and exits nonzero when a port check fails or master identifiers conflict. Use **status PROFILE --verify-product-id** for the explicit Product ID ISDU check.
+These routes support status, master inspection, input capture, and independent ISDU reads including diagnostics. Each checks the product code and observes firmware through `swrevision` or `revision`. They target the documented IoT Core 3.1.x requests and use the app's Windows HTTP/TLS runtime without a vendor SDK or LR Device installation. Loopback covers all ports. Installed firmware, security settings and physical behavior still need bench confirmation. [ifm AL1351 operating instructions](https://www.quicktimeonline.com/assets/images/pdf/IFM%20Electronic/operating-instruction-AL1351.pdf) · [ifm AL1352 operating instructions](https://www.ifm.com/mounting/80284138UK.pdf) · [ifm AL1353 operating instructions](https://www.quicktimeonline.com/assets/images/pdf/IFM%20Electronic/operating-instruction-AL1353.pdf)
+
+The AL1351 and AL1353 templates show the raw port cycle by default. Confirm the unit for the installed IoT Core endpoint before setting it in **Device → Connection** or with `--cycle-unit`. In both manuals section 9.2.8 labels the IoT Core point in milliseconds, and section 9.1.6 labels the LR Device display in microseconds. [ifm AL1351 operating instructions](https://www.quicktimeonline.com/assets/images/pdf/IFM%20Electronic/operating-instruction-AL1351.pdf) · [ifm AL1353 operating instructions](https://www.quicktimeonline.com/assets/images/pdf/IFM%20Electronic/operating-instruction-AL1353.pdf)
+
+Use **status-ports PROFILE1 [PROFILE2 …]** to read status concurrently for up to four AL1350, AL1351 or simulator ports, or up to eight AL1352 or AL1353 ports. Use one saved profile per distinct port. All ifm profiles in a batch must specify the same model, origin and compatible firmware pins. Each status includes its own host UTC finish time, elapsed duration, observed mode, identity check and available diagnostics. CLI output retains successful observations alongside failures and exits nonzero when a port check fails or master identifiers conflict. Use **status PROFILE --verify-product-id** for the explicit Product ID ISDU check.
 
 In the GUI, use **Logging → Multiple ports → Review profiles → Read port status**. The results show observed status or failure per port and include acyclic-only profiles. You can check status before setting a capture folder.
 
@@ -434,7 +442,7 @@ For a compact index of retained research, open [Research checkpoint](docs/RESEAR
 
 Build a portable ZIP from a clean checkout with **python tools/package_windows.py .local/dist**. Packaging checks the two PE subsystems and static C runtime imports, includes the dependency notices, and writes the archive SHA-256.
 
-Run **cargo test --locked**, **cargo clippy --locked --all-targets -- -D warnings**, and **python tools/verify_headless.py target/x86_64-pc-windows-msvc/release/iolink-cli.exe** after building. The headless suite covers synthetic source updates and AL1350 and AL1352 JSON fixtures on loopback. It keeps generated profiles, ZIP fixtures, reports and CSV under ignored **.local/**. Keep vendor IODDs, installed configuration, and raw bench captures there too.
+Run **cargo test --locked**, **cargo clippy --locked --all-targets -- -D warnings**, and **python tools/verify_headless.py target/x86_64-pc-windows-msvc/release/iolink-cli.exe** after building. The headless suite covers synthetic source updates and AL1350, AL1351, AL1352 and AL1353 JSON fixtures on loopback. It keeps generated profiles, ZIP fixtures, reports and CSV under ignored **.local/**. Keep vendor IODDs, installed configuration, and raw bench captures there too.
 
 Also run **python tools/verify_gui.py target/x86_64-pc-windows-msvc/release/iolink-workbench.exe --output .local/gui-release-check.json**, using a new output path. This exercises native OpenGL initialization and offscreen painting without desktop input or capture. The ordinary Cargo tests include in-memory view construction, worker denial and receipt preflight checks; they do not create native windows.
 

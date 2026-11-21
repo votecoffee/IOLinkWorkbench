@@ -17,7 +17,7 @@ const RESPONSE_LIMIT: u64 = 64 * 1024;
 const PRODUCT_CODE: &str = "/deviceinfo/productcode";
 const MASTER_SERIAL: &str = "/deviceinfo/serialnumber";
 const SOFTWARE_REVISION: &str = "/deviceinfo/swrevision";
-const AL1352_REVISION: &str = "/deviceinfo/revision";
+const REVISION: &str = "/deviceinfo/revision";
 
 pub(super) mod inspection;
 pub mod write;
@@ -71,10 +71,15 @@ impl Client {
             pinned_identity: None,
             model,
             route: match (settings.gateway, loopback) {
+                (Gateway::IfmAl1350, true) => "AL1350 loopback fixture",
+                (Gateway::IfmAl1350, false) => "AL1350 network endpoint",
+                (Gateway::IfmAl1351, true) => "AL1351 loopback fixture",
+                (Gateway::IfmAl1351, false) => "AL1351 network endpoint",
                 (Gateway::IfmAl1352, true) => "AL1352 loopback fixture",
                 (Gateway::IfmAl1352, false) => "AL1352 network endpoint",
-                (_, true) => "AL1350 loopback fixture",
-                (_, false) => "AL1350 network endpoint",
+                (Gateway::IfmAl1353, true) => "AL1353 loopback fixture",
+                (Gateway::IfmAl1353, false) => "AL1353 network endpoint",
+                (Gateway::Simulator, _) => unreachable!("requires an ifm model"),
             },
         })
     }
@@ -172,16 +177,16 @@ impl Client {
         let mut paths = [PRODUCT_CODE, SOFTWARE_REVISION, MASTER_SERIAL]
             .map(str::to_owned)
             .to_vec();
-        if self.settings.gateway == Gateway::IfmAl1352 {
-            // The manual lists swrevision in the deviceinfo profile and revision in §9.2.17.
-            paths.push(AL1352_REVISION.into());
+        if self.settings.gateway != Gateway::IfmAl1350 {
+            // The read-only models list swrevision in the deviceinfo profile and revision in §9.2.17.
+            paths.push(REVISION.into());
         }
         paths
     }
 
     fn firmware(&self, response: &Value) -> Option<String> {
-        if self.settings.gateway == Gateway::IfmAl1352 {
-            [SOFTWARE_REVISION, AL1352_REVISION]
+        if self.settings.gateway != Gateway::IfmAl1350 {
+            [SOFTWARE_REVISION, REVISION]
                 .into_iter()
                 .find_map(|path| {
                     Self::data(response, path)

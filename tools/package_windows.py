@@ -18,7 +18,7 @@ DOCS = ["README.md", "ROADMAP.md", "LICENSE", "AGENTS.md",
         "docs/WRITES.md",
         "docs/OPERATIONS.md", "docs/DEVELOPMENT.md", "docs/RESEARCH.md", "docs/GUI_WORKFLOW.md", "docs/INTERFACES.md", "docs/LOCAL_API.md", "docs/MQTT.md", "docs/SHARED_MEMORY.md", "docs/CAPTURE_REVIEW.md", "docs/GUI_LIFECYCLE.md", "docs/CLI_LIFECYCLE.md", "docs/LIVE_VIEW.md", "examples/shared_memory_reader.py",
         ".agents/skills/iolink-workbench/SKILL.md", "samples/simulator.toml", "samples/simulator-port2.toml",
-        "samples/ifm-al1350.toml", "samples/ifm-al1352.toml", "samples/raw-only.toml", "samples/redecode.toml", "samples/sensor.xml", "samples/sensor-formats.xml", "samples/sensor-record.xml", "samples/sensor-array.xml",
+        "samples/ifm-al1350.toml", "samples/ifm-al1351.toml", "samples/ifm-al1352.toml", "samples/ifm-al1353.toml", "samples/raw-only.toml", "samples/redecode.toml", "samples/sensor.xml", "samples/sensor-formats.xml", "samples/sensor-record.xml", "samples/sensor-array.xml",
         "samples/synthetic-standard-definitions.xml", "samples/synthetic-standard-definitions-de.xml", "samples/synthetic-value-standard-definitions.xml", "samples/sensor-standard-values.xml", "samples/sensor-defaults.xml", "samples/sensor-time.xml", "samples/sensor-strings.xml", "samples/sensor-values.xml", "samples/sensor-checksum.xml", "samples/sensor-checksum-de.xml", "samples/sensor-communication.xml", "samples/sensor-de.xml", "samples/synthetic-unit-definitions.xml"]
 NOTICE = re.compile(r"(^|[-_.])(licen[cs]e|copying|copyright|notice|ofl|ufl|unlicense)([-_.]|$)", re.I)
 UPSTREAM = {

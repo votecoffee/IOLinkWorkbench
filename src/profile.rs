@@ -75,7 +75,9 @@ pub enum Gateway {
     #[default]
     Simulator,
     IfmAl1350,
+    IfmAl1351,
     IfmAl1352,
+    IfmAl1353,
 }
 
 pub const MAX_PORTS: usize = 8;
@@ -83,8 +85,8 @@ pub const MAX_PORTS: usize = 8;
 impl Gateway {
     pub fn max_port(self) -> u8 {
         match self {
-            Self::Simulator | Self::IfmAl1350 => 4,
-            Self::IfmAl1352 => MAX_PORTS as u8,
+            Self::Simulator | Self::IfmAl1350 | Self::IfmAl1351 => 4,
+            Self::IfmAl1352 | Self::IfmAl1353 => MAX_PORTS as u8,
         }
     }
 
@@ -92,7 +94,9 @@ impl Gateway {
         match self {
             Self::Simulator => None,
             Self::IfmAl1350 => Some("AL1350"),
+            Self::IfmAl1351 => Some("AL1351"),
             Self::IfmAl1352 => Some("AL1352"),
+            Self::IfmAl1353 => Some("AL1353"),
         }
     }
 
@@ -100,7 +104,9 @@ impl Gateway {
         match self {
             Self::Simulator => "Offline simulator",
             Self::IfmAl1350 => "ifm AL1350",
+            Self::IfmAl1351 => "ifm AL1351",
             Self::IfmAl1352 => "ifm AL1352",
+            Self::IfmAl1353 => "ifm AL1353",
         }
     }
 }

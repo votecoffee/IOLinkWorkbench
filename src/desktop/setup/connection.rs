@@ -64,8 +64,13 @@ impl Form {
                 egui::ComboBox::from_id_salt("host-gateway")
                     .selected_text(self.draft.gateway.label())
                     .show_ui(ui, |ui| {
-                        for gateway in [Gateway::Simulator, Gateway::IfmAl1350, Gateway::IfmAl1352]
-                        {
+                        for gateway in [
+                            Gateway::Simulator,
+                            Gateway::IfmAl1350,
+                            Gateway::IfmAl1351,
+                            Gateway::IfmAl1352,
+                            Gateway::IfmAl1353,
+                        ] {
                             ui.selectable_value(&mut self.draft.gateway, gateway, gateway.label());
                         }
                     });

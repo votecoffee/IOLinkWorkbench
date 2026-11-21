@@ -916,12 +916,15 @@ def verify_standalone_input_capture(cli, profile, endpoint, output, field, metri
     assert profile.read_bytes() == input_profile
 
 
+IFM_PORT_COUNTS = {"AL1350": 4, "AL1351": 4, "AL1352": 8, "AL1353": 8}
+
+
 def verify_port_statuses_and_captures(cli, output):
     output.mkdir()
     source = (ROOT / "samples/simulator.toml").read_text(encoding="utf-8")
 
     def profile(name, port, origin=None, firmware=None, gateway="ifm_al1350"):
-        unit = "milliseconds" if gateway == "ifm_al1352" else "microseconds"
+        unit = "microseconds" if gateway == "ifm_al1350" else "milliseconds"
         endpoint = "" if origin is None else (
             f'endpoint = "{origin}"\nifm_mode = 3\nifm_cycle_unit = "{unit}"\n'
         )
@@ -930,7 +933,7 @@ def verify_port_statuses_and_captures(cli, output):
         contents = source.replace("port = 1\n", f"port = {port}\n{endpoint}timeout_ms = 4500\n")
         if origin is not None:
             contents = contents.replace('gateway = "simulator"', f'gateway = "{gateway}"')
-        if gateway == "ifm_al1352":
+        if origin is not None and gateway != "ifm_al1350":
             contents = contents.replace("poll_us = 1000", "poll_us = 20000")
         path = output / f"{name}.toml"
         path.write_text(contents, encoding="utf-8")
@@ -998,14 +1001,15 @@ def verify_port_statuses_and_captures(cli, output):
             request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             self.server.requests.append(request)
             assert self.path == "/"
-            if self.server.model == "AL1352" and request["adr"] == "/iolinkmaster/port[8]/iolinkdevice/iolreadacyclic":
+            read_only = self.server.model != "AL1350"
+            max_port = IFM_PORT_COUNTS[self.server.model]
+            if read_only and request["adr"] == f"/iolinkmaster/port[{max_port}]/iolinkdevice/iolreadacyclic":
                 index = request["data"]["index"]
                 assert request["data"]["subindex"] == 0 and index in (36, 37, 64)
                 self.respond(request, {"value": {36: "02", 37: "E48DFE000000", 64: "01F4"}[index]})
                 return
             assert request["adr"] == "/getdatamulti"
             paths = request["data"]["datatosend"]
-            max_port = 8 if self.server.model == "AL1352" else 4
             port = next(n for n in range(1, max_port + 1) if f"/iolinkmaster/port[{n}]/mode" in paths)
             prefix = f"/iolinkmaster/port[{port}]"
             pdin = prefix + "/iolinkdevice/pdin"
@@ -1020,8 +1024,7 @@ def verify_port_statuses_and_captures(cli, output):
             data[Gateway.port + "/iolinkdevice/deviceid"] = 2 if port == 3 else 1
             data[Gateway.port + "/mastercycletime_actual"] = 1200 * port
             data[Gateway.port + "/mode"] = 0 if port == 4 else 3
-            al1352 = self.server.model == "AL1352"
-            if al1352:
+            if read_only:
                 data["/deviceinfo/revision"] = data.pop("/deviceinfo/swrevision")
                 data[Gateway.port + "/iolinkdevice/deviceid"] = 1
                 data[Gateway.port + "/mastercycletime_actual"] = port
@@ -1029,12 +1032,12 @@ def verify_port_statuses_and_captures(cli, output):
             if port == self.server.different_master_port:
                 data["/deviceinfo/serialnumber"] = "OTHER-MASTER"
             allowed = {key.replace(Gateway.port, prefix): value for key, value in data.items()}
-            allowed[pdin] = f"{port:04X}" if al1352 else {1: "0002", 2: "0005", 3: "0006", 4: "0009"}[port]
+            allowed[pdin] = f"{port:04X}" if read_only else {1: "0002", 2: "0005", 3: "0006", 4: "0009"}[port]
             values = {}
             for key in paths:
-                if al1352 and key == "/deviceinfo/swrevision":
+                if read_only and key == "/deviceinfo/swrevision":
                     values[key] = {"code": 503}
-                elif al1352 and port == 8 and key == pdin and not self.server.invalid_seen:
+                elif read_only and port == max_port and key == pdin and not self.server.invalid_seen:
                     values[key] = {"code": 530}
                     self.server.invalid_seen = True
                 else:
@@ -1134,50 +1137,58 @@ def verify_port_statuses_and_captures(cli, output):
             for entry in batch["ports"]:
                 port_capture(destination, entry)
 
-            server.model = "AL1352"
             server.different_master_port = None
-            new_ports = [profile(f"al1352-{port}", port, host, "3.1.42", "ifm_al1352")
-                         for port in range(1, 9)]
-            ninth = profile("al1352-9", 9, host, "3.1.42", "ifm_al1352")
-            before = len(server.requests)
-            run(cli, "status-ports", ninth, expected=1)
-            run(cli, "status-ports", new_ports[0], ports[1], expected=1)
-            assert len(server.requests) == before
-            run(cli, "status", ports[0], expected=1)
-            assert len(server.requests) == before + 1
-            report = tomllib.loads(run(cli, "status-ports", *reversed(new_ports)))
-            assert report["gateway"] == "ifm_al1352" and not report["observed_master_conflict"]
-            assert [entry["port"] for entry in report["ports"]] == list(range(8, 0, -1))
-            for entry in report["ports"]:
-                status = entry["status"]
-                assert status["route"] == "AL1352 loopback fixture" and status["firmware"] == "3.1.42"
-                assert status["port_cycle_us"] == 1000 * entry["port"] and status["freshness"] == "snapshots"
+            for model, max_port in IFM_PORT_COUNTS.items():
+                if model == "AL1350":
+                    continue
+                name = model.lower()
+                gateway = f"ifm_{name}"
+                server.model = model
+                server.invalid_seen = False
+                new_ports = [profile(f"{name}-{port}", port, host, "3.1.42", gateway)
+                             for port in range(1, max_port + 1)]
+                out_of_range = profile(f"{name}-out-of-range", max_port + 1, host, "3.1.42", gateway)
+                before = len(server.requests)
+                run(cli, "status-ports", out_of_range, expected=1)
+                run(cli, "status-ports", new_ports[0], ports[1], expected=1)
+                assert len(server.requests) == before
+                other_model = "ifm_al1351" if gateway == "ifm_al1353" else "ifm_al1353"
+                wrong_model = profile(f"{name}-wrong-model", 1, host, "3.1.42", other_model)
+                run(cli, "status", wrong_model, expected=1)
+                assert len(server.requests) == before + 1
+                report = tomllib.loads(run(cli, "status-ports", *reversed(new_ports)))
+                assert report["gateway"] == gateway and not report["observed_master_conflict"]
+                assert [entry["port"] for entry in report["ports"]] == list(range(max_port, 0, -1))
+                for entry in report["ports"]:
+                    status = entry["status"]
+                    assert status["route"] == f"{model} loopback fixture" and status["firmware"] == "3.1.42"
+                    assert status["port_cycle_us"] == 1000 * entry["port"] and status["freshness"] == "snapshots"
 
-            before = len(server.requests)
-            run(cli, "write", new_ports[-1], "--master-serial", "FIXTURE-MASTER",
-                "isdu", "--index", 64, "--expected", "01F4", "--desired", "01F5", expected=1)
-            run(cli, "read-current", new_ports[-1], "--master-serial", "FIXTURE-MASTER", "port-mode", expected=1)
-            assert len(server.requests) == before
-            assert "01F4" in run(cli, "isdu", new_ports[-1], 64)
-            snapshot = output / "al1352-port8-diagnostics.json"
-            result = tomllib.loads(run(cli, "read-diagnostics", new_ports[-1], "--snapshot", snapshot))
-            assert result["device_status"]["value"] == 2 and result["detailed_status"]["raw_hex"] == "E48DFE000000"
-            before = len(server.requests)
-            saved = tomllib.loads(run(cli, "review-diagnostics", snapshot))
-            assert saved["reads"][1]["observation"]["port"] == 8 and len(server.requests) == before
+                before = len(server.requests)
+                run(cli, "write", new_ports[-1], "--master-serial", "FIXTURE-MASTER",
+                    "isdu", "--index", 64, "--expected", "01F4", "--desired", "01F5", expected=1)
+                run(cli, "read-current", new_ports[-1], "--master-serial", "FIXTURE-MASTER", "port-mode", expected=1)
+                assert len(server.requests) == before
+                assert "01F4" in run(cli, "isdu", new_ports[-1], 64)
+                snapshot = output / f"{name}-port{max_port}-diagnostics.json"
+                result = tomllib.loads(run(cli, "read-diagnostics", new_ports[-1], "--snapshot", snapshot))
+                assert result["device_status"]["value"] == 2 and result["detailed_status"]["raw_hex"] == "E48DFE000000"
+                before = len(server.requests)
+                saved = tomllib.loads(run(cli, "review-diagnostics", snapshot))
+                assert saved["reads"][1]["observation"]["port"] == max_port and len(server.requests) == before
 
-            destination = output / "al1352-set"
-            batch = capture_set(destination, new_ports, 0, "--seconds", ".9")
-            assert batch["gateway"] == "ifm_al1352" and len(batch["ports"]) == 8
-            for entry in batch["ports"]:
-                report, rows = port_capture(destination, entry)
-                assert rows and report["source_update_loss"] == "unknown"
-                assert report["last_status"]["port_cycle_us"] == 1000 * entry["port"]
-                assert all(row["row_kind"] == "host_poll" and not row["source_counter"] for row in rows)
-                valid = {row["raw_hex"] for row in rows if row["validity"] == "valid"}
-                assert valid == {f"{entry['port']:04X}"}
-                if entry["port"] == 8:
-                    assert report["counts"]["invalid"] == 1
+                destination = output / f"{name}-set"
+                batch = capture_set(destination, new_ports, 0, "--seconds", ".9")
+                assert batch["gateway"] == gateway and len(batch["ports"]) == max_port
+                for entry in batch["ports"]:
+                    report, rows = port_capture(destination, entry)
+                    assert rows and report["source_update_loss"] == "unknown"
+                    assert report["last_status"]["port_cycle_us"] == 1000 * entry["port"]
+                    assert all(row["row_kind"] == "host_poll" and not row["source_counter"] for row in rows)
+                    valid = {row["raw_hex"] for row in rows if row["validity"] == "valid"}
+                    assert valid == {f"{entry['port']:04X}"}
+                    if entry["port"] == max_port:
+                        assert report["counts"]["invalid"] == 1
         finally:
             server.shutdown()
             worker.join()
@@ -1208,11 +1219,11 @@ def verify_master_inspection(cli, output):
             paths = request["data"]["datatosend"]
             checking_ports = any(path.startswith("/iolinkmaster/") for path in paths)
             self.server.requests.append(checking_ports)
-            al1352 = self.server.model == "AL1352"
-            max_port = 8 if al1352 else 4
+            revision_alias = self.server.model != "AL1350"
+            max_port = IFM_PORT_COUNTS[self.server.model]
             data = dict(master_points)
             data["/deviceinfo/productcode"] = self.server.model
-            if al1352:
+            if revision_alias:
                 data["/deviceinfo/revision"] = data.pop("/deviceinfo/swrevision")
             values = {}
             for path in paths:
@@ -1221,7 +1232,7 @@ def verify_master_inspection(cli, output):
                     if path == "/deviceinfo/serialnumber" and checking_ports and self.server.changed_serial:
                         value = "CHANGED-MASTER"
                     values[path] = {"code": 200, "data": value}
-                elif al1352 and path == "/deviceinfo/swrevision":
+                elif revision_alias and path == "/deviceinfo/swrevision":
                     values[path] = {"code": 503}
                 else:
                     prefix, point = path.split("]/", 1)
@@ -1234,7 +1245,7 @@ def verify_master_inspection(cli, output):
                         values[path.lstrip("/")] = {"code": 503}
                     else:
                         value = port_points[point]
-                        if point == "mastercycletime_actual" and al1352:
+                        if point == "mastercycletime_actual" and revision_alias:
                             value = 2
                         if port == 2 and point == "mode":
                             value = "Disabled"
@@ -1255,13 +1266,20 @@ def verify_master_inspection(cli, output):
         worker = threading.Thread(target=server.serve_forever)
         worker.start()
         try:
-            for model, length, expected_cycle in (("AL1350", 4, 1200), ("AL1352", 8, 2000)):
+            for model, length in IFM_PORT_COUNTS.items():
                 server.model = model
+                expected_cycle = 1200 if model == "AL1350" else 2000
                 name = f"ifm-{model.lower()}"
                 route = output / f"{name}.toml"
                 template = ROOT / "samples" / f"{name}.toml"
-                unit = "microseconds" if length == 4 else "milliseconds"
-                run(cli, "set-connection", template, route, "--endpoint", endpoint,
+                if model in ("AL1351", "AL1353"):
+                    unconverted = output / f"{name}-raw-cycle.toml"
+                    run(cli, "set-connection", template, unconverted, "--endpoint", endpoint)
+                    raw = tomllib.loads(run(cli, "inspect-master", unconverted))
+                    assert raw["ports"][-1]["port_cycle_raw"] == "2"
+                    assert "port_cycle_us" not in raw["ports"][-1]
+                unit = "microseconds" if model == "AL1350" else "milliseconds"
+                run(cli, "set-connection", template, route, "--gateway", name, "--endpoint", endpoint,
                     "--port", length, "--cycle-unit", unit, "--firmware", "3.1.42")
                 pinned = route.read_bytes()
                 before = len(server.requests)
@@ -1283,7 +1301,7 @@ def verify_master_inspection(cli, output):
 
             before = len(server.requests)
             mismatch = tomllib.loads(run(cli, "inspect-master", output / "ifm-al1350.toml", expected=1))
-            assert mismatch["master"]["model"] == "AL1352" and mismatch["ports"] == []
+            assert mismatch["master"]["model"] == "AL1353" and mismatch["ports"] == []
             assert "expected master AL1350" in mismatch["error"] and server.requests[before:] == [False]
             before = len(server.requests)
             wrong_firmware = output / "wrong-firmware.toml"
@@ -2900,7 +2918,7 @@ kind = "bool"
 
     print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state names with Boolean CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
-          "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1352 status and capture across eight ports, one-shot ifm master inspection with unavailable port metadata, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
+          "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1351, AL1352 and AL1353 status, ISDU and capture across all ports, one-shot ifm master inspection with unavailable port metadata, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
 
 

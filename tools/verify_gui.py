@@ -66,11 +66,11 @@ def verify(gui, output):
         "device-advanced", "mapping-editor", "layout-condition", "layout-condition-whole", "parameters-raw", "parameters-selected-record",
         "integration-mqtt", "integration-shared-memory", "diagnostics-timing", "master-inspection", "diagnostics-events",
         "offline-compare", "offline-signal", "offline-raw-signal", "offline-exports", "offline-process", "offline-process-output", "offline-padded-input", "offline-boolean-input", "offline-octet-input", "offline-text-input", "offline-temporal-input", "acyclic-profile", "offline-parameter", "offline-snapshot", "offline-events", "offline-diagnostic-snapshot", "offline-diagnostic-comparison",
-        "profiles-dialog", "profiles-files", "drop-preview", "drop-saved-preview", "latest-recording", "port-capture-review", "port-capture-results", "port-status-results", "connection-dialog", "connection-needs-endpoint", "al1352-connection", "connection-feed-settings"))
+        "profiles-dialog", "profiles-files", "drop-preview", "drop-saved-preview", "latest-recording", "port-capture-review", "port-capture-results", "port-status-results", "connection-dialog", "connection-needs-endpoint", "al1351-connection", "al1352-connection", "al1353-connection", "connection-feed-settings"))
     expected.update((name, "Inputs") for name in OBSERVATIONS)
     expected.add(("observation-copied-snapshot", "Process bytes"))
     expected.add(("time", "writes-time-review"))
-    assert len(cases) == len(expected) == 120 and {(case["profile"], case["tab"]) for case in cases} == expected
+    assert len(cases) == len(expected) == 122 and {(case["profile"], case["tab"]) for case in cases} == expected
     for case in cases:
         assert case["passes"] == 2 and case["shapes"] > 0 and case["meshes"] > 0 and case["triangles"] > 0
         assert (case["width"], case["height"]) == (1130, 790)

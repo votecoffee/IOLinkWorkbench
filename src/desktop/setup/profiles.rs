@@ -17,7 +17,9 @@ pub(super) enum Starter {
     Simulator,
     RawSimulator,
     Al1350,
+    Al1351,
     Al1352,
+    Al1353,
 }
 
 impl Starter {
@@ -26,7 +28,9 @@ impl Starter {
             Self::Simulator => include_str!("../../../samples/simulator.toml"),
             Self::RawSimulator => include_str!("../../../samples/raw-only.toml"),
             Self::Al1350 => include_str!("../../../samples/ifm-al1350.toml"),
+            Self::Al1351 => include_str!("../../../samples/ifm-al1351.toml"),
             Self::Al1352 => include_str!("../../../samples/ifm-al1352.toml"),
+            Self::Al1353 => include_str!("../../../samples/ifm-al1353.toml"),
         })
         .expect("validated bundled profile")
     }
@@ -65,7 +69,11 @@ impl Editor {
                 ui.radio_value(&mut self.starter, Starter::Simulator, "Simulator with typed values");
                 ui.radio_value(&mut self.starter, Starter::RawSimulator, "Simulator with raw-only CSV");
                 ui.radio_value(&mut self.starter, Starter::Al1350, "ifm AL1350 setup template");
-                ui.radio_value(&mut self.starter, Starter::Al1352, "ifm AL1352 read-only template");
+                ui.horizontal_wrapped(|ui| {
+                    ui.radio_value(&mut self.starter, Starter::Al1351, "ifm AL1351 read-only template");
+                    ui.radio_value(&mut self.starter, Starter::Al1352, "ifm AL1352 read-only template");
+                    ui.radio_value(&mut self.starter, Starter::Al1353, "ifm AL1353 read-only template");
+                });
                 ui.separator();
                 match self.starter {
                     Starter::Simulator => {
@@ -74,7 +82,7 @@ impl Editor {
                     Starter::RawSimulator => {
                         ui.label("The same synthetic input with raw-only CSV. Mappings stay available for preview and later re-decoding.");
                     }
-                    Starter::Al1350 | Starter::Al1352 => {
+                    Starter::Al1350 | Starter::Al1351 | Starter::Al1352 | Starter::Al1353 => {
                         ui.label("An incomplete HTTP snapshot template, with no endpoint or identity pins. Set the actual host route, input width and sensor mapping before reading.");
                         ui.small("Confirm the installed model and firmware before bench use. Snapshot rows are host polls with unknown source freshness and loss.");
                     }
