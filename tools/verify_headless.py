@@ -92,7 +92,8 @@ class Gateway(BaseHTTPRequestHandler):
                 # Documented examples use both styles of path key.
                 response["data"][path if self.polls % 2 else path.lstrip("/")] = result
         elif address == self.device + "/iolreadacyclic" and request["data"] in (
-                {"index": 13, "subindex": 0}, {"index": 19, "subindex": 0}, {"index": 36, "subindex": 0}, {"index": 37, "subindex": 0}, {"index": 48, "subindex": 0}, {"index": 64, "subindex": 0}, {"index": 65, "subindex": 0},
+                *({"index": index, "subindex": 0} for index in (13, 14, 15)),
+                {"index": 19, "subindex": 0}, {"index": 36, "subindex": 0}, {"index": 37, "subindex": 0}, {"index": 48, "subindex": 0}, {"index": 64, "subindex": 0}, {"index": 65, "subindex": 0},
                 *({"index": 66, "subindex": subindex} for subindex in range(5)),
                 *({"index": 67, "subindex": subindex} for subindex in range(8)),
                 {"index": 71, "subindex": 0}, {"index": 72, "subindex": 0},
@@ -109,7 +110,8 @@ class Gateway(BaseHTTPRequestHandler):
                 if not self.parameter_release.wait(timeout=3):
                     response["code"] = 500
             response["data"] = {"value": {
-                (13, 0): "40008000FFFF", (19, 0): "53494D2D53454E534F52", (48, 0): "2A", (64, 0): self.threshold_payload, (65, 0): "666978747572652073656E736F72",
+                (13, 0): "40008000FFFF", (14, 0): "010100030F01", (15, 0): "010200020302",
+                (19, 0): "53494D2D53454E534F52", (48, 0): "2A", (64, 0): self.threshold_payload, (65, 0): "666978747572652073656E736F72",
                 (36, 0): "02", (37, 0): self.detailed_payload,
                 (66, 0): self.record_payload, (66, 1): "FFEC", (66, 2): "01", (66, 3): "0A", (66, 4): "54455354",
                 (67, 0): self.array_payload, (67, 1): "02", (67, 2): "FC", (67, 3): "04", (67, 4): "F9", (67, 5): "05", (67, 6): "FF", (67, 7): "00",
@@ -2738,6 +2740,99 @@ def verify_profile_characteristic_loopback(cli, profile, endpoint, output):
     assert compared["status"] == "match" and Gateway.requests == before
 
 
+def verify_process_descriptors(cli, output):
+    output.mkdir()
+    saved = ROOT / "samples/sensor.xml"
+    xml = saved.read_text(encoding="utf-8")
+    input_decl = '<ProcessDataIn id="IN" bitLength="16"><DatatypeRef datatypeId="PD"/></ProcessDataIn>'
+    output_decl = (
+        '<ProcessDataOut id="OUT" bitLength="8"><Datatype xsi:type="RecordT" bitLength="8">'
+        '<RecordItem subindex="1" bitOffset="0"><SimpleDatatype xsi:type="BooleanT"/></RecordItem>'
+        '<RecordItem subindex="2" bitOffset="1"><SimpleDatatype xsi:type="BooleanT"/></RecordItem>'
+        '<RecordItem subindex="3" bitOffset="2"><SimpleDatatype xsi:type="UIntegerT" bitLength="3"/></RecordItem>'
+        '</Datatype></ProcessDataOut>'
+    )
+    assert xml.count(input_decl) == 1
+    source = output / "descriptors.xml"
+    source.write_text(xml.replace(input_decl, input_decl + output_decl), encoding="utf-8")
+    profile = output / "descriptors.toml"
+    run(cli, "import", source, profile, "--variant", "SIM-SENSOR")
+    pinned = profile.read_bytes()
+    before = Gateway.requests
+
+    def check(direction, payload, status, selected=profile):
+        args = ["decode-process-descriptor", direction, payload]
+        if selected is not None:
+            args.extend(["--profile", selected])
+        report = tomllib.loads(run(cli, *args, expected=0 if status in {"match", "no_iodd"} else 1))
+        assert report["status"] == status and report["raw_hex"] == payload.replace(" ", "")
+        assert report["index"] == (14 if direction == "input" else 15) and report["subindex"] == 0
+        return report
+
+    matched = check("input", "010100 030F01", "match")
+    assert matched["comparison"]["layout_id"] == "IN" and matched["comparison"]["payload_bytes"] == 2
+    assert [(entry["datatype_code"], entry["bits"], entry["bit_offset"]) for entry in matched["entries"]] == [
+        (1, 1, 0), (3, 15, 1),
+    ]
+    grouped = check("output", "010200 020302", "match")
+    assert grouped["comparison"]["layout_id"] == "OUT"
+    assert [field["status"] for field in grouped["comparison"]["fields"]] == ["Match"] * 3
+    check("output", "010100 010101 020302", "match")
+    check("input", "010100 020F01", "different")
+    check("input", "010100", "different")
+    outside = check("input", "010100 030F01 020110", "different")
+    assert outside["comparison"]["outside_payload_entries"] == [3]
+    unknown = check("input", "010100 800F01", "partial")
+    assert unknown["entries"][1]["datatype"] == "Profile-specific datatype"
+    gap = check("output", "010200 020302 020305", "partial")
+    assert gap["comparison"]["partly_or_wholly_unmapped_entries"] == [3]
+    assert check("input", "000000", "no_iodd", selected=None)["entries"][0]["bits"] == 256
+    assert check("output", "", "no_iodd", selected=None)["entries"] == []
+    for payload, review in (
+        ("01010003", "complete three-byte"),
+        ("030F01010100", "ascending offset order"),
+        ("010200030F01", "overlaps"),
+        ("0202FF", "past bit 255"),
+    ):
+        invalid = check("input", payload, "invalid_reply")
+        assert any(review in issue for issue in invalid["review"]) and "comparison" not in invalid
+    check("output", "", "different")
+
+    manual = output / "host-override.toml"
+    run(cli, "set-field", profile, manual, "level [1]", "--kind", "unsigned")
+    assert check("input", "010100030F01", "match", manual)["comparison"] == matched["comparison"]
+    no_output = output / "no-output.toml"
+    run(cli, "import", saved, no_output, "--variant", "SIM-SENSOR")
+    assert check("output", "", "match", no_output)["comparison"]["payload_bytes"] == 0
+
+    boolean_xml = output / "boolean.xml"
+    boolean_xml.write_text(xml.replace(
+        input_decl, '<ProcessDataIn id="IN" bitLength="1"><Datatype xsi:type="BooleanT"/></ProcessDataIn>',
+    ), encoding="utf-8")
+    boolean = output / "boolean.toml"
+    run(cli, "import", boolean_xml, boolean, "--variant", "SIM-SENSOR")
+    assert check("input", "010100", "partial", boolean)["comparison"]["fields"][0]["status"] == (
+        "Standalone Boolean width needs review"
+    )
+    assert profile.read_bytes() == pinned and Gateway.requests == before
+    return profile
+
+
+def verify_process_descriptor_loopback(cli, profile, endpoint, output):
+    output.mkdir()
+    loopback = output / "loopback.toml"
+    run(cli, "set-connection", profile, loopback, "--gateway", "ifm-al1350", "--endpoint", endpoint,
+        "--expected-mode", "3", "--firmware", "3.1.42")
+    reads = Gateway.isdu_reads
+    for index, direction, expected in [(14, "input", "010100030F01"), (15, "output", "010200020302")]:
+        raw = tomllib.loads(run(cli, "isdu", loopback, index, 0))
+        assert raw == {"hex": expected, "utf8": bytes.fromhex(expected).decode()}
+        before = Gateway.requests
+        comparison = tomllib.loads(run(cli, "decode-process-descriptor", direction, raw["hex"], "--profile", loopback))
+        assert comparison["status"] == "match" and Gateway.requests == before
+    assert Gateway.isdu_reads == reads + 2
+
+
 def verify_communication(cli, output):
     output.mkdir()
     xml = ROOT / "samples/sensor-communication.xml"
@@ -2966,6 +3061,7 @@ def main():
     communication_profile = verify_communication(cli, scratch / "communication")
     features_profile = verify_iodd_features(cli, scratch / "iodd-features")
     verify_profile_characteristic(cli, features_profile, scratch / "profile-characteristic")
+    descriptor_profile = verify_process_descriptors(cli, scratch / "process-descriptors")
     standard_range_profile = verify_standard_ranges(cli, scratch / "standard-ranges")
     verify_error_types(cli, scratch / "error-types")
     verify_defaults(cli, scratch / "defaults")
@@ -3290,6 +3386,7 @@ kind = "bool"
             verify_cycle_capture(cli, cycle_fixture, scratch / "ifm-cycle", 1200, snapshots=True)
             endpoint = f"http://127.0.0.1:{server.server_port}"
             verify_profile_characteristic_loopback(cli, features_profile, endpoint, scratch / "ifm-profile-characteristic")
+            verify_process_descriptor_loopback(cli, descriptor_profile, endpoint, scratch / "ifm-process-descriptors")
             verify_standalone_input_capture(
                 cli, padded_input_profile, endpoint, scratch / "ifm-padded-input", "integer",
                 "noncanonical_input_padding_rows",
@@ -3414,7 +3511,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1351, AL1352 and AL1353 status, ISDU and capture across all ports, one-shot ifm master inspection with supply diagnostics, read-only port configuration and offline snapshot review and comparison, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")

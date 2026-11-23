@@ -245,6 +245,7 @@ pub(super) fn render(
                 "acyclic-profile",
                 "offline-parameter",
                 "offline-profile-ids",
+                "offline-process-descriptor",
                 "offline-snapshot",
                 "offline-events",
                 "offline-master-snapshot",
@@ -572,6 +573,18 @@ pub(super) fn render(
                         app.setup.sync(&app.profile);
                         app.tab = Tab::Mappings;
                     }
+                    "offline-process-descriptor" => {
+                        let catalog = iodd::parse(
+                            include_str!("../../../samples/sensor.xml"),
+                            "synthetic process descriptor view".into(),
+                        )?;
+                        let (identity, imported) = catalog.select(Some("SIM-SENSOR"), None)?;
+                        app.profile.apply_iodd(identity, imported);
+                        app.setup.sync(&app.profile);
+                        app.tab = Tab::Offline;
+                        app.workspace.offline = OfflinePage::Parameter;
+                        app.offline_parameter.process_descriptor_payload = "010100030F01".into();
+                    }
                     "offline-parameter" => {
                         app.tab = Tab::Offline;
                         app.workspace.offline = OfflinePage::Parameter;
@@ -793,6 +806,9 @@ pub(super) fn render(
                 "offline-boolean-input" => Some(
                     "Standalone Boolean input has a noncanonical byte. The IODD interprets any nonzero byte as true.",
                 ),
+                "offline-process-descriptor" => Some(
+                    "Descriptor matches mapped IODD fields\nRaw reply · 010100030F01\n1 · Set of BooleanT (0x01) · 1 bits at bit 0\n2 · IntegerT (0x03) · 15 bits at bit 1\nSelected IODD layout · IN · 2 bytes\nlevel [1] · IntegerT · 15 bits at bit 1 · Match\nswitch [2] · Set of BooleanT · 1 bits at bit 0 · Match",
+                ),
                 "offline-profile-ids" => Some(
                     "Profile IDs match the IODD\nRaw reply · 40008000\nIODD profile IDs · 0x4000 (16384), 0x8000 (32768)\nReply profile IDs · 0x4000 (16384), 0x8000 (32768)",
                 ),
@@ -946,7 +962,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 129);
+        assert_eq!(cases.len(), 130);
         assert!(
             cases
                 .iter()

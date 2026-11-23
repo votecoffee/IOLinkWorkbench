@@ -179,6 +179,14 @@ enum Command {
         #[arg(long)]
         profile: Option<PathBuf>,
     },
+    /// Compare a recorded process data descriptor (14:0 or 15:0) with an optional IODD.
+    DecodeProcessDescriptor {
+        #[arg(value_enum)]
+        direction: ProcessDescriptorDirection,
+        payload: String,
+        #[arg(long)]
+        profile: Option<PathBuf>,
+    },
     /// Compare a recorded whole ProfileCharacteristic (13:0) reply with an optional IODD.
     DecodeProfileCharacteristic {
         payload: String,
@@ -369,6 +377,12 @@ fn interruptible_stop() -> Result<Stop> {
     let interrupt = stop.clone();
     ctrlc::set_handler(move || interrupt.request())?;
     Ok(stop)
+}
+
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum ProcessDescriptorDirection {
+    Input,
+    Output,
 }
 
 fn main() -> Result<()> {
@@ -598,6 +612,28 @@ fn main() -> Result<()> {
             let bytes = decode::parse_hex_bounded(&payload, 2)?;
             let report = diagnostics::decode_error_type(profile.as_ref(), &bytes)?;
             print!("{}", toml::to_string_pretty(&report)?);
+        }
+        Command::DecodeProcessDescriptor {
+            direction,
+            payload,
+            profile,
+        } => {
+            use diagnostics::{DescriptorDirection, DescriptorStatus};
+            let direction = match direction {
+                ProcessDescriptorDirection::Input => DescriptorDirection::Input,
+                ProcessDescriptorDirection::Output => DescriptorDirection::Output,
+            };
+            let profile = profile.as_deref().map(Profile::load).transpose()?;
+            let report =
+                diagnostics::decode_process_descriptor(direction, profile.as_ref(), &payload)?;
+            print!("{}", toml::to_string_pretty(&report)?);
+            ensure!(
+                matches!(
+                    report.status,
+                    DescriptorStatus::Match | DescriptorStatus::NoIodd
+                ),
+                "Process descriptor needs review. See the report above."
+            );
         }
         Command::DecodeProfileCharacteristic { payload, profile } => {
             use diagnostics::ProfileCharacteristicStatus;
@@ -921,10 +957,16 @@ fn main() -> Result<()> {
             subindex,
         } => {
             let bytes = transport::read_isdu(&Profile::load(&profile)?, index, subindex)?;
-            println!("hex = {:?}", decode::hex(&bytes));
-            if let Ok(text) = std::str::from_utf8(&bytes) {
-                println!("utf8 = {text:?}");
+            #[derive(serde::Serialize)]
+            struct RawReply<'a> {
+                hex: String,
+                utf8: Option<&'a str>,
             }
+            let reply = RawReply {
+                hex: decode::hex(&bytes),
+                utf8: std::str::from_utf8(&bytes).ok(),
+            };
+            print!("{}", toml::to_string_pretty(&reply)?);
         }
         Command::CapturePorts {
             output,

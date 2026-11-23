@@ -471,6 +471,9 @@ pub struct Offline {
     pub(super) picker: Picker,
     payload: String,
     pub(super) profile_characteristic_payload: String,
+    pub(super) process_descriptor_payload: String,
+    descriptor_direction: diagnostics::DescriptorDirection,
+    empty_descriptor: bool,
 }
 
 impl Offline {
@@ -495,6 +498,49 @@ impl Offline {
                 match diagnostics::decode_profile_characteristic(
                     Some(profile),
                     &self.profile_characteristic_payload,
+                ) {
+                    Ok(report) => {
+                        ui.label(report.text());
+                    }
+                    Err(error) => {
+                        ui.colored_label(WARNING, error.to_string());
+                    }
+                }
+            }
+        });
+        ui.collapsing("Process data descriptors (14:0 / 15:0)", |ui| {
+            use diagnostics::DescriptorDirection;
+            ui.horizontal_wrapped(|ui| {
+                ui.selectable_value(
+                    &mut self.descriptor_direction,
+                    DescriptorDirection::Input,
+                    "Input (14:0)",
+                );
+                ui.selectable_value(
+                    &mut self.descriptor_direction,
+                    DescriptorDirection::Output,
+                    "Output (15:0)",
+                );
+                ui.checkbox(&mut self.empty_descriptor, "Empty reply");
+            });
+            ui.add_enabled(
+                !self.empty_descriptor,
+                egui::TextEdit::multiline(&mut self.process_descriptor_payload)
+                    .hint_text("Paste the complete descriptor reply in hex")
+                    .code_editor()
+                    .desired_rows(2)
+                    .desired_width(f32::INFINITY),
+            );
+            let hex = if self.empty_descriptor {
+                ""
+            } else {
+                &self.process_descriptor_payload
+            };
+            if self.empty_descriptor || !hex.trim().is_empty() {
+                match diagnostics::decode_process_descriptor(
+                    self.descriptor_direction,
+                    Some(profile),
+                    hex,
                 ) {
                     Ok(report) => {
                         ui.label(report.text());

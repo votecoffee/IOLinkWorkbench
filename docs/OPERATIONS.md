@@ -87,6 +87,16 @@ For a recorded whole **ProfileCharacteristic** reply at index 13, subindex 0, op
 
 Omit `--profile` to decode the reply by itself. The CLI returns 1 for a malformed list or a difference against the declared IDs and prints the available evidence. Both views use the supplied bytes offline.
 
+### Process data descriptors
+
+In **Offline → Parameter bytes → Process data descriptors**, choose **Input (14:0)** or **Output (15:0)** and paste the complete recorded reply. Select **Empty reply** for a successful zero-byte reply. Each three-byte descriptor contains a datatype code, bit length and offset. A zero length byte represents 256 bits. The decoder retains the raw reply and flags incomplete, overlapping, out-of-order or out-of-range entries. [IO-Link Common Profile V1.2.1, Annex B.5](https://io-link.com/fileadmin/user_upload/Downloads/Package_2025/IO-Link_Common_Profile_Specification_10.072_V1.2.1_Oct2025.zip)
+
+```powershell
+.\iolink-cli.exe decode-process-descriptor input "01 01 00 03 0F 01" --profile device.toml
+```
+
+Use `output` for index 15 and `""` for an empty reply. Omit `--profile` to decode without an IODD comparison. The comparison uses the imported fields for the selected layout, including its declared condition when present. It checks mapped datatypes and bit ranges, allows grouped packed Booleans, and identifies entries that cover unmapped bits or extend past the payload. Reserved and profile-specific datatypes and standalone Boolean width cases can require manual review. The CLI returns 1 for differences, partial comparisons or malformed replies. Device identity, active layout condition, and engineering interpretation require their own evidence.
+
 ### Cyclic display formats
 
 IODD `ProcessDataInfo` and `ProcessDataRecordItemInfo` can render integers as `Bin` or `Hex` and Booleans as `Dec` (0/1). Negative integers use two’s complement. A 5-bit signed field containing -4 appears as `1111 1100b` in binary or `FCh` in hexadecimal. The GUI and CLI keep the raw bits and can show a state name alongside the formatted value. The CLI's decoded output JSON carries the optional `formatted_value` beside `raw` and `value`. The CSV column uses the underlying engineering or Boolean value. [IODD V1.1.5, sections 7.5.8.1 and 7.5.8.4](https://io-link.com/downloads)
