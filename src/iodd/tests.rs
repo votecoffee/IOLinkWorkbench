@@ -55,6 +55,56 @@ fn names_distinguish_adjacent_unsigned_64_bit_values() -> Result<()> {
 }
 
 #[test]
+fn names_match_float32_array_values_before_display_scaling() -> Result<()> {
+    let xml = SENSOR.replace(
+        r#"<ProcessDataIn id="IN" bitLength="16"><DatatypeRef datatypeId="PD"/></ProcessDataIn>"#,
+        r#"<ProcessDataIn id="IN" bitLength="64" gradient="2" displayFormat="Dec.2">
+               <Datatype xsi:type="ArrayT" count="2"><SimpleDatatype xsi:type="Float32T">
+                 <SingleValue value="1.250e0"><Name textId="nominal"/></SingleValue>
+                 <SingleValue value="-0"><Name textId="switch"/></SingleValue>
+                 <SingleValue value="-2.5"><Name textId="nominal"/></SingleValue>
+                 <SingleValue value="-2.50E+0"><Name textId="switch"/></SingleValue>
+                 <SingleValue value="1.40129846E-45"><Name textId="level"/></SingleValue>
+                 <SingleValue value="INF"><Name textId="nominal"/></SingleValue>
+                 <SingleValue value="NaN"><Name textId="switch"/></SingleValue>
+               </SimpleDatatype></Datatype>
+               <Name textId="level"/>
+             </ProcessDataIn>"#,
+    );
+    let catalog = parse(&xml, "synthetic Float32 choices".into())?;
+    let fields = &catalog.layouts[0].fields;
+    assert_eq!(fields.len(), 2);
+    assert_eq!(fields[0].value_names.len(), 3);
+    let pair = |left: u32, right: u32| [left.to_be_bytes(), right.to_be_bytes()].concat();
+    let nominal = 1.25f32.to_bits();
+    let payload = pair(nominal, nominal + 1);
+    assert_eq!(
+        fields[0].decode(&payload)?.display(),
+        "Nominal setting (2.50)"
+    );
+    assert_eq!(fields[0].csv_value(&payload)?, "2.50");
+    assert_eq!(fields[1].decode(&payload)?.display(), "2.50");
+    for zero in [0.0f32, -0.0f32] {
+        let data = pair(zero.to_bits(), zero.to_bits());
+        let first = fields[0].decode(&data)?;
+        assert_eq!(first.raw, zero.to_string());
+        assert_eq!(first.value_name.as_deref(), Some("switch"));
+        assert_eq!(
+            fields[1].decode(&data)?.value_name.as_deref(),
+            Some("switch")
+        );
+    }
+    assert_eq!(
+        fields[0].decode(&pair(1, 0))?.value_name.as_deref(),
+        Some("level")
+    );
+    for unlabelled in [(-2.5f32).to_bits(), f32::INFINITY.to_bits(), 0x7fc0_0001] {
+        assert!(fields[0].decode(&pair(unlabelled, 0))?.value_name.is_none());
+    }
+    Ok(())
+}
+
+#[test]
 fn explicit_acyclic_layout_imports_and_qualifies_only_its_own_selection() -> Result<()> {
     let xml = SENSOR.replace(
         "<ProcessDataIn id=\"IN\" bitLength=\"16\"><DatatypeRef datatypeId=\"PD\"/></ProcessDataIn>",

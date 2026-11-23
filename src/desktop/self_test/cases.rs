@@ -235,6 +235,7 @@ pub(super) fn render(
                 "offline-process-output",
                 "offline-padded-input",
                 "offline-boolean-input",
+                "offline-float-state-name",
                 "offline-octet-input",
                 "offline-text-input",
                 "offline-temporal-input",
@@ -487,6 +488,7 @@ pub(super) fn render(
                     }
                     "offline-padded-input"
                     | "offline-boolean-input"
+                    | "offline-float-state-name"
                     | "offline-octet-input"
                     | "offline-text-input"
                     | "offline-temporal-input" => {
@@ -494,6 +496,10 @@ pub(super) fn render(
                             "offline-boolean-input" => {
                                 app.payload_inspector.pasted = "02".into();
                                 r#"<ProcessDataIn id="IN" bitLength="1"><Datatype xsi:type="BooleanT"><SingleValue value="true"><Name textId="nominal"/></SingleValue></Datatype><Name textId="switch"/></ProcessDataIn>"#
+                            }
+                            "offline-float-state-name" => {
+                                app.payload_inspector.pasted = "3FA00000".into();
+                                r#"<ProcessDataIn id="IN" bitLength="32" gradient="2" displayFormat="Dec.2"><Datatype xsi:type="Float32T"><SingleValue value="1.250e0"><Name textId="nominal"/></SingleValue></Datatype><Name textId="level"/></ProcessDataIn>"#
                             }
                             "offline-octet-input" => {
                                 app.payload_inspector.pasted = "0080FF00".into();
@@ -755,6 +761,7 @@ pub(super) fn render(
                 "offline-boolean-input" => Some(
                     "Standalone Boolean input has a noncanonical byte. The IODD interprets any nonzero byte as true.",
                 ),
+                "offline-float-state-name" => Some("Nominal setting (2.50)"),
                 "offline-octet-input" => Some("0x00,0x80,0xFF,0x00"),
                 "offline-text-input" => {
                     Some("Invalid StringT (nonzero string padding follows the first NUL)")
@@ -899,7 +906,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 124);
+        assert_eq!(cases.len(), 125);
         assert!(
             cases
                 .iter()

@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Cyclic Float32 fields import localized IODD state names and match them before engineering scaling and rounding. Both signs of zero share an IODD name while retaining their raw representation. CSV continues to record the numerical value.
+
 - Compare saved master inspections offline in the GUI or CLI. The comparison reports recorded context and separates supply, link, connected-device and configured-port changes. Both original inspections remain available.
 
 - Save a master inspection to a new JSON file and reopen it in the GUI or CLI offline. The saved endpoint and observations preserve the original context, including incomplete second-batch results.

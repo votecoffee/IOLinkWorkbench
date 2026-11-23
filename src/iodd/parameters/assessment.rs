@@ -88,7 +88,13 @@ pub(in crate::iodd) fn process_choice_key(datatype: &str, bits: u16, text: &str)
         Atom::Boolean(value) => Some(value.to_string()),
         Atom::Unsigned(value) => Some(value.to_string()),
         Atom::Signed(value) => Some(value.to_string()),
-        Atom::Float(_) => None,
+        Atom::Float(value) => value.is_finite().then(|| {
+            if value == 0.0 {
+                "0".into()
+            } else {
+                value.to_string()
+            }
+        }),
     }
 }
 

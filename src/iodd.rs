@@ -845,7 +845,7 @@ fn process_value_names(
     texts: &HashMap<&str, &str>,
 ) -> BTreeMap<String, String> {
     let mut names = BTreeMap::new();
-    if !matches!(datatype, "BooleanT" | "IntegerT" | "UIntegerT") {
+    if !matches!(datatype, "BooleanT" | "IntegerT" | "UIntegerT" | "Float32T") {
         return names;
     }
     let mut duplicates = HashSet::new();

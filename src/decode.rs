@@ -219,7 +219,12 @@ impl Field {
 
     pub fn decode(&self, payload: &[u8]) -> Result<Value> {
         let mut value = self.decode_unlabeled(payload)?;
-        value.value_name = self.value_names.get(&value.raw).cloned();
+        let mut name = self.value_names.get(&value.raw);
+        if name.is_none() && self.kind == Kind::Float32 && value.raw == "-0" {
+            // Keep negative zero in the raw display while matching IODD numeric equality.
+            name = self.value_names.get("0");
+        }
+        value.value_name = name.cloned();
         Ok(value)
     }
 

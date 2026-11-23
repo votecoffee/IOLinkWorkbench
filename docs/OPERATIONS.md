@@ -65,11 +65,11 @@ The saved profile retains identity, parameter and event definitions with zero in
 
 ### Cyclic state names
 
-Import an IODD to show its localized `SingleValue` names for Boolean and signed or unsigned integer process inputs and outputs. The same matching applies to packed record members and array elements. Workbench compares the exact unscaled value and displays the name alongside the regular value. Unnamed values, duplicate declarations for a value, and unresolved names display the regular value. [IO Device Description V1.1.5 schemas, Package 2025](https://io-link.com/downloads)
+Import an IODD to show its localized `SingleValue` names for Boolean, signed or unsigned integer, and finite Float32 process inputs and outputs. The same matching applies to packed record members and array elements. Workbench compares the exact unscaled value and displays the name alongside the regular value. Float32 names match the declared value rounded to binary32, before engineering scaling or decimal display rounding. Both signs of zero share the same IODD state name and retain their original raw value and bits. Unnamed values, duplicate declarations for a value, nonfinite declarations, and unresolved names display the regular value. [IO Device Description V1.1.5 schemas, Package 2025](https://io-link.com/downloads)
 
 See the name in **Inputs**, the mapping preview, **Offline → Process bytes**, or the reviewed process output view. CLI `decode` prints the name alongside the value. In `decode-output` JSON, the decoded field's `value_name` accompanies its numerical or Boolean value and raw bits. CSV records the usual engineering or Boolean value. A unit or scaling override retains the name lookup on the original raw field. Changing the width, offset, byte order or type through the mapping editor or `set-field` clears the names for that override. Removing the override restores the imported field and names.
 
-Reimport earlier IODDs to save their names. Profiles and captures that contain the `value_names` mapping require Workbench v0.98.0 or later.
+Reimport earlier IODDs to save their names. The existing `value_names` mapping was added in v0.98.0. Importing Float32 names and applying the signed-zero lookup require v0.108.0 or later.
 
 ### Cyclic TimeT and TimeSpanT
 
