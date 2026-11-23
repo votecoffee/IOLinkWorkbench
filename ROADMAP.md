@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Cyclic numeric fields can show localized IODD range names. The decoder checks inclusive, unscaled bounds and suppresses overlapping range labels. Ordinary numeric CSV values and source validity remain separate.
+
 - Cyclic Float32 fields import localized IODD state names and match them before engineering scaling and rounding. Both signs of zero share an IODD name while retaining their raw representation. CSV continues to record the numerical value.
 
 - Compare saved master inspections offline in the GUI or CLI. The comparison reports recorded context and separates supply, link, connected-device and configured-port changes. Both original inspections remain available.

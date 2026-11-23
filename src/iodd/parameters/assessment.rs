@@ -83,19 +83,72 @@ fn lexical(parameter: &Parameter, text: &str) -> Result<Atom> {
     parse_numeric(&parameter.datatype, parameter.bits, text)
 }
 
-pub(in crate::iodd) fn process_choice_key(datatype: &str, bits: u16, text: &str) -> Option<String> {
-    match parse_numeric(datatype, Some(bits), text).ok()? {
-        Atom::Boolean(value) => Some(value.to_string()),
-        Atom::Unsigned(value) => Some(value.to_string()),
-        Atom::Signed(value) => Some(value.to_string()),
-        Atom::Float(value) => value.is_finite().then(|| {
-            if value == 0.0 {
-                "0".into()
-            } else {
-                value.to_string()
+impl Atom {
+    fn canonical_text(self) -> String {
+        match self {
+            Self::Boolean(value) => value.to_string(),
+            Self::Unsigned(value) => value.to_string(),
+            Self::Signed(value) => value.to_string(),
+            Self::Float(value) => {
+                if value == 0.0 {
+                    "0".into()
+                } else {
+                    value.to_string()
+                }
             }
-        }),
+        }
     }
+}
+
+pub(in crate::iodd) fn process_choice_key(datatype: &str, bits: u16, text: &str) -> Option<String> {
+    let atom = parse_numeric(datatype, Some(bits), text).ok()?;
+    (!matches!(atom, Atom::Float(value) if !value.is_finite())).then(|| atom.canonical_text())
+}
+
+pub(in crate::iodd) fn process_named_ranges<'a>(
+    datatype: &str,
+    bits: u16,
+    ranges: impl Iterator<Item = super::ValueRange>,
+    choices: impl Iterator<Item = &'a str>,
+) -> Vec<super::ValueRange> {
+    let parse = |text: &str| parse_numeric(datatype, Some(bits), text).ok();
+    let mut intervals: Vec<_> = ranges
+        .filter_map(|mut range| {
+            let lower = parse(&range.lower)?;
+            let upper = parse(&range.upper)?;
+            if lower >= upper {
+                return None;
+            }
+            let named = if range.name.is_some() {
+                range.lower = lower.canonical_text();
+                range.upper = upper.canonical_text();
+                Some(range)
+            } else {
+                None
+            };
+            Some((lower, upper, named))
+        })
+        .collect();
+    if !intervals.iter().any(|(_, _, name)| name.is_some()) {
+        return Vec::new();
+    }
+    // Include unnamed declarations and exact choices when checking for overlaps.
+    intervals.extend(choices.filter_map(parse).map(|value| (value, value, None)));
+    intervals.sort_by(|a, b| a.0.partial_cmp(&b.0).expect("same ordered datatype"));
+    let mut ordered = intervals.into_iter().peekable();
+    let mut previous_upper = None;
+    let mut accepted = Vec::new();
+    while let Some((lower, upper, named)) = ordered.next() {
+        if previous_upper.is_none_or(|previous| previous < lower)
+            && ordered.peek().is_none_or(|(next, _, _)| upper < *next)
+        {
+            accepted.extend(named);
+        }
+        if previous_upper.is_none_or(|previous| previous < upper) {
+            previous_upper = Some(upper);
+        }
+    }
+    accepted
 }
 
 fn parse_numeric(datatype: &str, bits: Option<u16>, text: &str) -> Result<Atom> {

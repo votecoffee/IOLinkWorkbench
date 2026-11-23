@@ -105,6 +105,50 @@ fn names_match_float32_array_values_before_display_scaling() -> Result<()> {
 }
 
 #[test]
+fn named_cyclic_ranges_keep_exact_unsigned_bounds_and_ignore_overlaps() -> Result<()> {
+    let xml = SENSOR.replace(
+        r#"<ProcessDataIn id="IN" bitLength="16"><DatatypeRef datatypeId="PD"/></ProcessDataIn>"#,
+        r#"<ProcessDataIn id="IN" bitLength="64">
+               <Datatype xsi:type="UIntegerT" bitLength="64">
+                 <ValueRange lowerValue="1" upperValue="10"><Name textId="nominal"/></ValueRange>
+                 <ValueRange lowerValue="2" upperValue="3"/>
+                 <ValueRange lowerValue="4" upperValue="6"><Name textId="nominal"/></ValueRange>
+                 <ValueRange lowerValue="20" upperValue="30"><Name textId="nominal"/></ValueRange>
+                 <SingleValue value="21"><Name textId="switch"/></SingleValue>
+                 <ValueRange lowerValue="9007199254740993" upperValue="9007199254740994"><Name textId="level"/></ValueRange>
+                 <ValueRange lowerValue="18446744073709551614" upperValue="18446744073709551615"><Name textId="nominal"/></ValueRange>
+                 <ValueRange lowerValue="9" upperValue="4"><Name textId="switch"/></ValueRange>
+               </Datatype>
+             </ProcessDataIn>"#,
+    );
+    let catalog = parse(&xml, "synthetic cyclic ranges".into())?;
+    let (identity, imported) = catalog.select(Some("SIM-SENSOR"), None)?;
+    let mut profile = crate::profile::Profile::default();
+    profile.apply_iodd(identity, imported);
+    let profile = crate::profile::Profile::parse(&toml::to_string(&profile)?)?;
+    let field = profile.effective_fields()[0].0;
+    assert_eq!(field.value_ranges.len(), 2);
+    for (value, name) in [
+        (1u64, None),
+        (4, None),
+        (9, None),
+        (20, None),
+        (21, Some("switch")),
+        (9_007_199_254_740_992, None),
+        (9_007_199_254_740_993, Some("level")),
+        (9_007_199_254_740_994, Some("level")),
+        (9_007_199_254_740_995, None),
+        (u64::MAX, Some("Nominal setting")),
+    ] {
+        let bytes = value.to_be_bytes();
+        let observation = field.decode(&bytes)?;
+        assert_eq!(observation.value_name.as_deref(), name);
+        assert_eq!(field.csv_value(&bytes)?, value.to_string());
+    }
+    Ok(())
+}
+
+#[test]
 fn explicit_acyclic_layout_imports_and_qualifies_only_its_own_selection() -> Result<()> {
     let xml = SENSOR.replace(
         "<ProcessDataIn id=\"IN\" bitLength=\"16\"><DatatypeRef datatypeId=\"PD\"/></ProcessDataIn>",

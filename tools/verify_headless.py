@@ -691,6 +691,51 @@ def verify_process_float_names(cli, output):
     return profile
 
 
+def verify_process_range_names(cli, output):
+    output.mkdir()
+    original = (ROOT / "samples/sensor.xml").read_text(encoding="utf-8")
+    old_input = '<ProcessDataIn id="IN" bitLength="16"><DatatypeRef datatypeId="PD"/></ProcessDataIn>'
+    cyclic = (
+        '<ProcessDataIn id="IN" bitLength="32" gradient="2" displayFormat="Dec.2">'
+        '<Datatype xsi:type="Float32T"><ValueRange lowerValue="1.25e0" upperValue="2.5">'
+        '<Name textId="nominal"/></ValueRange><ValueRange lowerValue="-1" upperValue="-0">'
+        '<Name textId="switch"/></ValueRange></Datatype><Name textId="level"/></ProcessDataIn>'
+        '<ProcessDataOut id="OUT" bitLength="16"><Datatype xsi:type="IntegerT" bitLength="16">'
+        '<ValueRange lowerValue="-04" upperValue="-02"><Name textId="nominal"/></ValueRange>'
+        '</Datatype></ProcessDataOut>'
+    )
+    assert original.count(old_input) == 1
+    source = output / "ranges.xml"
+    source.write_text(original.replace(old_input, cyclic), encoding="utf-8")
+    profile = output / "ranges.toml"
+    run(cli, "import", source, profile, "--variant", "SIM-SENSOR")
+    pinned = profile.read_bytes()
+    lang = output / "german.toml"
+    run(cli, "import", source, lang, "--variant", "SIM-SENSOR", "--language", "de",
+        "--language-file", ROOT / "samples/sensor-de.xml")
+    assert "Nominal setting (2.50)" in run(cli, "decode", profile, "3FA00000")
+    assert "Nennwert (5.00)" in run(cli, "decode", lang, "40200000")
+    assert "Nominal setting" not in run(cli, "decode", profile, "3F9FFFFF")
+    assert "Nominal setting" not in run(cli, "decode", profile, "40200001")
+    assert "switch (0.00)" in run(cli, "decode", profile, "00000000")
+    negative_zero = run(cli, "decode", profile, "80000000")
+    assert "switch (0.00)" in negative_zero and "raw -0" in negative_zero
+    for payload, name in (("FFFC", "Nennwert"), ("FFFE", "Nennwert"), ("FFFD", "Nennwert"), ("FFFF", None)):
+        observed = json.loads(run(cli, "decode-output", lang, payload))["iodd_output"]["fields"][0]["value"]
+        assert observed.get("value_name") == name
+    scaled = output / "scaled.toml"
+    run(cli, "set-field", profile, scaled, "level", "--scale", "4")
+    assert "Nominal setting (5.00)" in run(cli, "decode", scaled, "3FA00000")
+    swapped = output / "swapped.toml"
+    run(cli, "set-field", profile, swapped, "level", "--byte-order", "little-endian")
+    assert "Nominal setting" not in run(cli, "decode", swapped, "0000A03F")
+    restored = output / "restored.toml"
+    run(cli, "remove-field", swapped, restored, "level")
+    assert "Nominal setting (2.50)" in run(cli, "decode", restored, "3FA00000")
+    assert profile.read_bytes() == pinned
+    return profile
+
+
 def verify_process_float_name_capture(cli, profile, endpoint, output):
     output.mkdir()
     live = output / "loopback.toml"
@@ -2749,6 +2794,7 @@ def main():
     padded_input_profile = verify_padded_integer_input(cli, scratch / "padded-integer")
     boolean_input_profile = verify_standalone_boolean_input(cli, scratch / "standalone-boolean")
     float_names_profile = verify_process_float_names(cli, scratch / "process-float-names")
+    range_names_profile = verify_process_range_names(cli, scratch / "process-range-names")
     octet_fixture = verify_process_octets(cli, scratch / "process-octets")
     text_profile = verify_process_text(cli, scratch / "process-text")
     temporal_profile = verify_process_temporal(cli, scratch / "process-temporal")
@@ -3076,6 +3122,7 @@ kind = "bool"
                 manual_bits=1,
             )
             verify_process_float_name_capture(cli, float_names_profile, endpoint, scratch / "ifm-process-float-names")
+            verify_process_float_name_capture(cli, range_names_profile, endpoint, scratch / "ifm-process-range-names")
             verify_process_octet_capture(cli, octet_fixture, endpoint, scratch / "ifm-process-octets")
             verify_process_text_capture(cli, text_profile, endpoint, scratch / "ifm-process-text")
             verify_process_temporal_capture(cli, temporal_profile, endpoint, scratch / "ifm-process-temporal")
@@ -3182,7 +3229,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state names with Boolean and Float32 CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names with Boolean and Float32 CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1351, AL1352 and AL1353 status, ISDU and capture across all ports, one-shot ifm master inspection with supply diagnostics, read-only port configuration and offline snapshot review and comparison, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")

@@ -15,8 +15,8 @@ mod text;
 mod time;
 mod value;
 pub use array::Array;
-pub(in crate::iodd) use assessment::process_choice_key;
 pub use assessment::{AssessmentStatus, ValueAssessment};
+pub(in crate::iodd) use assessment::{process_choice_key, process_named_ranges};
 pub use display::{Display, DisplayValue, NumberFormat};
 pub use record::{Record, RecordItem};
 pub(super) use standard::load as load_standard;
@@ -55,14 +55,7 @@ pub struct Choice {
     pub name: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ValueRange {
-    pub lower: String,
-    pub upper: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-}
+pub use crate::decode::ValueRange;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

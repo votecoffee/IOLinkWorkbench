@@ -55,6 +55,15 @@ impl Kind {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ValueRange {
+    pub lower: String,
+    pub upper: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Field {
     pub name: String,
@@ -68,6 +77,8 @@ pub struct Field {
     pub decimals: Option<u8>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub value_names: BTreeMap<String, String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub value_ranges: Vec<ValueRange>,
 }
 
 impl Default for Field {
@@ -83,6 +94,7 @@ impl Default for Field {
             unit: String::new(),
             decimals: None,
             value_names: BTreeMap::new(),
+            value_ranges: Vec::new(),
         }
     }
 }
@@ -105,6 +117,24 @@ impl Value {
             None => Cow::Borrowed(&self.value),
         }
     }
+}
+
+fn find_named_range<T: std::str::FromStr + PartialOrd>(
+    ranges: &[ValueRange],
+    value: T,
+) -> Option<&str> {
+    let mut matches = ranges.iter().filter(|range| {
+        if let (Ok(lower), Ok(upper)) = (range.lower.parse::<T>(), range.upper.parse::<T>()) {
+            lower < upper && lower <= value && value <= upper
+        } else {
+            false
+        }
+    });
+    let range = matches.next()?;
+    if matches.next().is_some() {
+        return None;
+    }
+    range.name.as_deref().filter(|name| !name.trim().is_empty())
 }
 
 impl Field {
@@ -224,8 +254,31 @@ impl Field {
             // Keep negative zero in the raw display while matching IODD numeric equality.
             name = self.value_names.get("0");
         }
-        value.value_name = name.cloned();
+        value.value_name = name
+            .map(String::as_str)
+            .or_else(|| self.range_name(&value.raw))
+            .map(str::to_owned);
         Ok(value)
+    }
+
+    fn range_name(&self, raw: &str) -> Option<&str> {
+        if self.value_ranges.is_empty() {
+            return None;
+        }
+        match self.kind {
+            Kind::Unsigned | Kind::Signed => {
+                find_named_range(&self.value_ranges, raw.parse::<i128>().ok()?)
+            }
+            Kind::Float32 => {
+                let value = raw.parse::<f32>().ok()?;
+                if value.is_finite() {
+                    find_named_range(&self.value_ranges, value)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
     }
 
     fn decode_unlabeled(&self, payload: &[u8]) -> Result<Value> {

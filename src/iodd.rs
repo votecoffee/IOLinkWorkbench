@@ -832,6 +832,7 @@ fn field(
             unit,
             decimals,
             value_names: process_value_names(dt, datatype, bits, texts),
+            value_ranges: process_value_ranges(dt, datatype, bits, texts),
             ..Field::default()
         },
         owner.attribute("unitCode").is_some(),
@@ -859,19 +860,47 @@ fn process_value_names(
         else {
             continue;
         };
-        let name = child(item, "Name")
-            .and_then(|node| node.attribute("textId"))
-            .and_then(|id| texts.get(id))
-            .filter(|name| !name.trim().is_empty())
-            .copied()
-            .unwrap_or_default()
-            .to_owned();
+        let name = process_state_label(item, texts).unwrap_or_default();
         if names.insert(raw.clone(), name).is_some() {
             duplicates.insert(raw);
         }
     }
     names.retain(|raw, name| !name.is_empty() && !duplicates.contains(raw));
     names
+}
+
+fn process_state_label(item: Node<'_, '_>, texts: &HashMap<&str, &str>) -> Option<String> {
+    child(item, "Name")
+        .and_then(|node| node.attribute("textId"))
+        .and_then(|id| texts.get(id))
+        .filter(|name| !name.trim().is_empty())
+        .map(|name| (*name).to_owned())
+}
+
+fn process_value_ranges(
+    dt: Node<'_, '_>,
+    datatype: &str,
+    bits: u16,
+    texts: &HashMap<&str, &str>,
+) -> Vec<ValueRange> {
+    if !matches!(datatype, "IntegerT" | "UIntegerT" | "Float32T") {
+        return Vec::new();
+    }
+    let ranges = dt
+        .children()
+        .filter(|node| node.has_tag_name((IODD_NAMESPACE, "ValueRange")))
+        .filter_map(|node| {
+            Some(ValueRange {
+                lower: node.attribute("lowerValue")?.into(),
+                upper: node.attribute("upperValue")?.into(),
+                name: process_state_label(node, texts),
+            })
+        });
+    let choices = dt
+        .children()
+        .filter(|node| node.has_tag_name((IODD_NAMESPACE, "SingleValue")))
+        .filter_map(|node| node.attribute("value"));
+    parameters::process_named_ranges(datatype, bits, ranges, choices)
 }
 
 // Common unit codes from IO-Link Standard Unit Definitions V1.1.9.

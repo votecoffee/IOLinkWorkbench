@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 impl Profile {
     pub fn with_field(&self, mut field: Field) -> Result<Self> {
         self.require_process_input()?;
-        if !field.value_names.is_empty()
+        if (!field.value_names.is_empty() || !field.value_ranges.is_empty())
             && self
                 .effective_fields()
                 .into_iter()
@@ -14,6 +14,7 @@ impl Profile {
                 .is_some_and(|(existing, _)| !field.same_wire_as(existing))
         {
             field.value_names.clear();
+            field.value_ranges.clear();
         }
         field.validate(self.input_bytes)?;
         let mut candidate = self.clone();
