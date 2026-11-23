@@ -1,5 +1,5 @@
 use crate::{
-    decode::{ByteOrder, Field, Kind, MAX_INPUT, insert_bits},
+    decode::{ByteOrder, Field, Kind, MAX_INPUT, insert_bits, integer_container_bytes},
     profile::{Identity, Imported},
 };
 use anyhow::{Context, Result, bail, ensure};
@@ -211,7 +211,7 @@ pub(crate) fn padded_integer_wire_bytes(bit_length: usize, fields: &[Field]) -> 
         return None;
     }
     let bits = usize::from(field.bits);
-    let width = parameters::integer_container_bytes(field.bits);
+    let width = integer_container_bytes(field.bits);
     (bits < width * 8 && (bit_length == bits || bit_length == width * 8)).then_some(width)
 }
 
@@ -769,7 +769,7 @@ fn field(
     bit_offset: u16,
     units: &resources::Units,
     texts: &HashMap<&str, &str>,
-) -> Result<(Field, bool)> {
+) -> Result<(Field, bool, Option<String>)> {
     let datatype = dt
         .attribute((XSI, "type"))
         .context("missing datatype xsi:type")?;
@@ -821,22 +821,46 @@ fn field(
         .map(str::parse)
         .transpose()?;
     let unit = units.resolve(owner.attribute("unitCode"));
-    Ok((
-        Field {
-            name,
-            bit_offset,
-            kind,
-            bits,
-            scale,
-            offset,
-            unit,
-            decimals,
-            value_names: process_value_names(dt, datatype, bits, texts),
-            value_ranges: process_value_ranges(dt, datatype, bits, texts),
-            ..Field::default()
-        },
-        owner.attribute("unitCode").is_some(),
-    ))
+    let mut field = Field {
+        name,
+        bit_offset,
+        kind,
+        bits,
+        scale,
+        offset,
+        unit,
+        decimals,
+        value_names: process_value_names(dt, datatype, bits, texts),
+        value_ranges: process_value_ranges(dt, datatype, bits, texts),
+        ..Field::default()
+    };
+    let unit_defined = owner.attribute("unitCode").is_some();
+    let format = match owner.attribute("displayFormat") {
+        Some("Bin") => NumberFormat::Binary,
+        Some("Hex") => NumberFormat::Hexadecimal,
+        Some("Dec") if kind == Kind::Bool => NumberFormat::BooleanDecimal,
+        _ => return Ok((field, unit_defined, None)),
+    };
+    let display = (|| {
+        ensure!(
+            ["gradient", "offset", "unitCode"]
+                .iter()
+                .all(|attribute| owner.attribute(*attribute).is_none()),
+            "gradient, offset and unitCode must be omitted"
+        );
+        format.validate_for(&field)
+    })();
+    match display {
+        Ok(()) => {
+            field.display_format = format;
+            Ok((field, unit_defined, None))
+        }
+        Err(error) => Ok((
+            field,
+            unit_defined,
+            Some(format!("ignored {} display: {error}", format.label())),
+        )),
+    }
 }
 
 fn process_value_names(
@@ -1169,8 +1193,8 @@ fn parse_process_item<'a, 'input>(
     };
     let display = display_refs.get(id).copied();
     let mut missing_unit = false;
-    let mut add = |name: String, result: Result<(Field, bool)>| -> Result<()> {
-        let result = result.and_then(|(field, unit_defined)| {
+    let mut add = |name: String, result: Result<(Field, bool, Option<String>)>| -> Result<()> {
+        let result = result.and_then(|(field, unit_defined, display_note)| {
             field.validate(layout.bytes())?;
             ensure!(
                 usize::from(field.bit_offset) + usize::from(field.bits) <= bits,
@@ -1182,10 +1206,10 @@ fn parse_process_item<'a, 'input>(
                     || usize::from(field.bits) == bits,
                 "standalone field length differs from the declared process data width"
             );
-            Ok((field, unit_defined))
+            Ok((field, unit_defined, display_note))
         });
         match result {
-            Ok((field, unit_defined)) => {
+            Ok((field, unit_defined, display_note)) => {
                 for existing in &layout.fields {
                     ensure!(
                         field.bit_offset >= existing.bit_offset + existing.bits
@@ -1195,7 +1219,12 @@ fn parse_process_item<'a, 'input>(
                         field.name
                     );
                 }
-                missing_unit |= field.kind.is_numeric() && !unit_defined;
+                missing_unit |= field.kind.is_numeric()
+                    && field.display_format == NumberFormat::Decimal
+                    && !unit_defined;
+                if let Some(note) = display_note {
+                    layout.needs_input.push(format!("{name}: {note}"));
+                }
                 if field.unit.starts_with("IODD unit ") {
                     layout
                         .needs_input
@@ -1246,7 +1275,7 @@ fn parse_process_item<'a, 'input>(
             .unwrap_or(node);
         let expanded = (|| -> Result<_> {
             let dt = dt?;
-            let (template, unit_defined) =
+            let (template, unit_defined, display_note) =
                 field(datatype(dt, types)?, info, name.clone(), 0, units, texts)?;
             let count = dt
                 .attribute("count")
@@ -1257,15 +1286,18 @@ fn parse_process_item<'a, 'input>(
                 geometry.bits() as usize <= bits,
                 "array extends beyond declared process data width"
             );
-            Ok((template, unit_defined, geometry))
+            Ok((template, unit_defined, display_note, geometry))
         })();
         match expanded {
-            Ok((template, unit_defined, geometry)) => {
+            Ok((template, unit_defined, display_note, geometry)) => {
                 for subindex in 1..=geometry.count {
                     let mut field = template.clone();
                     field.name = format!("{name} [{subindex}]");
                     field.bit_offset = geometry.offset(subindex);
-                    add(field.name.clone(), Ok((field, unit_defined)))?;
+                    add(
+                        field.name.clone(),
+                        Ok((field, unit_defined, display_note.clone())),
+                    )?;
                 }
             }
             Err(error) => add(name, Err(error))?,

@@ -73,6 +73,14 @@ See the name in **Inputs**, the mapping preview, **Offline → Process bytes**, 
 
 Reimport earlier IODDs to save their names. The existing `value_names` mapping was added in v0.98.0. Importing Float32 names and applying the signed-zero lookup require v0.108.0 or later. Profiles and captures containing `value_ranges` require v0.109.0 or later. Existing profiles can be reopened before reimporting to add range labels.
 
+### Cyclic display formats
+
+IODD `ProcessDataInfo` and `ProcessDataRecordItemInfo` can render integers as `Bin` or `Hex` and Booleans as `Dec` (0/1). Negative integers use two’s complement. A 5-bit signed field containing -4 appears as `1111 1100b` in binary or `FCh` in hexadecimal. The GUI and CLI keep the raw bits and can show a state name alongside the formatted value. The CLI's decoded output JSON carries the optional `formatted_value` beside `raw` and `value`. The CSV column uses the underlying engineering or Boolean value. [IODD V1.1.5, sections 7.5.8.1 and 7.5.8.4](https://io-link.com/downloads)
+
+An incompatible display format adds a note for mapping review and keeps the field wherever its remaining metadata is usable. Applying an override with incompatible scaling, unit, precision, or datatype returns that field to its ordinary display. Removing the override reveals the imported display again.
+
+Reimport to save cyclic display preferences. Saved profiles and captures containing `display_format` require v0.110.0 or later.
+
 ### Cyclic TimeT and TimeSpanT
 
 The importer maps `TimeT` and `TimeSpanT` as eight-byte big-endian fields, including byte-aligned record members and array elements. The live and offline decoders show UTC or a signed duration, with the wire hex and exact tick count. `TimeT` uses the IO-Link era rule at seconds word `0x9DFF4400`. The display truncates to milliseconds and a negative sub-millisecond duration keeps its negative sign. Device clock validity and further era rollovers require external context. [IO-Link Interface and System Specification, Annex F.2.8–F.2.9](https://io-link.com/fileadmin/user_upload/Downloads/Package_2024/IOL-Interface-Spec_10002_V114_Jun24.pdf)

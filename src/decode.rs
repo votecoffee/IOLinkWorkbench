@@ -3,6 +3,9 @@ use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, collections::BTreeMap, fmt::Write};
 
 pub const MAX_INPUT: usize = 32;
+mod display;
+pub use display::NumberFormat;
+pub(crate) use display::integer_container_bytes;
 pub(crate) mod temporal;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -75,6 +78,8 @@ pub struct Field {
     pub offset: f64,
     pub unit: String,
     pub decimals: Option<u8>,
+    #[serde(skip_serializing_if = "NumberFormat::is_decimal")]
+    pub display_format: NumberFormat,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub value_names: BTreeMap<String, String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -93,6 +98,7 @@ impl Default for Field {
             offset: 0.0,
             unit: String::new(),
             decimals: None,
+            display_format: NumberFormat::Decimal,
             value_names: BTreeMap::new(),
             value_ranges: Vec::new(),
         }
@@ -105,6 +111,8 @@ pub struct Value {
     pub raw: String,
     pub value: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub formatted_value: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub value_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub encoding_error: Option<String>,
@@ -112,9 +120,10 @@ pub struct Value {
 
 impl Value {
     pub fn display(&self) -> Cow<'_, str> {
+        let value = self.formatted_value.as_deref().unwrap_or(&self.value);
         match &self.value_name {
-            Some(name) => Cow::Owned(format!("{name} ({})", self.value)),
-            None => Cow::Borrowed(&self.value),
+            Some(name) => Cow::Owned(format!("{name} ({value})")),
+            None => Cow::Borrowed(value),
         }
     }
 }
@@ -213,7 +222,13 @@ impl Field {
             "{}: decimals must be 0–12 on a numeric field",
             self.name
         );
-        Ok(())
+        self.display_format.validate_for(self)
+    }
+
+    pub fn reset_incompatible_display(&mut self) {
+        if self.display_format.validate_for(self).is_err() {
+            self.display_format = NumberFormat::Decimal;
+        }
     }
 
     pub fn read_bits(&self, payload: &[u8]) -> Result<u64> {
@@ -244,11 +259,11 @@ impl Field {
         if let Some(datatype) = self.kind.temporal_datatype() {
             return temporal::raw_ticks(datatype, self.aligned_bytes(payload)?);
         }
-        Ok(self.decode_unlabeled(payload)?.value)
+        Ok(self.decode_unlabeled(payload, false)?.value)
     }
 
     pub fn decode(&self, payload: &[u8]) -> Result<Value> {
-        let mut value = self.decode_unlabeled(payload)?;
+        let mut value = self.decode_unlabeled(payload, true)?;
         let mut name = self.value_names.get(&value.raw);
         if name.is_none() && self.kind == Kind::Float32 && value.raw == "-0" {
             // Keep negative zero in the raw display while matching IODD numeric equality.
@@ -281,7 +296,7 @@ impl Field {
         }
     }
 
-    fn decode_unlabeled(&self, payload: &[u8]) -> Result<Value> {
+    fn decode_unlabeled(&self, payload: &[u8], include_display: bool) -> Result<Value> {
         if let Some(datatype) = self.kind.temporal_datatype() {
             let bytes = self.aligned_bytes(payload)?;
             let decoded = temporal::decode(datatype, bytes)?;
@@ -289,6 +304,7 @@ impl Field {
                 raw: decoded.raw_ticks,
                 bits_hex: hex(bytes),
                 value: decoded.value,
+                formatted_value: None,
                 value_name: None,
                 encoding_error: None,
             });
@@ -311,6 +327,7 @@ impl Field {
                 raw: bits_hex.clone(),
                 bits_hex,
                 value,
+                formatted_value: None,
                 value_name: None,
                 encoding_error,
             });
@@ -350,6 +367,11 @@ impl Field {
             bits_hex: format!("{bits:X}"),
             raw,
             value,
+            formatted_value: if include_display {
+                self.display_format.render(self, bits)
+            } else {
+                None
+            },
             value_name: None,
             encoding_error: None,
         })

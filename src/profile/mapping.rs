@@ -16,6 +16,7 @@ impl Profile {
             field.value_names.clear();
             field.value_ranges.clear();
         }
+        field.reset_incompatible_display();
         field.validate(self.input_bytes)?;
         let mut candidate = self.clone();
         if let Some(existing) = candidate

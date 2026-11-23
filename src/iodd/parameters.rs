@@ -1,5 +1,6 @@
 use super::{IODD_NAMESPACE, XSI, child, datatype, label};
-use crate::decode::{Field, Kind};
+pub use crate::decode::NumberFormat;
+use crate::decode::{Field, Kind, integer_container_bytes};
 use anyhow::{Context, Result, ensure};
 use roxmltree::Node;
 use serde::{Deserialize, Serialize};
@@ -17,16 +18,12 @@ mod value;
 pub use array::Array;
 pub use assessment::{AssessmentStatus, ValueAssessment};
 pub(in crate::iodd) use assessment::{process_choice_key, process_named_ranges};
-pub use display::{Display, DisplayValue, NumberFormat};
+pub use display::{Display, DisplayValue};
 pub use record::{Record, RecordItem};
 pub(super) use standard::load as load_standard;
 pub(crate) use text::decode as decode_text_parameter;
 pub use time::{DefaultConversion as TimeDefaultConversion, TimeValue};
 pub use value::{DecodedParameter, RecordValue};
-
-pub(super) fn integer_container_bytes(bits: u16) -> usize {
-    usize::from(bits).div_ceil(8).next_power_of_two()
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Access {

@@ -83,6 +83,7 @@ impl ProcessDataLayout {
             bits_hex: format!("{byte:02X}"),
             raw: value.clone(),
             value_name: field.value_names.get(&value).cloned(),
+            formatted_value: field.display_format.render(field, u64::from(*byte)),
             value,
             encoding_error: None,
         })

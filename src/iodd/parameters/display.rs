@@ -1,4 +1,4 @@
-use super::{Parameter, integer_container_bytes};
+use super::{NumberFormat, Parameter};
 use crate::{
     decode::{Field, Kind},
     iodd::{IODD_NAMESPACE, child},
@@ -6,31 +6,6 @@ use crate::{
 use anyhow::{Result, ensure};
 use roxmltree::Node;
 use serde::{Deserialize, Serialize};
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum NumberFormat {
-    #[default]
-    Decimal,
-    BooleanDecimal,
-    Hexadecimal,
-    Binary,
-}
-
-impl NumberFormat {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Decimal => "Decimal",
-            Self::BooleanDecimal => "Dec (0/1)",
-            Self::Hexadecimal => "Hex",
-            Self::Binary => "Bin",
-        }
-    }
-
-    fn is_decimal(&self) -> bool {
-        *self == Self::Decimal
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -58,57 +33,17 @@ impl Display {
     }
 
     pub(super) fn validate_format(&self) -> Result<()> {
-        if self.format != NumberFormat::Decimal {
-            if self.format == NumberFormat::BooleanDecimal {
-                ensure!(
-                    self.field.kind == Kind::Bool,
-                    "Boolean decimal display requires a Boolean datatype"
-                );
-            } else {
-                ensure!(
-                    matches!(self.field.kind, Kind::Signed | Kind::Unsigned),
-                    "binary/hex displays require an integer datatype"
-                );
-            }
-            ensure!(
-                self.field.scale == 1.0
-                    && self.field.offset == 0.0
-                    && self.field.unit.is_empty()
-                    && self.field.decimals.is_none(),
-                "non-default formats require unscaled values with no unit or decimal precision"
-            );
-        }
-        Ok(())
+        self.format.validate_for(&self.field)
     }
 
     pub(super) fn decode(&self, payload: &[u8]) -> Result<DisplayValue> {
         self.validate_format()?;
-        let value = if self.format == NumberFormat::Decimal {
+        let value = if self.format.is_decimal() {
             self.field.decode(payload)?.value
-        } else if self.format == NumberFormat::BooleanDecimal {
-            self.field.read_bits(payload)?.to_string()
         } else {
-            let width = self.field.bits;
-            let display_bits = integer_container_bytes(width) * 8;
-            let mut bits = self.field.read_bits(payload)?;
-            if self.field.kind == Kind::Signed && width < 64 && bits & (1 << (width - 1)) != 0 {
-                bits |= u64::MAX << width;
-            }
-            bits &= u64::MAX >> (64 - display_bits);
-            if self.format == NumberFormat::Hexadecimal {
-                format!("{bits:0digits$X}h", digits = display_bits / 4)
-            } else {
-                let digits = format!("{bits:0digits$b}", digits = display_bits);
-                format!(
-                    "{}b",
-                    digits
-                        .as_bytes()
-                        .chunks(4)
-                        .map(|nibble| std::str::from_utf8(nibble).expect("binary digits"))
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                )
-            }
+            self.format
+                .render(&self.field, self.field.read_bits(payload)?)
+                .expect("non-default format")
         };
         Ok(DisplayValue {
             id: self.id.clone(),

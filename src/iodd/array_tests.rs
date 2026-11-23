@@ -78,6 +78,26 @@ fn published_nibble_layout_matches_cyclic_fields_parameter_values_and_member_rea
 }
 
 #[test]
+fn cyclic_array_applies_one_radix_to_every_member() -> Result<()> {
+    let xml = XML.replace(
+        r#"gradient="0.5" offset="1" unitCode="1001" displayFormat="Dec.1""#,
+        r#"displayFormat="Hex""#,
+    );
+    let profile = profile(&xml)?;
+    let restored = Profile::parse(&toml::to_string_pretty(&profile)?)?;
+    let decoded = restored.decode(PAYLOAD)?;
+    assert_eq!(
+        decoded
+            .iter()
+            .map(|(_, _, value)| value.display())
+            .collect::<Vec<_>>(),
+        ["02h", "FCh", "04h", "F9h", "05h", "FFh", "00h"]
+    );
+    assert_eq!(decoded[1].0.csv_value(PAYLOAD)?, "-4");
+    Ok(())
+}
+
+#[test]
 fn odd_subbyte_widths_do_not_cross_octet_boundaries() -> Result<()> {
     let xml = XML
         .replace("bitLength=\"4\"", "bitLength=\"3\"")

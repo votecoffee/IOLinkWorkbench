@@ -140,13 +140,15 @@ impl Form {
                 });
                 ui.end_row();
             });
-        if let Err(error) = field.validate(profile.input_bytes) {
+        let mut candidate = field.clone();
+        candidate.reset_incompatible_display();
+        if let Err(error) = candidate.validate(profile.input_bytes) {
             ui.colored_label(super::WARNING, format!("Needs input · {error:#}"));
         }
         ui.label("Offline preview · complete input payload (hex)");
         ui.text_edit_singleline(&mut self.preview);
         if !self.preview.trim().is_empty() {
-            match preview(field, profile.input_bytes, &self.preview) {
+            match preview(&candidate, profile.input_bytes, &self.preview) {
                 Ok(mut value) => {
                     if self
                         .baseline
@@ -168,14 +170,13 @@ impl Form {
                 }
             }
         }
-        let field = field.clone();
         let mut changed = false;
         ui.horizontal(|ui| {
             if ui
                 .add_enabled(self.pending(), egui::Button::new("Apply mapping"))
                 .clicked()
             {
-                match profile.with_field(field.clone()) {
+                match profile.with_field(candidate.clone()) {
                     Ok(candidate) => {
                         *profile = candidate;
                         self.sync(profile);
@@ -196,7 +197,7 @@ impl Form {
             let removable = profile
                 .fields
                 .iter()
-                .any(|candidate| candidate.name == field.name);
+                .any(|field| field.name == candidate.name);
             if ui
                 .add_enabled(
                     removable && !self.pending(),
@@ -204,7 +205,7 @@ impl Form {
                 )
                 .clicked()
             {
-                match profile.without_manual_field(&field.name) {
+                match profile.without_manual_field(&candidate.name) {
                     Ok(candidate) => {
                         *profile = candidate;
                         self.sync(profile);

@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Cyclic typed views honor IODD `Bin`, `Hex`, and Boolean `Dec` preferences on input and output. Capture and offline re-decode retain the underlying values.
+
 - Cyclic numeric fields can show localized IODD range names. The decoder checks inclusive, unscaled bounds and suppresses overlapping range labels. Ordinary numeric CSV values and source validity remain separate.
 
 - Cyclic Float32 fields import localized IODD state names and match them before engineering scaling and rounding. Both signs of zero share an IODD name while retaining their raw representation. CSV continues to record the numerical value.
