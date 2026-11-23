@@ -73,6 +73,12 @@ See the name in **Inputs**, the mapping preview, **Offline → Process bytes**, 
 
 Reimport earlier IODDs to save their names. The existing `value_names` mapping was added in v0.98.0. Importing Float32 names and applying the signed-zero lookup require v0.108.0 or later. Profiles and captures containing `value_ranges` require v0.109.0 or later. Existing profiles can be reopened before reimporting to add range labels.
 
+### Declared device capabilities
+
+Open **IODD declared capabilities** in the **Device → IODD import** preview or in **Mappings** after applying the IODD. The section shows block parameter transfer, device Data Storage support, the four declared access lock capabilities, and the profile identifiers in decimal and hexadecimal. Missing optional declarations appear as **Undeclared**. The CLI's `iodd FILE` output includes a `[features]` table. `validate PROFILE` shows the saved declarations. [IODD V1.1.5, section 7.5.1](https://io-link.com/downloads)
+
+These entries describe the device capabilities in the IODD. Actual lock state, master Data Storage configuration, and the connected device's profile IDs are separate observations. Reimport an existing IODD to save its capabilities. Saved profiles and captures containing `iodd.features` require v0.111.0 or later.
+
 ### Cyclic display formats
 
 IODD `ProcessDataInfo` and `ProcessDataRecordItemInfo` can render integers as `Bin` or `Hex` and Booleans as `Dec` (0/1). Negative integers use two’s complement. A 5-bit signed field containing -4 appears as `1111 1100b` in binary or `FCh` in hexadecimal. The GUI and CLI keep the raw bits and can show a state name alongside the formatted value. The CLI's decoded output JSON carries the optional `formatted_value` beside `raw` and `value`. The CSV column uses the underlying engineering or Boolean value. [IODD V1.1.5, sections 7.5.8.1 and 7.5.8.4](https://io-link.com/downloads)

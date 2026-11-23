@@ -19,6 +19,8 @@ const XSI: &str = "http://www.w3.org/2001/XMLSchema-instance";
 mod array;
 mod communication;
 pub use communication::{Bitrate, Communication};
+mod features;
+pub use features::{AccessLocks, Features};
 mod error_types;
 pub use error_types::ErrorTypeDefinition;
 mod output;
@@ -281,6 +283,8 @@ pub struct Catalog {
     pub vendor_id: u16,
     pub device_id: u32,
     pub communication: Option<Communication>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub features: Option<Features>,
     pub variants: Vec<Variant>,
     pub layouts: Vec<Layout>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -409,6 +413,7 @@ impl Catalog {
                 schema_validation: self.schema_validation.clone(),
                 stamp_validation: self.stamp_validation.clone(),
                 communication: self.communication.clone(),
+                features: self.features.clone(),
                 localization: self.localization.clone(),
                 events: self.events.clone(),
                 standard_event_refs: self.standard_event_refs.clone(),
@@ -1134,6 +1139,7 @@ fn parse_resources(
         vendor_id,
         device_id,
         communication: communication::parse(root)?,
+        features: features::parse(function)?,
         variants,
         layouts,
         output_only_layouts,

@@ -9,6 +9,14 @@ mod mapping;
 mod overview;
 mod profiles;
 
+fn show_features(ui: &mut Ui, features: Option<&iodd::Features>) {
+    if let Some(features) = features {
+        ui.collapsing("IODD declared capabilities", |ui| {
+            ui.small(features.summary());
+        });
+    }
+}
+
 pub(super) use profiles::ProfilePage;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -303,6 +311,7 @@ impl Editor {
             }
             if let Some(import) = &profile.iodd {
                 ui.small(import.communication.as_ref().map(|value| value.summary()).unwrap_or_else(|| "IODD wired communication declaration unavailable".into()));
+                show_features(ui, import.features.as_ref());
                 ui.small(import.stamp_validation.as_ref().map(|report| report.summary()).unwrap_or_else(|| "IODD checksum not checked in this saved profile".into()));
                 if let Some(localization) = &import.localization { ui.small(localization.summary()); }
                 ui.small(import.schema_validation.as_ref().map(|report| report.summary()).unwrap_or_else(|| "Parser checks only; XSD validation not performed".into()));
@@ -478,6 +487,7 @@ impl Editor {
                 ui.small(communication.summary());
                 ui.small("IODD declarations do not establish the actual port cycle or sensor/gateway update rate.");
             }
+            show_features(ui, catalog.features.as_ref());
             if let Some(report) = &catalog.stamp_validation {
                 ui.small(report.summary());
                 ui.small("Checksum consistency does not authenticate the vendor or rerun the IODD Checker.");

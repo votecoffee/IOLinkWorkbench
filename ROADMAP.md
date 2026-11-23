@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- IODD inspection retains declared device capabilities and profile IDs in the GUI, CLI and saved profiles. The declaration is independent of observed lock state, master configuration and device profile reads.
+
 - Cyclic typed views honor IODD `Bin`, `Hex`, and Boolean `Dec` preferences on input and output. Capture and offline re-decode retain the underlying values.
 
 - Cyclic numeric fields can show localized IODD range names. The decoder checks inclusive, unscaled bounds and suppresses overlapping range labels. Ordinary numeric CSV values and source validity remain separate.

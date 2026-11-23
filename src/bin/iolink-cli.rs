@@ -805,6 +805,9 @@ fn main() -> Result<()> {
                             || "IODD wired communication declaration unavailable".into()
                         )
                 );
+                if let Some(features) = &iodd.features {
+                    println!("IODD declared capabilities\n{}", features.summary());
+                }
                 println!("{}", iodd.stamp_validation.as_ref().map(|report| report.summary()).unwrap_or_else(|| "IODD checksum not checked in this saved profile".into()));
                 if let Some(localization) = &iodd.localization {
                     println!("{}", localization.summary());

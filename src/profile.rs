@@ -206,6 +206,8 @@ pub struct Imported {
     pub output: Option<crate::iodd::ProcessDataLayout>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub communication: Option<crate::iodd::Communication>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub features: Option<crate::iodd::Features>,
     #[serde(default)]
     pub needs_input: Vec<String>,
     pub fields: Vec<Field>,
@@ -581,6 +583,9 @@ impl Profile {
             }
             if let Some(communication) = &imported.communication {
                 communication.validate()?;
+            }
+            if let Some(features) = &imported.features {
+                features.validate()?;
             }
             let mut codes = HashSet::new();
             for event in &imported.events {

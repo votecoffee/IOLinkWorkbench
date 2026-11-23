@@ -218,6 +218,7 @@ pub(super) fn render(
                 "writes-boolean-output",
                 "device-advanced",
                 "mapping-editor",
+                "mapping-iodd-features",
                 "layout-condition",
                 "layout-condition-whole",
                 "parameters-raw",
@@ -279,6 +280,17 @@ pub(super) fn render(
                     "device-identity" => app.setup.page = Page::Identity,
                     "device-iodd" => app.setup.page = Page::Iodd,
                     "device-advanced" => app.setup.page = Page::Advanced,
+                    "mapping-iodd-features" => {
+                        app.tab = Tab::Mappings;
+                        let xml = include_str!("../../../samples/sensor.xml").replace(
+                            "<DeviceFunction>",
+                            r#"<DeviceFunction><Features blockParameter="true" dataStorage="false" profileCharacteristic="16384 32768"><SupportedAccessLocks parameter="false" dataStorage="false" localParameterization="true" localUserInterface="true"/></Features>"#,
+                        );
+                        let catalog = iodd::parse(&xml, "synthetic IODD capability view".into())?;
+                        let (identity, imported) = catalog.select(Some("SIM-SENSOR"), None)?;
+                        app.profile.apply_iodd(identity, imported);
+                        app.setup.sync(&app.profile);
+                    }
                     "mapping-editor" => {
                         app.tab = Tab::Mappings;
                         if let Some((field, origin)) = app.profile.effective_fields().first() {
@@ -782,6 +794,9 @@ pub(super) fn render(
                 }
                 "offline-temporal-input" => Some("1984-01-01 00:00:00.500 UTC"),
                 "layout-condition" => Some("Condition matched · expected 1 · observed 1"),
+                "mapping-iodd-features" => Some(
+                    "Block parameter transfer · Yes\nDevice Data Storage · No\nProfile IDs · 0x4000 (16384), 0x8000 (32768)\nAccess lock support · Parameter No · Data Storage No · Local parameterization Yes · Local user interface Yes",
+                ),
                 "layout-condition-whole" => Some("Reads the whole value for selector subindex 2"),
                 "acyclic-profile" => Some("Acyclic IODD layout"),
                 "offline-master-snapshot" => {
@@ -920,7 +935,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 127);
+        assert_eq!(cases.len(), 128);
         assert!(
             cases
                 .iter()

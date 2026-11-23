@@ -9,6 +9,7 @@ import math
 import statistics
 import shutil
 import os
+import re
 from pathlib import Path
 import subprocess
 import threading
@@ -2613,6 +2614,77 @@ def verify_cycle_capture(cli, profile, output, expected_port, snapshots=False):
     return report, rows
 
 
+def verify_iodd_features(cli, output):
+    output.mkdir()
+    original = (ROOT / "samples/sensor.xml").read_text(encoding="utf-8")
+    marker = "<DeviceFunction>"
+    assert original.count(marker) == 1
+    features = (
+        '<Features blockParameter="1" dataStorage="false" profileCharacteristic="  16384   32768  65535 ">'
+        '<SupportedAccessLocks parameter="0" dataStorage="false" localParameterization="true" localUserInterface="1"/>'
+        '</Features>'
+    )
+    expected = {
+        "block_parameter": True,
+        "data_storage": False,
+        "profile_characteristic": [16384, 32768, 65535],
+        "access_locks": {
+            "parameter": False, "data_storage": False,
+            "local_parameterization": True, "local_user_interface": True,
+        },
+    }
+
+    def source_with(declaration):
+        return original.replace(marker, marker + declaration)
+
+    source = output / "features.xml"
+    source.write_text(source_with(features), encoding="utf-8")
+    assert tomllib.loads(run(cli, "iodd", source))["features"] == expected
+    archive = output / "features.zip"
+    with zipfile.ZipFile(archive, "x", zipfile.ZIP_DEFLATED) as bundle:
+        bundle.write(source, "Synthetic-Features-20250101-IODD1.1.xml")
+    profile = output / "features.toml"
+    run(cli, "import", archive, profile, "--variant", "SIM-SENSOR")
+    pinned = profile.read_bytes()
+    saved = tomllib.loads(pinned.decode("utf-8"))
+    assert saved["iodd"]["features"] == expected
+    summary = run(cli, "validate", profile)
+    assert "IODD declared capabilities" in summary and "Device Data Storage · No" in summary
+    assert "0x4000 (16384), 0x8000 (32768), 0xFFFF (65535)" in summary
+    assert "Local parameterization Yes · Local user interface Yes" in summary
+    omitted = output / "no-optional.xml"
+    omitted.write_text(source_with('<Features blockParameter="0" dataStorage="true"/>'), encoding="utf-8")
+    assert tomllib.loads(run(cli, "iodd", omitted))["features"] == {
+        "block_parameter": False, "data_storage": True,
+    }
+    assert "features" not in tomllib.loads(run(cli, "iodd", ROOT / "samples/sensor.xml"))
+
+    for name, invalid in (
+        ("empty-pids", features.replace("  16384   32768  65535 ", " ")),
+        ("pid-overflow", features.replace("65535", "65536")),
+        ("pid-limit", features.replace("65535", " ".join(["1"] * 31))),
+        ("bad-flag", features.replace('blockParameter="1"', 'blockParameter="yes"')),
+        ("missing-lock", features.replace(' localUserInterface="1"', "")),
+        ("duplicate-features", features + features),
+    ):
+        bad = output / f"{name}.xml"
+        bad.write_text(source_with(invalid), encoding="utf-8")
+        run(cli, "import", bad, profile, "--variant", "SIM-SENSOR", expected=1)
+        assert profile.read_bytes() == pinned
+    edited = output / "broken-profile.toml"
+    damaged, replaced = re.subn(
+        r"profile_characteristic = \[([^]]*)\]", "profile_characteristic = []", pinned.decode("utf-8")
+    )
+    assert replaced == 1
+    edited.write_text(damaged, encoding="utf-8")
+    run(cli, "validate", edited, expected=1)
+
+    bundle_path = output / "capture"
+    _, rows = capture(cli, profile, bundle_path, "--seconds", ".16")
+    assert rows and tomllib.loads(run(cli, "verify-capture", bundle_path))["rows_checked"] == len(rows)
+    assert tomllib.loads((bundle_path / "profile.toml").read_text(encoding="utf-8"))["iodd"]["features"] == expected
+
+
 def verify_communication(cli, output):
     output.mkdir()
     xml = ROOT / "samples/sensor-communication.xml"
@@ -2839,6 +2911,7 @@ def main():
     scratch.mkdir(parents=True)
     verify_stamps(cli, scratch / "stamps")
     communication_profile = verify_communication(cli, scratch / "communication")
+    verify_iodd_features(cli, scratch / "iodd-features")
     standard_range_profile = verify_standard_ranges(cli, scratch / "standard-ranges")
     verify_error_types(cli, scratch / "error-types")
     verify_defaults(cli, scratch / "defaults")
@@ -3286,7 +3359,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and profile IDs, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1351, AL1352 and AL1353 status, ISDU and capture across all ports, one-shot ifm master inspection with supply diagnostics, read-only port configuration and offline snapshot review and comparison, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
