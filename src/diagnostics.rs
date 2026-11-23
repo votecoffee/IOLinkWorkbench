@@ -10,6 +10,7 @@ use std::time::Instant;
 
 mod comparison;
 mod error_type;
+mod input_descriptor_mapping;
 mod process_descriptor;
 mod profile_characteristic;
 mod snapshot;
@@ -19,6 +20,7 @@ pub use comparison::{
     StatusValues, compare,
 };
 pub use error_type::{ErrorTypeReport, decode_error_type};
+pub use input_descriptor_mapping::{InputDescriptorPlan, SkippedEntry, plan_input_descriptor};
 pub use process_descriptor::{
     DescriptorDirection, DescriptorStatus, ProcessDescriptor, decode_process_descriptor,
 };

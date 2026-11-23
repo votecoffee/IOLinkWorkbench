@@ -246,6 +246,7 @@ pub(super) fn render(
                 "offline-parameter",
                 "offline-profile-ids",
                 "offline-process-descriptor",
+                "offline-descriptor-plan",
                 "offline-snapshot",
                 "offline-events",
                 "offline-master-snapshot",
@@ -585,6 +586,13 @@ pub(super) fn render(
                         app.workspace.offline = OfflinePage::Parameter;
                         app.offline_parameter.process_descriptor_payload = "010100030F01".into();
                     }
+                    "offline-descriptor-plan" => {
+                        app.profile = Profile::default();
+                        app.setup.sync(&app.profile);
+                        app.tab = Tab::Offline;
+                        app.workspace.offline = OfflinePage::Parameter;
+                        app.offline_parameter.process_descriptor_payload = "010200030E02".into();
+                    }
                     "offline-parameter" => {
                         app.tab = Tab::Offline;
                         app.workspace.offline = OfflinePage::Parameter;
@@ -806,6 +814,9 @@ pub(super) fn render(
                 "offline-boolean-input" => Some(
                     "Standalone Boolean input has a noncanonical byte. The IODD interprets any nonzero byte as true.",
                 ),
+                "offline-descriptor-plan" => Some(
+                    "Suggested manual fields · 3\nInput width · 2 bytes\nInput bit 0 · Bool · width 1 · offset 0\nInput bit 1 · Bool · width 1 · offset 1\nInput bit 2 · Signed · width 14 · offset 2",
+                ),
                 "offline-process-descriptor" => Some(
                     "Descriptor matches mapped IODD fields\nRaw reply · 010100030F01\n1 · Set of BooleanT (0x01) · 1 bits at bit 0\n2 · IntegerT (0x03) · 15 bits at bit 1\nSelected IODD layout · IN · 2 bytes\nlevel [1] · IntegerT · 15 bits at bit 1 · Match\nswitch [2] · Set of BooleanT · 1 bits at bit 0 · Match",
                 ),
@@ -962,7 +973,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 130);
+        assert_eq!(cases.len(), 131);
         assert!(
             cases
                 .iter()

@@ -97,6 +97,17 @@ In **Offline → Parameter bytes → Process data descriptors**, choose **Input 
 
 Use `output` for index 15 and `""` for an empty reply. Omit `--profile` to decode without an IODD comparison. The comparison uses the imported fields for the selected layout, including its declared condition when present. It checks mapped datatypes and bit ranges, allows grouped packed Booleans, and identifies entries that cover unmapped bits or extend past the payload. Reserved and profile-specific datatypes and standalone Boolean width cases can require manual review. The CLI returns 1 for differences, partial comparisons or malformed replies. Device identity, active layout condition, and engineering interpretation require their own evidence.
 
+#### Suggest manual input mappings
+
+Paste a complete recorded **Input (14:0)** descriptor, then expand **Suggest manual input fields**. Review the proposed types and ranges. **Add manual fields** applies them to the active host profile and opens Mappings. Save the profile when ready. In the CLI, preview the same candidates and optionally save them to a new profile.
+
+```powershell
+.\iolink-cli.exe plan-input-descriptor device.toml "01 02 00 03 0E 02"
+.\iolink-cli.exe plan-input-descriptor device.toml "01 02 00 03 0E 02" --save-profile with-fields.toml
+```
+
+Use a profile with a known input width. Suggestions use big-endian bit offsets and the standard descriptor type. Boolean sets expand to individual one-bit fields. Scale defaults to 1, offset to 0, and units are blank. Overlapping entries, out-of-width entries, StringT without an encoding, and unsupported types remain listed for review. All-field CSV selection includes the added fields. Explicit CSV selection logs the field names listed in the profile. A saved output requires at least one addition and a new destination path.
+
 ### Cyclic display formats
 
 IODD `ProcessDataInfo` and `ProcessDataRecordItemInfo` can render integers as `Bin` or `Hex` and Booleans as `Dec` (0/1). Negative integers use two’s complement. A 5-bit signed field containing -4 appears as `1111 1100b` in binary or `FCh` in hexadecimal. The GUI and CLI keep the raw bits and can show a state name alongside the formatted value. The CLI's decoded output JSON carries the optional `formatted_value` beside `raw` and `value`. The CSV column uses the underlying engineering or Boolean value. [IODD V1.1.5, sections 7.5.8.1 and 7.5.8.4](https://io-link.com/downloads)

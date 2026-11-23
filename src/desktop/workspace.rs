@@ -430,8 +430,25 @@ impl App {
                     && !self.writes.busy()
                     && !self.setup.pending()
                     && !self.setup.busy();
-                if let Some(selection) = self.offline_parameter.show(ui, &self.profile, editable) {
-                    self.select_parameter_display(selection);
+                match self.offline_parameter.show(ui, &self.profile, editable) {
+                    Some(super::parameters::OfflineEdit::DisplayPreference(selection)) => {
+                        self.select_parameter_display(selection);
+                    }
+                    Some(super::parameters::OfflineEdit::AddInputFields(plan)) => {
+                        match plan.apply(&self.profile) {
+                            Ok(candidate) => {
+                                self.profile = candidate;
+                                self.setup.sync(&self.profile);
+                                self.message = format!(
+                                    "Added {} manual input fields. Save the profile to keep them.",
+                                    plan.additions.len()
+                                );
+                                self.tab = Tab::Mappings;
+                            }
+                            Err(error) => self.message = error.to_string(),
+                        }
+                    }
+                    None => {}
                 }
             }
             OfflinePage::Snapshot => self.saved_parameter.show(ui),

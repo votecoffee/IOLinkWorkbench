@@ -2818,6 +2818,75 @@ def verify_process_descriptors(cli, output):
     return profile
 
 
+def verify_input_descriptor_plan(cli, output):
+    output.mkdir()
+    base = output / "base.toml"
+    base.write_text('name = "Descriptor fixture"\ninput_bytes = 2\n', encoding="utf-8")
+    pinned = base.read_bytes()
+    before = Gateway.requests
+    cmd = "plan-input-descriptor"
+    payload = "010200030E02"
+    preview = tomllib.loads(run(cli, cmd, base, payload))
+    assert preview["input_bytes"] == 2 and preview["raw_hex"] == payload
+    assert preview["skipped_entries"] == []
+    assert [(field["name"], field["kind"], field["bits"], field["bit_offset"])
+            for field in preview["additions"]] == [
+        ("Input bit 0", "bool", 1, 0), ("Input bit 1", "bool", 1, 1), ("Input bit 2", "signed", 14, 2),
+    ]
+    assert all(field["scale"] == 1.0 and field["unit"] == "" and field["byte_order"] == "big_endian"
+               for field in preview["additions"])
+    candidate = output / "candidate.toml"
+    assert tomllib.loads(run(cli, cmd, base, payload, "--save-profile", candidate)) == preview
+    data = candidate.read_bytes()
+    run(cli, cmd, base, payload, "--save-profile", candidate, expected=1)
+    run(cli, cmd, base, payload, "--save-profile", base, expected=1)
+    assert candidate.read_bytes() == data and base.read_bytes() == pinned
+    decoded = run(cli, "decode", candidate, "FFFA")
+    assert "Input bit 0 [manual]: false" in decoded and "Input bit 1 [manual]: true" in decoded
+    assert "Input bit 2 [manual]: -2" in decoded
+    assert tomllib.loads(run(cli, cmd, candidate, payload))["additions"] == []
+    _, rows = capture(cli, candidate, output / "capture", "--seconds", ".16")
+    assert rows and all(key in rows[0] for key in ("value.Input bit 0", "value.Input bit 1", "value.Input bit 2"))
+    assert tomllib.loads(run(cli, "verify-capture", output / "capture"))["rows_checked"] == len(rows)
+
+    manual = output / "manual.toml"
+    run(cli, "set-field", base, manual, "First wire byte", "--kind", "unsigned", "--bits", 8, "--bit-offset", 0,
+        "--byte-order", "little-endian")
+    nonoverlap = tomllib.loads(run(cli, cmd, manual, "020800020808"))
+    assert [field["bit_offset"] for field in nonoverlap["additions"]] == [0]
+    assert nonoverlap["skipped_entries"][0]["entry"] == 2
+    assert "overlaps" in nonoverlap["skipped_entries"][0]["reason"]
+
+    named = output / "named.toml"
+    run(cli, "set-field", base, named, "Input bit 0", "--kind", "unsigned", "--bits", 8, "--bit-offset", 8)
+    assert "name" in tomllib.loads(run(cli, cmd, named, "020800"))["skipped_entries"][0]["reason"]
+    unsafe = output / "no-candidate.toml"
+    for payload_text in ("050800800808", "020808020800", ""):
+        run(cli, cmd, base, payload_text, "--save-profile", unsafe, expected=1)
+        assert not unsafe.exists()
+    too_wide = tomllib.loads(run(cli, cmd, base, "020800020810"))
+    assert [field["bit_offset"] for field in too_wide["additions"]] == [0]
+    assert "input width" in too_wide["skipped_entries"][0]["reason"]
+
+    source = ROOT / "samples/sensor.xml"
+    xml = source.read_text(encoding="utf-8")
+    widened = output / "widened.xml"
+    widened.write_text(xml.replace('bitLength="16"', 'bitLength="24"'), encoding="utf-8")
+    imported = output / "imported.toml"
+    run(cli, "import", widened, imported, "--variant", "SIM-SENSOR")
+    selection = output / "explicit.toml"
+    run(cli, "set-logging", imported, selection, "--field", "level [1]")
+    updated = output / "imported-plus-manual.toml"
+    gap = tomllib.loads(run(cli, cmd, selection, "010100030F01020810", "--save-profile", updated))
+    assert [field["bit_offset"] for field in gap["additions"]] == [16]
+    assert [entry["entry"] for entry in gap["skipped_entries"]] == [1, 2]
+    original_profile = tomllib.loads(selection.read_text(encoding="utf-8"))
+    saved = tomllib.loads(updated.read_text(encoding="utf-8"))
+    assert saved.pop("fields") == gap["additions"]
+    assert saved == original_profile
+    assert Gateway.requests == before
+
+
 def verify_process_descriptor_loopback(cli, profile, endpoint, output):
     output.mkdir()
     loopback = output / "loopback.toml"
@@ -3062,6 +3131,7 @@ def main():
     features_profile = verify_iodd_features(cli, scratch / "iodd-features")
     verify_profile_characteristic(cli, features_profile, scratch / "profile-characteristic")
     descriptor_profile = verify_process_descriptors(cli, scratch / "process-descriptors")
+    verify_input_descriptor_plan(cli, scratch / "input-descriptor-plan")
     standard_range_profile = verify_standard_ranges(cli, scratch / "standard-ranges")
     verify_error_types(cli, scratch / "error-types")
     verify_defaults(cli, scratch / "defaults")
@@ -3511,7 +3581,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1351, AL1352 and AL1353 status, ISDU and capture across all ports, one-shot ifm master inspection with supply diagnostics, read-only port configuration and offline snapshot review and comparison, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")

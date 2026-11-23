@@ -466,6 +466,11 @@ pub(super) fn show(
     actions
 }
 
+pub(super) enum OfflineEdit {
+    DisplayPreference(DisplaySelection),
+    AddInputFields(diagnostics::InputDescriptorPlan),
+}
+
 #[derive(Default)]
 pub struct Offline {
     pub(super) picker: Picker,
@@ -481,9 +486,9 @@ impl Offline {
         &mut self,
         ui: &mut Ui,
         profile: &Profile,
-        preferences_available: bool,
-    ) -> Option<DisplaySelection> {
-        let mut selection = None;
+        editing_available: bool,
+    ) -> Option<OfflineEdit> {
+        let mut edit = None;
         ui.heading("Offline ISDU parameter decoder");
         ui.small("Paste a recorded 1–232 byte response. Select subindex 0 for a whole record, or the member addressed by the recorded query.");
         ui.collapsing("Device profile IDs (13:0)", |ui| {
@@ -544,6 +549,30 @@ impl Offline {
                 ) {
                     Ok(report) => {
                         ui.label(report.text());
+                        if self.descriptor_direction == DescriptorDirection::Input
+                            && profile.has_process_input()
+                            && report.status != diagnostics::DescriptorStatus::InvalidReply
+                        {
+                            ui.collapsing("Suggest manual input fields", |ui| {
+                                match diagnostics::plan_input_descriptor(profile, hex) {
+                                    Ok(plan) => {
+                                        ui.label(plan.text());
+                                        if ui
+                                            .add_enabled(
+                                                editing_available && !plan.additions.is_empty(),
+                                                egui::Button::new("Add manual fields"),
+                                            )
+                                            .clicked()
+                                        {
+                                            edit = Some(OfflineEdit::AddInputFields(plan));
+                                        }
+                                    }
+                                    Err(error) => {
+                                        ui.colored_label(WARNING, error.to_string());
+                                    }
+                                }
+                            });
+                        }
                     }
                     Err(error) => {
                         ui.colored_label(WARNING, error.to_string());
@@ -571,11 +600,15 @@ impl Offline {
                 }
             }
             ui.collapsing("IODD details and display preference", |ui| {
-                selection = preference(ui, parent, target, subindex, preferences_available, salt);
+                if let Some(selection) =
+                    preference(ui, parent, target, subindex, editing_available, salt)
+                {
+                    edit = Some(OfflineEdit::DisplayPreference(selection));
+                }
                 definition(ui, parent, target, subindex, salt);
             });
         }
-        selection
+        edit
     }
 }
 

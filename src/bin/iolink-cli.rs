@@ -187,6 +187,14 @@ enum Command {
         #[arg(long)]
         profile: Option<PathBuf>,
     },
+    /// Preview host-only manual fields from a recorded 14:0 reply.
+    PlanInputDescriptor {
+        profile: PathBuf,
+        payload: String,
+        /// Save a new profile with the proposed fields.
+        #[arg(long)]
+        save_profile: Option<PathBuf>,
+    },
     /// Compare a recorded whole ProfileCharacteristic (13:0) reply with an optional IODD.
     DecodeProfileCharacteristic {
         payload: String,
@@ -634,6 +642,18 @@ fn main() -> Result<()> {
                 ),
                 "Process descriptor needs review. See the report above."
             );
+        }
+        Command::PlanInputDescriptor {
+            profile,
+            payload,
+            save_profile,
+        } => {
+            let profile = Profile::load(&profile)?;
+            let plan = diagnostics::plan_input_descriptor(&profile, &payload)?;
+            print!("{}", toml::to_string_pretty(&plan)?);
+            if let Some(path) = save_profile {
+                plan.apply(&profile)?.save_new(&path)?;
+            }
         }
         Command::DecodeProfileCharacteristic { payload, profile } => {
             use diagnostics::ProfileCharacteristicStatus;
