@@ -10,6 +10,7 @@ use std::time::Instant;
 
 mod comparison;
 mod error_type;
+mod profile_characteristic;
 mod snapshot;
 pub use crate::snapshot_file::check_destination;
 pub use comparison::{
@@ -17,6 +18,10 @@ pub use comparison::{
     StatusValues, compare,
 };
 pub use error_type::{ErrorTypeReport, decode_error_type};
+pub use profile_characteristic::{
+    ProfileCharacteristic, ProfileCharacteristicStatus, ProfileIdComparison,
+    decode_profile_characteristic,
+};
 pub use snapshot::{Review, SavedRead, Snapshot, read_snapshot};
 
 const SNAPSHOT_KIND: &str = "explicit acyclic snapshots; source event history/loss unknown";

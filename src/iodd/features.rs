@@ -39,11 +39,7 @@ impl Features {
 
     pub fn summary(&self) -> String {
         let profile_ids = match &self.profile_characteristic {
-            Some(ids) => ids
-                .iter()
-                .map(|id| format!("0x{id:04X} ({id})"))
-                .collect::<Vec<_>>()
-                .join(", "),
+            Some(ids) => format_profile_ids(ids),
             None => "Undeclared".into(),
         };
         let access_locks = match &self.access_locks {
@@ -62,6 +58,13 @@ impl Features {
             yes_no(self.data_storage)
         )
     }
+}
+
+pub(crate) fn format_profile_ids(ids: &[u16]) -> String {
+    ids.iter()
+        .map(|id| format!("0x{id:04X} ({id})"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn yes_no(value: bool) -> &'static str {

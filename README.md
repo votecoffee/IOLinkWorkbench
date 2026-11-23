@@ -154,7 +154,7 @@ The bundled **sensor-checksum.xml** and **sensor-checksum-de.xml** are original 
 
 **Cyclic time.** IODD `TimeT` and `TimeSpanT` fields display UTC timestamps or signed durations. Their typed CSV columns store exact 64-bit ticks for offline verification and re-decode. Device time is separate from acquisition timing. [Temporal mapping and profile compatibility](docs/OPERATIONS.md#cyclic-timet-and-timespant)
 
-**Declared device capabilities.** IODD inspection and saved profiles show the declared block parameter, Data Storage and access lock support, plus profile identifiers. [Declared device capabilities](docs/OPERATIONS.md#declared-device-capabilities)
+**Declared device capabilities.** IODD inspection and saved profiles show the declared block parameter, Data Storage and access lock support, plus profile identifiers. The offline parameter viewer can compare a recorded ProfileCharacteristic reply with the IODD's profile IDs. [Declared device capabilities](docs/OPERATIONS.md#declared-device-capabilities)
 
 **Cyclic display formats.** Reimport an IODD to show binary and hexadecimal integers or decimal Boolean values in typed views. CSV records the underlying values. [Cyclic display formats](docs/OPERATIONS.md#cyclic-display-formats)
 

@@ -179,6 +179,12 @@ enum Command {
         #[arg(long)]
         profile: Option<PathBuf>,
     },
+    /// Compare a recorded whole ProfileCharacteristic (13:0) reply with an optional IODD.
+    DecodeProfileCharacteristic {
+        payload: String,
+        #[arg(long)]
+        profile: Option<PathBuf>,
+    },
     /// Read one named IODD parameter through the independent acyclic client.
     ReadParameter {
         profile: PathBuf,
@@ -592,6 +598,19 @@ fn main() -> Result<()> {
             let bytes = decode::parse_hex_bounded(&payload, 2)?;
             let report = diagnostics::decode_error_type(profile.as_ref(), &bytes)?;
             print!("{}", toml::to_string_pretty(&report)?);
+        }
+        Command::DecodeProfileCharacteristic { payload, profile } => {
+            use diagnostics::ProfileCharacteristicStatus;
+            let profile = profile.as_deref().map(Profile::load).transpose()?;
+            let report = diagnostics::decode_profile_characteristic(profile.as_ref(), &payload)?;
+            print!("{}", toml::to_string_pretty(&report)?);
+            ensure!(
+                matches!(
+                    report.status,
+                    ProfileCharacteristicStatus::Match | ProfileCharacteristicStatus::Undeclared
+                ),
+                "ProfileCharacteristic needs review. See the report above."
+            );
         }
         Command::Parameters { profile } => {
             let profile = Profile::load(&profile)?;

@@ -92,7 +92,7 @@ class Gateway(BaseHTTPRequestHandler):
                 # Documented examples use both styles of path key.
                 response["data"][path if self.polls % 2 else path.lstrip("/")] = result
         elif address == self.device + "/iolreadacyclic" and request["data"] in (
-                {"index": 19, "subindex": 0}, {"index": 36, "subindex": 0}, {"index": 37, "subindex": 0}, {"index": 48, "subindex": 0}, {"index": 64, "subindex": 0}, {"index": 65, "subindex": 0},
+                {"index": 13, "subindex": 0}, {"index": 19, "subindex": 0}, {"index": 36, "subindex": 0}, {"index": 37, "subindex": 0}, {"index": 48, "subindex": 0}, {"index": 64, "subindex": 0}, {"index": 65, "subindex": 0},
                 *({"index": 66, "subindex": subindex} for subindex in range(5)),
                 *({"index": 67, "subindex": subindex} for subindex in range(8)),
                 {"index": 71, "subindex": 0}, {"index": 72, "subindex": 0},
@@ -109,7 +109,7 @@ class Gateway(BaseHTTPRequestHandler):
                 if not self.parameter_release.wait(timeout=3):
                     response["code"] = 500
             response["data"] = {"value": {
-                (19, 0): "53494D2D53454E534F52", (48, 0): "2A", (64, 0): self.threshold_payload, (65, 0): "666978747572652073656E736F72",
+                (13, 0): "40008000FFFF", (19, 0): "53494D2D53454E534F52", (48, 0): "2A", (64, 0): self.threshold_payload, (65, 0): "666978747572652073656E736F72",
                 (36, 0): "02", (37, 0): self.detailed_payload,
                 (66, 0): self.record_payload, (66, 1): "FFEC", (66, 2): "01", (66, 3): "0A", (66, 4): "54455354",
                 (67, 0): self.array_payload, (67, 1): "02", (67, 2): "FC", (67, 3): "04", (67, 4): "F9", (67, 5): "05", (67, 6): "FF", (67, 7): "00",
@@ -2683,6 +2683,59 @@ def verify_iodd_features(cli, output):
     _, rows = capture(cli, profile, bundle_path, "--seconds", ".16")
     assert rows and tomllib.loads(run(cli, "verify-capture", bundle_path))["rows_checked"] == len(rows)
     assert tomllib.loads((bundle_path / "profile.toml").read_text(encoding="utf-8"))["iodd"]["features"] == expected
+    return profile
+
+
+def verify_profile_characteristic(cli, profile, output):
+    output.mkdir()
+    before = Gateway.requests
+    original = profile.read_bytes()
+    command = "decode-profile-characteristic"
+    matching = tomllib.loads(run(cli, command, "0x4000 8000_FFFF", "--profile", profile))
+    assert (matching["index"], matching["subindex"], matching["raw_hex"]) == (13, 0, "40008000FFFF")
+    assert matching["status"] == "match"
+    assert matching["reply_ids"] == matching["declared_ids"] == [0x4000, 0x8000, 0xFFFF]
+    assert matching["comparison"] == {"missing_ids": [], "unexpected_ids": []}
+
+    reordered = output / "reordered.toml"
+    text = original.decode("utf-8")
+    changed, replaced = re.subn(
+        r"profile_characteristic = \[([^]]*)\]",
+        "profile_characteristic = [65535, 32768, 16384]", text
+    )
+    assert replaced == 1
+    reordered.write_text(changed, encoding="utf-8")
+    ordered = tomllib.loads(run(cli, command, "40008000FFFF", "--profile", reordered))
+    assert ordered["status"] == "match" and ordered["declared_ids"] == [0xFFFF, 0x8000, 0x4000]
+
+    different = tomllib.loads(run(cli, command, "40008101FFFF", "--profile", profile, expected=1))
+    assert different["status"] == "different"
+    assert different["comparison"] == {"missing_ids": [0x8000], "unexpected_ids": [0x8101]}
+    undecided = tomllib.loads(run(cli, command, "40008000", "--profile", ROOT / "samples/simulator.toml"))
+    assert undecided["status"] == "undeclared" and undecided["reply_ids"] == [0x4000, 0x8000]
+    assert "declared_ids" not in undecided and "comparison" not in undecided
+    assert tomllib.loads(run(cli, command, "40008000")) == undecided
+
+    for payload, decoded in [("400080", []), ("80004000", [0x8000, 0x4000]), ("40004000", [0x4000, 0x4000])]:
+        invalid = tomllib.loads(run(cli, command, payload, "--profile", profile, expected=1))
+        assert invalid["status"] == "invalid_reply" and invalid["raw_hex"] == payload
+        assert invalid["reply_ids"] == decoded and invalid["decode_error"] and "comparison" not in invalid
+    run(cli, command, "00" * 233, expected=1)
+    run(cli, command, "GG", expected=1)
+    assert profile.read_bytes() == original and Gateway.requests == before
+
+
+def verify_profile_characteristic_loopback(cli, profile, endpoint, output):
+    output.mkdir()
+    loopback = output / "loopback.toml"
+    run(cli, "set-connection", profile, loopback, "--gateway", "ifm-al1350", "--endpoint", endpoint,
+        "--expected-mode", "3", "--firmware", "3.1.42")
+    reads = Gateway.isdu_reads
+    reply = tomllib.loads(run(cli, "isdu", loopback, 13, 0))["hex"]
+    assert reply == "40008000FFFF" and Gateway.isdu_reads == reads + 1
+    before = Gateway.requests
+    compared = tomllib.loads(run(cli, "decode-profile-characteristic", reply, "--profile", loopback))
+    assert compared["status"] == "match" and Gateway.requests == before
 
 
 def verify_communication(cli, output):
@@ -2911,7 +2964,8 @@ def main():
     scratch.mkdir(parents=True)
     verify_stamps(cli, scratch / "stamps")
     communication_profile = verify_communication(cli, scratch / "communication")
-    verify_iodd_features(cli, scratch / "iodd-features")
+    features_profile = verify_iodd_features(cli, scratch / "iodd-features")
+    verify_profile_characteristic(cli, features_profile, scratch / "profile-characteristic")
     standard_range_profile = verify_standard_ranges(cli, scratch / "standard-ranges")
     verify_error_types(cli, scratch / "error-types")
     verify_defaults(cli, scratch / "defaults")
@@ -3235,6 +3289,7 @@ kind = "bool"
             cycle_fixture.write_bytes(cycle_text.encode("utf-8"))
             verify_cycle_capture(cli, cycle_fixture, scratch / "ifm-cycle", 1200, snapshots=True)
             endpoint = f"http://127.0.0.1:{server.server_port}"
+            verify_profile_characteristic_loopback(cli, features_profile, endpoint, scratch / "ifm-profile-characteristic")
             verify_standalone_input_capture(
                 cli, padded_input_profile, endpoint, scratch / "ifm-padded-input", "integer",
                 "noncanonical_input_padding_rows",
@@ -3359,7 +3414,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and profile IDs, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1351, AL1352 and AL1353 status, ISDU and capture across all ports, one-shot ifm master inspection with supply diagnostics, read-only port configuration and offline snapshot review and comparison, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")

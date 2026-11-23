@@ -244,6 +244,7 @@ pub(super) fn render(
                 "offline-temporal-input",
                 "acyclic-profile",
                 "offline-parameter",
+                "offline-profile-ids",
                 "offline-snapshot",
                 "offline-events",
                 "offline-master-snapshot",
@@ -280,8 +281,7 @@ pub(super) fn render(
                     "device-identity" => app.setup.page = Page::Identity,
                     "device-iodd" => app.setup.page = Page::Iodd,
                     "device-advanced" => app.setup.page = Page::Advanced,
-                    "mapping-iodd-features" => {
-                        app.tab = Tab::Mappings;
+                    "mapping-iodd-features" | "offline-profile-ids" => {
                         let xml = include_str!("../../../samples/sensor.xml").replace(
                             "<DeviceFunction>",
                             r#"<DeviceFunction><Features blockParameter="true" dataStorage="false" profileCharacteristic="16384 32768"><SupportedAccessLocks parameter="false" dataStorage="false" localParameterization="true" localUserInterface="true"/></Features>"#,
@@ -290,6 +290,14 @@ pub(super) fn render(
                         let (identity, imported) = catalog.select(Some("SIM-SENSOR"), None)?;
                         app.profile.apply_iodd(identity, imported);
                         app.setup.sync(&app.profile);
+                        if label == "offline-profile-ids" {
+                            app.tab = Tab::Offline;
+                            app.workspace.offline = OfflinePage::Parameter;
+                            app.offline_parameter.profile_characteristic_payload =
+                                "40008000".into();
+                        } else {
+                            app.tab = Tab::Mappings;
+                        }
                     }
                     "mapping-editor" => {
                         app.tab = Tab::Mappings;
@@ -785,6 +793,9 @@ pub(super) fn render(
                 "offline-boolean-input" => Some(
                     "Standalone Boolean input has a noncanonical byte. The IODD interprets any nonzero byte as true.",
                 ),
+                "offline-profile-ids" => Some(
+                    "Profile IDs match the IODD\nRaw reply · 40008000\nIODD profile IDs · 0x4000 (16384), 0x8000 (32768)\nReply profile IDs · 0x4000 (16384), 0x8000 (32768)",
+                ),
                 "offline-float-state-name" => Some("Nominal setting (2.50)"),
                 "offline-hex-format" => Some("Nominal setting (FFFCh)"),
                 "offline-named-range" => Some("Nominal setting (6)"),
@@ -935,7 +946,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 128);
+        assert_eq!(cases.len(), 129);
         assert!(
             cases
                 .iter()

@@ -20,6 +20,7 @@ mod array;
 mod communication;
 pub use communication::{Bitrate, Communication};
 mod features;
+pub(crate) use features::format_profile_ids;
 pub use features::{AccessLocks, Features};
 mod error_types;
 pub use error_types::ErrorTypeDefinition;

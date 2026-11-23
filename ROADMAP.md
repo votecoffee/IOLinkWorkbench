@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Decode a recorded ProfileCharacteristic reply at index 13, subindex 0 in the GUI and CLI. Compare the list with the saved IODD and retain raw bytes, malformed ordering and missing or unexpected IDs.
+
 - IODD inspection retains declared device capabilities and profile IDs in the GUI, CLI and saved profiles. The declaration is independent of observed lock state, master configuration and device profile reads.
 
 - Cyclic typed views honor IODD `Bin`, `Hex`, and Boolean `Dec` preferences on input and output. Capture and offline re-decode retain the underlying values.

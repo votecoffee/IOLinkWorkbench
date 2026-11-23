@@ -79,6 +79,14 @@ Open **IODD declared capabilities** in the **Device → IODD import** preview or
 
 These entries describe the device capabilities in the IODD. Actual lock state, master Data Storage configuration, and the connected device's profile IDs are separate observations. Reimport an existing IODD to save its capabilities. Saved profiles and captures containing `iodd.features` require v0.111.0 or later.
 
+For a recorded whole **ProfileCharacteristic** reply at index 13, subindex 0, open **Offline → Parameter bytes → Device profile IDs (13:0)** and paste the hex. Workbench shows the raw reply and the 16-bit identifiers in wire order. With a saved IODD declaration it reports the missing and unexpected identifiers. It flags incomplete words, repeated IDs, and replies out of ascending order. A missing declaration still allows decoding. [IO-Link Common Profile V1.2.1, Annex B.4](https://io-link.com/fileadmin/user_upload/Downloads/Package_2025/IO-Link_Common_Profile_Specification_10.072_V1.2.1_Oct2025.zip)
+
+```powershell
+.\iolink-cli.exe decode-profile-characteristic "4000 8000" --profile device.toml
+```
+
+Omit `--profile` to decode the reply by itself. The CLI returns 1 for a malformed list or a difference against the declared IDs and prints the available evidence. Both views use the supplied bytes offline.
+
 ### Cyclic display formats
 
 IODD `ProcessDataInfo` and `ProcessDataRecordItemInfo` can render integers as `Bin` or `Hex` and Booleans as `Dec` (0/1). Negative integers use two’s complement. A 5-bit signed field containing -4 appears as `1111 1100b` in binary or `FCh` in hexadecimal. The GUI and CLI keep the raw bits and can show a state name alongside the formatted value. The CLI's decoded output JSON carries the optional `formatted_value` beside `raw` and `value`. The CSV column uses the underlying engineering or Boolean value. [IODD V1.1.5, sections 7.5.8.1 and 7.5.8.4](https://io-link.com/downloads)

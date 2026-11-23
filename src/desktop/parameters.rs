@@ -1,7 +1,7 @@
 use super::WARNING;
 use eframe::egui::{self, Ui};
 use iolink_workbench::{
-    decode,
+    decode, diagnostics,
     iodd::{Access, Parameter},
     profile::Profile,
     transport::write::isdu_write_target,
@@ -470,6 +470,7 @@ pub(super) fn show(
 pub struct Offline {
     pub(super) picker: Picker,
     payload: String,
+    pub(super) profile_characteristic_payload: String,
 }
 
 impl Offline {
@@ -482,6 +483,28 @@ impl Offline {
         let mut selection = None;
         ui.heading("Offline ISDU parameter decoder");
         ui.small("Paste a recorded 1–232 byte response. Select subindex 0 for a whole record, or the member addressed by the recorded query.");
+        ui.collapsing("Device profile IDs (13:0)", |ui| {
+            ui.small("Paste the complete ProfileCharacteristic reply in hex.");
+            ui.add(
+                egui::TextEdit::multiline(&mut self.profile_characteristic_payload)
+                    .code_editor()
+                    .desired_rows(2)
+                    .desired_width(f32::INFINITY),
+            );
+            if !self.profile_characteristic_payload.trim().is_empty() {
+                match diagnostics::decode_profile_characteristic(
+                    Some(profile),
+                    &self.profile_characteristic_payload,
+                ) {
+                    Ok(report) => {
+                        ui.label(report.text());
+                    }
+                    Err(error) => {
+                        ui.colored_label(WARNING, error.to_string());
+                    }
+                }
+            }
+        });
         let salt = "iodd-offline-parameter";
         if let Some((parent, target)) = self.picker.show(ui, profile, salt) {
             let subindex = self.picker.subindex;
