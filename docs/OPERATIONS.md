@@ -99,6 +99,18 @@ In **Diagnostics → Device profile → Device access locks (12:0)**, choose **R
 
 The standard reply has two bytes. Bits 0 and 1 are the legacy parameter-write and Data Storage lock flags. Bits 2 and 3 report local parameterization and local user interface locks. The view shows each observed flag and the saved IODD's support declaration when present. An unavailable read keeps its error and available connection context. The CLI returns 1 for read failures, invalid widths, set reserved bits, or a set flag the IODD marks unsupported. This is the device's recorded lock word. Master Data Storage status and write permission have their own controls and evidence.
 
+### Device error count
+
+In **Diagnostics → Device events → Device error count (32:0)**, choose **Read error count** or **Read and save error count snapshot**. Review a saved reply under **Offline → Diagnostic snapshots → Error count snapshots**. To decode recorded bytes directly, use **Offline → Event codes → Device error count (32:0)**. [IO-Link Interface and System V1.1.5, B.2.20](https://io-link.com/fileadmin/user_upload/Downloads/Package_2025/IOL-Interface-Spec_10002_V1.1.5_Oct2025.zip)
+
+```powershell
+.\iolink-cli.exe read-error-count device.toml --snapshot device-errors.json
+.\iolink-cli.exe review-error-count device-errors.json
+.\iolink-cli.exe decode-error-count "00 05"
+```
+
+The optional reply is a two-byte unsigned value. It describes device application errors since power-on or reset according to the vendor's rules. Gateway errors, pending events, and capture loss have their own evidence. The explicit read uses an independent acyclic client. A snapshot preserves the query, raw reply or error, and any observed master and device context. The CLI exits 1 for an unavailable or malformed reply and prints the available evidence. The checked AL1350 write planner rejects writes to index 32.
+
 ### Direct Parameter Page 1
 
 Open **Offline → Parameter bytes → Direct Parameter Page 1 (0:0)** and paste the 16 recorded wired IO-Link bytes in ascending address order, from 0x00 to 0x0F. The decoder retains the complete page and interprets wired protocol revision 1.1. It displays the recorded master cycle setting, the device's reported minimum cycle, ISDU and SIO capability, M-sequence codes, process-data lengths, and the 16-bit Vendor ID and 24-bit Device ID. [IO-Link Interface and System V1.1.5, B.1.1 and B.1.3–9](https://io-link.com/fileadmin/user_upload/Downloads/Package_2025/IOL-Interface-Spec_10002_V1.1.5_Oct2025.zip)

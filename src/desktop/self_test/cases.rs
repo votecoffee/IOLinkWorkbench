@@ -228,6 +228,7 @@ pub(super) fn render(
                 "diagnostics-timing",
                 "master-inspection",
                 "diagnostics-events",
+                "diagnostics-error-count",
                 "diagnostics-device-profile",
                 "offline-device-profile-comparison",
                 "offline-compare",
@@ -255,6 +256,7 @@ pub(super) fn render(
                 "offline-descriptor-plan",
                 "offline-snapshot",
                 "offline-events",
+                "offline-error-count",
                 "offline-master-snapshot",
                 "offline-master-comparison",
                 "offline-diagnostic-snapshot",
@@ -427,6 +429,13 @@ pub(super) fn render(
                                 comparison_sources: None,
                             }),
                         );
+                    }
+                    "diagnostics-error-count" => {
+                        app.tab = Tab::Diagnostics;
+                        app.workspace.diagnostics = DiagnosticsPage::Events;
+                        let review = iolink_workbench::diagnostics::decode_error_count("0005")?;
+                        app.acyclic
+                            .store_result(Query::ErrorCount, Ok(Output::from(review.text())));
                     }
                     "diagnostics-events" => {
                         app.tab = Tab::Diagnostics;
@@ -675,6 +684,11 @@ pub(super) fn render(
                     "offline-snapshot" => {
                         app.tab = Tab::Offline;
                         app.workspace.offline = OfflinePage::Snapshot;
+                    }
+                    "offline-error-count" => {
+                        app.tab = Tab::Offline;
+                        app.workspace.offline = OfflinePage::Events;
+                        app.offline_diagnostics.error_count = "FFFF".into();
                     }
                     "offline-events" => {
                         app.tab = Tab::Offline;
@@ -935,6 +949,12 @@ pub(super) fn render(
                 "al1352-connection" => Some("ifm AL1352 · http://127.0.0.1:1"),
                 "al1353-connection" => Some("ifm AL1353 · http://127.0.0.1:1"),
                 "master-inspection" => Some(MASTER_INSPECTION_FIXTURE),
+                "diagnostics-error-count" => Some(
+                    "Device error count · 32:0\nRaw reply · 0005\nCount · 5\nDevice application errors since power-on or reset, as defined by the vendor",
+                ),
+                "offline-error-count" => Some(
+                    "Device error count · 32:0\nRaw reply · FFFF\nCount · 65535\nDevice application errors since power-on or reset, as defined by the vendor",
+                ),
                 "offline-events" => Some(
                     "ErrorType 0x8011 · Standard device application error\nIndex is unavailable",
                 ),
@@ -1061,7 +1081,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 137);
+        assert_eq!(cases.len(), 139);
         assert!(
             cases
                 .iter()

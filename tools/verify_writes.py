@@ -110,6 +110,9 @@ def verify(cli, profile, server):
         assert "DataStorageIndex 3 is reserved" in run(reserved, status=1)
         assert "DataStorageIndex 3 is reserved" in run(reserved[:5], status=1, command="read-current")
         assert "DataStorageIndex 3 is reserved" in run(reserved, confirm=plan["confirmation"], status=1)
+    count = ["isdu", "--index", "32", "--subindex", "0", "--expected", "0000", "--desired", "0001"]
+    assert "ErrorCount index 32 is read-only" in run(count, status=1)
+    assert "ErrorCount index 32 is read-only" in run(count, confirm=plan["confirmation"], status=1)
     assert not server.requests and not server.writes
     observed = run(["port-mode"], command="read-current")
     assert observed["point"] == {"kind": "port_mode"} and observed["value"] == 3

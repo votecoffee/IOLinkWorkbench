@@ -461,6 +461,7 @@ impl App {
                 self.saved_device_profile_panel(ui);
                 self.saved_diagnostics.show(ui);
                 self.saved_access_locks_panel(ui);
+                self.saved_error_count_panel(ui);
             }
         }
     }

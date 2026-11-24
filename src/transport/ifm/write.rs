@@ -2,7 +2,7 @@
 use super::{Client, InputTransport, label, number};
 use crate::{
     decode::{MAX_INPUT, hex, parse_hex_bounded},
-    diagnostics::DATA_STORAGE_INDEX,
+    diagnostics::{DATA_STORAGE_INDEX, ERROR_COUNT_INDEX},
     iodd::{
         Access, DecodedOutput, DecodedParameter, Parameter, ProcessDataLayout,
         decode_text_parameter,
@@ -765,6 +765,10 @@ fn read_id(client: &mut Client, index: u16) -> Result<String> {
 }
 
 fn check_isdu_index(index: u16) -> Result<()> {
+    ensure!(
+        index != ERROR_COUNT_INDEX,
+        "ErrorCount index 32 is read-only"
+    );
     ensure!(
         index != DATA_STORAGE_INDEX,
         "DataStorageIndex 3 is reserved for master/device exchanges"

@@ -166,6 +166,17 @@ enum Command {
     ReviewDiagnostics { snapshot: PathBuf },
     /// Compare two saved diagnostic snapshots by query and wire slot, entirely offline.
     CompareDiagnostics { left: PathBuf, right: PathBuf },
+    /// Decode a recorded Device ErrorCount reply (32:0).
+    DecodeErrorCount { payload: String },
+    /// Read the optional Device ErrorCount once from the configured port.
+    ReadErrorCount {
+        profile: PathBuf,
+        /// Save the reply or read error with its connection context to a new JSON file.
+        #[arg(long)]
+        snapshot: Option<PathBuf>,
+    },
+    /// Review a saved Device ErrorCount snapshot offline.
+    ReviewErrorCount { snapshot: PathBuf },
     /// Decode a recorded 16-byte wired Direct Parameter Page 1 in address order.
     DecodeDirectPage {
         payload: String,
@@ -600,6 +611,40 @@ fn main() -> Result<()> {
             ensure!(
                 review.ok(),
                 "saved diagnostic snapshot needs review; retained results are printed above"
+            );
+        }
+        Command::DecodeErrorCount { payload } => {
+            let report = diagnostics::decode_error_count(&payload)?;
+            print!("{}", toml::to_string_pretty(&report)?);
+            ensure!(
+                report.ok(),
+                "Device error count reply needs review. Retained results are printed above."
+            );
+        }
+        Command::ReadErrorCount { profile, snapshot } => {
+            let profile = Profile::load(&profile)?;
+            if let Some(path) = &snapshot {
+                diagnostics::check_destination(path)?;
+            }
+            let evidence = diagnostics::ErrorCountSnapshot::read(&profile)?;
+            let review = evidence.review()?;
+            print!("{}", toml::to_string_pretty(&review)?);
+            if let Some(path) = snapshot {
+                evidence.save(&path)?;
+                eprintln!("Saved error count snapshot {}", path.display());
+            }
+            ensure!(
+                review.ok(),
+                "Device error count read needs review. Retained results are printed above."
+            );
+        }
+        Command::ReviewErrorCount { snapshot } => {
+            let evidence = diagnostics::ErrorCountSnapshot::load(&snapshot)?;
+            let review = evidence.review()?;
+            print!("{}", toml::to_string_pretty(&review)?);
+            ensure!(
+                review.ok(),
+                "Saved error count needs review. Retained results are printed above."
             );
         }
         Command::DecodeDirectPage { payload, profile } => {

@@ -38,6 +38,7 @@ class Gateway(BaseHTTPRequestHandler):
     fail_access_locks = False
     change_profile_target = False
     detailed_payload = "E48DFE000000"
+    error_count_reply = "A001"
     change_serial_after_status = False
     change_master_after_status = False
     payload = "03C9"
@@ -95,7 +96,7 @@ class Gateway(BaseHTTPRequestHandler):
                 # Documented examples use both styles of path key.
                 response["data"][path if self.polls % 2 else path.lstrip("/")] = result
         elif address == self.device + "/iolreadacyclic" and request["data"] in (
-                *({"index": index, "subindex": 0} for index in (12, 13, 14, 15)),
+                *({"index": index, "subindex": 0} for index in (12, 13, 14, 15, 32)),
                 {"index": 19, "subindex": 0}, {"index": 36, "subindex": 0}, {"index": 37, "subindex": 0}, {"index": 48, "subindex": 0}, {"index": 64, "subindex": 0}, {"index": 65, "subindex": 0},
                 *({"index": 66, "subindex": subindex} for subindex in range(5)),
                 *({"index": 67, "subindex": subindex} for subindex in range(8)),
@@ -115,7 +116,7 @@ class Gateway(BaseHTTPRequestHandler):
             response["data"] = {"value": {
                 (12, 0): "000C", (13, 0): "40008000FFFF", (14, 0): "010100030F01", (15, 0): "010200020302",
                 (19, 0): "53494D2D53454E534F52", (48, 0): "2A", (64, 0): self.threshold_payload, (65, 0): "666978747572652073656E736F72",
-                (36, 0): "02", (37, 0): self.detailed_payload,
+                (32, 0): self.error_count_reply, (36, 0): "02", (37, 0): self.detailed_payload,
                 (66, 0): self.record_payload, (66, 1): "FFEC", (66, 2): "01", (66, 3): "0A", (66, 4): "54455354",
                 (67, 0): self.array_payload, (67, 1): "02", (67, 2): "FC", (67, 3): "04", (67, 4): "F9", (67, 5): "05", (67, 6): "FF", (67, 7): "00",
                 (71, 0): "9DFF440080000000", (72, 0): "FFFFFFFD40000000",
@@ -136,6 +137,8 @@ class Gateway(BaseHTTPRequestHandler):
                 or (index == 12 and self.fail_access_locks)
             ):
                 response["code"] = 500
+            if index == 32 and self.error_count_reply is None:
+                response["code"] = 404
             if index == 13 and self.change_profile_target:
                 self.data[self.device + "/serial"] = "CHANGED-SENSOR"
                 self.data["/deviceinfo/serialnumber"] = "CHANGED-MASTER"
@@ -346,7 +349,8 @@ def capture(cli, profile, path, *args):
     return report, rows
 
 
-def parallel_parameter_read(cli, fixture, output, diagnostics=False, layout_fixture=None, device_profile=False, access_locks=False):
+def parallel_parameter_read(cli, fixture, output, diagnostics=False, layout_fixture=None,
+                            device_profile=False, access_locks=False, error_count=False):
     Gateway.device_id = 1
     Gateway.polls = 0
     Gateway.inject_faults = False
@@ -360,6 +364,8 @@ def parallel_parameter_read(cli, fixture, output, diagnostics=False, layout_fixt
         index, command = 14, [cli, "read-device-profile", fixture, "--snapshot", snapshot_path]
     elif access_locks:
         index, command = 12, [cli, "read-device-access-locks", fixture, "--snapshot", snapshot_path]
+    elif error_count:
+        index, command = 32, [cli, "read-error-count", fixture, "--snapshot", snapshot_path]
     else:
         index, command = 64, [cli, "read-parameter", fixture, "V_SIM_Threshold", "--snapshot", snapshot_path]
     Gateway.block_index = index
@@ -400,6 +406,9 @@ def parallel_parameter_read(cli, fixture, output, diagnostics=False, layout_fixt
         elif access_locks:
             assert tomllib.loads(stdout)["decoded"]["raw_hex"] == "000C"
             assert json.loads(snapshot_path.read_bytes())["read"]["index"] == 12
+        elif error_count:
+            assert tomllib.loads(stdout)["decoded"]["value"] == 0xA001
+            assert json.loads(snapshot_path.read_bytes())["read"]["index"] == 32
         else:
             assert tomllib.loads(stdout)["raw_value"] == "500"
             assert json.loads(snapshot_path.read_text(encoding="utf-8"))["raw_hex"] == "01F4"
@@ -3079,6 +3088,73 @@ def verify_device_profile_comparison(cli, snapshot, output, loopback=False):
     assert Gateway.requests == before and snapshot.read_bytes() == original
 
 
+def verify_error_count(cli, profile, output, loopback=False):
+    output.mkdir()
+    before = Gateway.requests
+    original_profile = profile.read_bytes()
+    for raw, wire, count in (("0000", "0000", 0), ("0xA0 00", "A000", 40960),
+                             ("FF FF", "FFFF", 65535)):
+        report = tomllib.loads(run(cli, "decode-error-count", raw))
+        assert report["raw_hex"] == wire and report["value"] == count
+        assert "as defined by the vendor" in report["meaning"] and "decode_error" not in report
+    for raw in ("", "00", "0000FF"):
+        report = tomllib.loads(run(cli, "decode-error-count", raw, expected=1))
+        assert report["raw_hex"] == raw and "value" not in report
+        assert "exactly two bytes" in report["decode_error"]
+    assert not run(cli, "decode-error-count", "00" * 233, expected=1)
+    assert not run(cli, "decode-error-count", "zz", expected=1)
+    assert Gateway.requests == before
+
+    capture = output / "error-count.json"
+    expected_count = 0xA001 if loopback else 5
+    calls = Gateway.isdu_reads
+    report = tomllib.loads(run(cli, "read-error-count", profile, "--snapshot", capture))
+    assert Gateway.isdu_reads == calls + int(loopback)
+    read = report["read"]
+    assert (read["index"], read["subindex"]) == (32, 0)
+    assert read["host_read_utc"].endswith("Z") and read["read_duration_us"] >= 0
+    assert read["observation"]["port"] == 1 and read["observation"]["identity"]["device_id"] == 1
+    assert read["raw_hex"] == f"{expected_count:04X}" and report["decoded"]["value"] == expected_count
+    assert "read_error" not in read
+    snapshot_bytes = capture.read_bytes()
+    snapshot = json.loads(snapshot_bytes)
+    before = Gateway.requests
+    assert tomllib.loads(run(cli, "review-error-count", capture)) == report
+    assert not run(cli, "read-error-count", profile, "--snapshot", capture, expected=1)
+    wrong_query = output / "wrong-query.json"
+    snapshot["read"]["subindex"] = 1
+    wrong_query.write_text(json.dumps(snapshot), encoding="utf-8")
+    assert not run(cli, "review-error-count", wrong_query, expected=1)
+    malformed = output / "noncanonical.json"
+    snapshot["read"]["subindex"] = 0
+    snapshot["read"]["raw_hex"] = "ffff"
+    malformed.write_text(json.dumps(snapshot), encoding="utf-8")
+    assert not run(cli, "review-error-count", malformed, expected=1)
+    assert Gateway.requests == before and capture.read_bytes() == snapshot_bytes
+
+    if loopback:
+        try:
+            for name, sample in (("unavailable", None), ("empty", ""), ("short", "FF")):
+                Gateway.error_count_reply = sample
+                destination = output / f"{name}.json"
+                report = tomllib.loads(run(cli, "read-error-count", profile, "--snapshot", destination,
+                                           expected=1))
+                assert report["read"]["observation"]["identity"]["device_id"] == 1
+                if sample is None:
+                    assert "404" in report["read"]["read_error"] and "decoded" not in report
+                else:
+                    assert report["read"]["raw_hex"] == report["decoded"]["raw_hex"] == sample
+                    assert "exactly two bytes" in report["decoded"]["decode_error"]
+                    assert "value" not in report["decoded"]
+                before = Gateway.requests
+                assert tomllib.loads(run(cli, "review-error-count", destination, expected=1)) == report
+                assert Gateway.requests == before
+        finally:
+            Gateway.error_count_reply = "A001"
+        parallel_parameter_read(cli, profile, output / "parallel", error_count=True)
+    assert profile.read_bytes() == original_profile
+
+
 def verify_direct_page_comparison(cli, profile, output):
     output.mkdir()
     before = Gateway.requests
@@ -3574,6 +3650,7 @@ def main():
     verify_access_locks(cli, features_profile, scratch / "sim-access-locks")
     verify_data_storage(cli)
     verify_direct_page(cli, features_profile)
+    verify_error_count(cli, features_profile, scratch / "sim-error-count")
     verify_direct_page_comparison(cli, communication_profile, scratch / "direct-page-comparison")
     verify_profile_characteristic(cli, features_profile, scratch / "profile-characteristic")
     descriptor_profile = verify_process_descriptors(cli, scratch / "process-descriptors")
@@ -3983,6 +4060,7 @@ kind = "bool"
                                           scratch / "ifm-layout-condition")
             verify_whole_layout_conditions(cli, endpoint, scratch / "ifm-layout-condition-whole")
             verify_diagnostic_snapshots(cli, parameter_fixture, scratch / "ifm-diagnostic-snapshots", loopback=True)
+            verify_error_count(cli, parameter_fixture, scratch / "ifm-error-count", loopback=True)
             changed_identity_path = scratch / "changed-device.json"
             Gateway.change_serial_after_status = True
             try:
@@ -4035,7 +4113,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, offline Data Storage metadata review, offline Direct Parameter Page 1, identity pins and IODD comparison, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, offline Data Storage metadata review, offline Direct Parameter Page 1, identity pins and IODD comparison, optional device error count and saved evidence, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1351, AL1352 and AL1353 status, ISDU and capture across all ports, one-shot ifm master inspection with supply diagnostics, read-only port configuration and offline snapshot review and comparison, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")

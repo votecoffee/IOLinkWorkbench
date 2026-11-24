@@ -14,6 +14,7 @@ mod data_storage;
 mod device_profile;
 mod device_profile_comparison;
 mod direct_page;
+mod error_count;
 mod error_type;
 mod input_descriptor_mapping;
 mod process_descriptor;
@@ -37,6 +38,9 @@ pub use device_profile_comparison::{
     DescriptorChange, DeviceProfileComparison, ProfileIdChanges, compare_device_profiles,
 };
 pub use direct_page::{DirectPage, decode_direct_page, review_direct_page};
+pub use error_count::{
+    DeviceErrorCount, ERROR_COUNT_INDEX, ErrorCountReview, ErrorCountSnapshot, decode_error_count,
+};
 pub use error_type::{ErrorTypeReport, decode_error_type};
 pub use input_descriptor_mapping::{InputDescriptorPlan, SkippedEntry, plan_input_descriptor};
 pub use process_descriptor::{

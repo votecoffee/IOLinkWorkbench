@@ -449,6 +449,7 @@ impl App {
             self.tab = Tab::Offline;
         }
         self.acyclic_result(ui, acyclic::Kind::Events);
+        self.device_error_count_panel(ui);
         if let Some(imported) = &self.profile.iodd {
             ui.collapsing("IODD event definitions", |ui| {
                 ui.small(format!(

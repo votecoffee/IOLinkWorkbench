@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Read the optional device ErrorCount at 32:0, with saved raw replies, read errors and offline decoding. Keep the vendor count separate from pending events and source-loss accounting.
+
 - Compare recorded Page 1 minimum cycle, SIO, M-sequence capability and payload byte widths with the saved IODD. Keep geometry comparisons conditional on the selected layout and show unavailable evidence explicitly.
 
 - Decode recorded wired IO-Link 1.1 Direct Parameter Page 1. Show reported cycle settings, process-data lengths, capabilities and Vendor/Device IDs, with offline comparison against profile pins.

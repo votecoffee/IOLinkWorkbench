@@ -7,6 +7,7 @@ pub struct Offline {
     device_status: String,
     detailed: String,
     error_type: String,
+    pub(super) error_count: String,
 }
 
 impl Offline {
@@ -77,6 +78,22 @@ impl Offline {
                     }
                 }
             });
+        ui.collapsing("Device error count (32:0)", |ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.error_count)
+                    .hint_text("Paste the two recorded bytes in hex"),
+            );
+            if !self.error_count.trim().is_empty() {
+                match diagnostics::decode_error_count(&self.error_count) {
+                    Ok(report) => {
+                        ui.monospace(report.text());
+                    }
+                    Err(error) => {
+                        ui.colored_label(WARNING, error.to_string());
+                    }
+                }
+            }
+        });
     }
 }
 
