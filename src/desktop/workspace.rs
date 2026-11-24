@@ -460,6 +460,7 @@ impl App {
                 self.saved_master_panel(ui);
                 self.saved_device_profile_panel(ui);
                 self.saved_diagnostics.show(ui);
+                self.saved_access_locks_panel(ui);
             }
         }
     }

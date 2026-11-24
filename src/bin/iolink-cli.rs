@@ -166,6 +166,21 @@ enum Command {
     ReviewDiagnostics { snapshot: PathBuf },
     /// Compare two saved diagnostic snapshots by query and wire slot, entirely offline.
     CompareDiagnostics { left: PathBuf, right: PathBuf },
+    /// Decode a recorded DeviceAccessLocks reply (12:0).
+    DecodeDeviceAccessLocks {
+        payload: String,
+        #[arg(long)]
+        profile: Option<PathBuf>,
+    },
+    /// Read DeviceAccessLocks once from the configured port.
+    ReadDeviceAccessLocks {
+        profile: PathBuf,
+        /// Save the reply and connection context to a new JSON file.
+        #[arg(long)]
+        snapshot: Option<PathBuf>,
+    },
+    /// Review saved DeviceAccessLocks evidence offline.
+    ReviewDeviceAccessLocks { snapshot: PathBuf },
     /// Read profile IDs and both process descriptors from one configured port.
     ReadDeviceProfile {
         profile: PathBuf,
@@ -577,6 +592,40 @@ fn main() -> Result<()> {
             ensure!(
                 review.ok(),
                 "saved diagnostic snapshot needs review; retained results are printed above"
+            );
+        }
+        Command::DecodeDeviceAccessLocks { payload, profile } => {
+            let profile = profile.as_deref().map(Profile::load).transpose()?;
+            let report = diagnostics::decode_device_access_locks(profile.as_ref(), &payload)?;
+            print!("{}", toml::to_string_pretty(&report)?);
+            ensure!(
+                report.ok(),
+                "Device Access Locks need review. Retained results are printed above."
+            );
+        }
+        Command::ReadDeviceAccessLocks { profile, snapshot } => {
+            let profile = Profile::load(&profile)?;
+            if let Some(path) = &snapshot {
+                diagnostics::check_destination(path)?;
+            }
+            let evidence = diagnostics::AccessLocksSnapshot::read(&profile)?;
+            let review = evidence.review()?;
+            print!("{}", toml::to_string_pretty(&review)?);
+            if let Some(path) = snapshot {
+                evidence.save(&path)?;
+                eprintln!("Saved access locks snapshot {}", path.display());
+            }
+            ensure!(
+                review.ok(),
+                "Device Access Locks need review. Retained results are printed above."
+            );
+        }
+        Command::ReviewDeviceAccessLocks { snapshot } => {
+            let review = diagnostics::AccessLocksSnapshot::load(&snapshot)?.review()?;
+            print!("{}", toml::to_string_pretty(&review)?);
+            ensure!(
+                review.ok(),
+                "Device Access Locks need review. Retained results are printed above."
             );
         }
         Command::ReadDeviceProfile { profile, snapshot } => {

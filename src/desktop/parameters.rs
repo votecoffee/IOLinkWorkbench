@@ -476,6 +476,7 @@ pub struct Offline {
     pub(super) picker: Picker,
     payload: String,
     pub(super) profile_characteristic_payload: String,
+    pub(super) access_locks_payload: String,
     pub(super) process_descriptor_payload: String,
     descriptor_direction: diagnostics::DescriptorDirection,
     empty_descriptor: bool,
@@ -491,6 +492,25 @@ impl Offline {
         let mut edit = None;
         ui.heading("Offline ISDU parameter decoder");
         ui.small("Paste a recorded 1–232 byte response. Select subindex 0 for a whole record, or the member addressed by the recorded query.");
+        ui.collapsing("Device access locks (12:0)", |ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.access_locks_payload)
+                    .hint_text("Paste the complete two-byte reply in hex"),
+            );
+            if !self.access_locks_payload.trim().is_empty() {
+                match diagnostics::decode_device_access_locks(
+                    Some(profile),
+                    &self.access_locks_payload,
+                ) {
+                    Ok(report) => {
+                        ui.label(report.text());
+                    }
+                    Err(error) => {
+                        ui.colored_label(WARNING, error.to_string());
+                    }
+                }
+            }
+        });
         ui.collapsing("Device profile IDs (13:0)", |ui| {
             ui.small("Paste the complete ProfileCharacteristic reply in hex.");
             ui.add(

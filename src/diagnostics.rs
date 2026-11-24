@@ -8,6 +8,7 @@ use anyhow::Result;
 use serde::Serialize;
 use std::time::Instant;
 
+mod access_locks;
 mod comparison;
 mod device_profile;
 mod device_profile_comparison;
@@ -17,6 +18,10 @@ mod process_descriptor;
 mod profile_characteristic;
 mod snapshot;
 pub use crate::snapshot_file::check_destination;
+pub use access_locks::{
+    AccessLockFlag, AccessLocksReview, AccessLocksSnapshot, DeviceAccessLocks,
+    decode_device_access_locks,
+};
 pub use comparison::{
     Comparison, PendingEventComparison, PendingEventCount, ReplyComparison, SlotChange,
     StatusValues, compare,

@@ -102,6 +102,7 @@ impl InputTransport for Simulator {
 
 pub fn read_isdu(index: u16, subindex: u8) -> Result<Vec<u8>> {
     match (index, subindex) {
+        (12, 0) => Ok(vec![0, 0x0C]),
         (13, 0) => Ok(vec![0x40, 0]),
         (14, 0) => Ok(vec![1, 1, 0, 3, 15, 1]),
         (15, 0) => Ok(Vec::new()),

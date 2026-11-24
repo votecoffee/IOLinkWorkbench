@@ -19,6 +19,8 @@ pub(super) enum Kind {
     SavedMasterInspection,
     DeviceProfile,
     SavedDeviceProfile,
+    AccessLocks,
+    SavedAccessLocks,
 }
 
 pub(super) enum Query {
@@ -37,6 +39,8 @@ pub(super) enum Query {
     DeviceProfile,
     SavedDeviceProfile(PathBuf),
     CompareDeviceProfiles(PathBuf, PathBuf),
+    AccessLocks,
+    SavedAccessLocks(PathBuf),
 }
 
 impl Query {
@@ -49,6 +53,8 @@ impl Query {
             Self::LayoutCondition(_) => Kind::LayoutCondition,
             Self::MasterInspection => Kind::MasterInspection,
             Self::DeviceProfile => Kind::DeviceProfile,
+            Self::AccessLocks => Kind::AccessLocks,
+            Self::SavedAccessLocks(_) => Kind::SavedAccessLocks,
             Self::SavedDeviceProfile(_) | Self::CompareDeviceProfiles(..) => {
                 Kind::SavedDeviceProfile
             }
@@ -79,6 +85,8 @@ impl Query {
                 "Device profile and layouts · indexes 13:0, 14:0 and 15:0".into()
             }
             Self::SavedDeviceProfile(path) => format!("Saved device profile · {}", path.display()),
+            Self::AccessLocks => "Device Access Locks · index 12:0".into(),
+            Self::SavedAccessLocks(path) => format!("Saved access locks · {}", path.display()),
             Self::CompareDeviceProfiles(left, right) => format!(
                 "Device profile snapshots · {} → {}",
                 left.display(),
@@ -139,7 +147,9 @@ pub(super) struct Reading {
 #[derive(Default)]
 pub(super) struct Reads {
     pending: Option<(Query, Worker<Output>)>,
-    latest: [Option<Reading>; 9],
+    latest: [Option<Reading>; 11],
+    access_locks_save: String,
+    access_locks_open: String,
     device_profile_save: String,
     device_profile_open: String,
     device_profile_compare: String,
@@ -174,9 +184,11 @@ impl Reads {
     pub fn clear_results(&mut self) {
         let saved_master = self.latest[Kind::SavedMasterInspection as usize].take();
         let saved_profile = self.latest[Kind::SavedDeviceProfile as usize].take();
+        let saved_locks = self.latest[Kind::SavedAccessLocks as usize].take();
         self.latest = Default::default();
         self.latest[Kind::SavedMasterInspection as usize] = saved_master;
         self.latest[Kind::SavedDeviceProfile as usize] = saved_profile;
+        self.latest[Kind::SavedAccessLocks as usize] = saved_locks;
     }
 
     pub fn clear_named(&mut self, id: &str) {
@@ -389,6 +401,93 @@ impl App {
             self.tab = super::Tab::Offline;
         }
         self.acyclic_result(ui, Kind::DeviceProfile);
+        self.device_access_locks_panel(ui);
+    }
+
+    fn device_access_locks_panel(&mut self, ui: &mut Ui) {
+        ui.collapsing("Device access locks (12:0)", |ui| {
+            let available = self.acyclic_controls(ui);
+            let read = ui
+                .add_enabled(available, egui::Button::new("Read access locks"))
+                .clicked();
+            let save = ui
+                .collapsing("Read and save access locks", |ui| {
+                    ui.add_enabled_ui(available, |ui| {
+                        super::path_entry(
+                            ui,
+                            &mut self.acyclic.access_locks_save,
+                            "New access locks snapshot JSON path",
+                        );
+                    });
+                    ui.add_enabled(
+                        available && !self.acyclic.access_locks_save.trim().is_empty(),
+                        egui::Button::new("Read and save lock snapshot"),
+                    )
+                    .clicked()
+                })
+                .body_returned
+                .unwrap_or(false);
+            if read || save {
+                let destination =
+                    save.then(|| PathBuf::from(self.acyclic.access_locks_save.trim()));
+                let profile = self.profile.clone();
+                self.start_acyclic(Query::AccessLocks, move || {
+                    if let Some(path) = &destination {
+                        diagnostics::check_destination(path)?;
+                    }
+                    let snapshot = diagnostics::AccessLocksSnapshot::read(&profile)?;
+                    let mut text = snapshot.review()?.text();
+                    if let Some(path) = destination {
+                        match snapshot.save(&path) {
+                            Ok(()) => text.push_str(&format!(
+                                "\n\nSaved access locks snapshot {}",
+                                path.display()
+                            )),
+                            Err(error) => {
+                                text.push_str(&format!("\n\nSnapshot save failed · {error:#}"))
+                            }
+                        }
+                    }
+                    Ok(text)
+                });
+            }
+            if ui.button("Review saved access locks…").clicked() {
+                self.acyclic.access_locks_open = self.acyclic.access_locks_save.clone();
+                self.workspace.offline = super::workspace::OfflinePage::DiagnosticSnapshots;
+                self.tab = super::Tab::Offline;
+            }
+            self.acyclic_result(ui, Kind::AccessLocks);
+        });
+    }
+
+    pub(super) fn saved_access_locks_panel(&mut self, ui: &mut Ui) {
+        egui::CollapsingHeader::new("Access locks snapshots")
+            .default_open(!self.acyclic.access_locks_open.is_empty())
+            .show(ui, |ui| {
+                let available = self.acyclic_job_block_reason().is_none();
+                ui.add_enabled_ui(available, |ui| {
+                    super::path_entry(
+                        ui,
+                        &mut self.acyclic.access_locks_open,
+                        "Saved access locks snapshot JSON path",
+                    );
+                });
+                let path = self.acyclic.access_locks_open.trim();
+                if ui
+                    .add_enabled(
+                        available && !path.is_empty(),
+                        egui::Button::new("Open access locks snapshot"),
+                    )
+                    .clicked()
+                {
+                    let path = PathBuf::from(path);
+                    self.start_acyclic_output(Query::SavedAccessLocks(path.clone()), move || {
+                        let report = diagnostics::AccessLocksSnapshot::load(&path)?.review()?;
+                        Ok(Output::from(report.text()))
+                    });
+                }
+                self.acyclic_result(ui, Kind::SavedAccessLocks);
+            });
     }
 
     pub(super) fn saved_device_profile_panel(&mut self, ui: &mut Ui) {
@@ -546,7 +645,8 @@ impl App {
             Query::SavedMasterInspection(_)
             | Query::CompareMasterSnapshots(..)
             | Query::SavedDeviceProfile(_)
-            | Query::CompareDeviceProfiles(..) => self.acyclic_job_block_reason(),
+            | Query::CompareDeviceProfiles(..)
+            | Query::SavedAccessLocks(_) => self.acyclic_job_block_reason(),
             _ => self.acyclic_block_reason(),
         };
         if let Some(reason) = blocked {

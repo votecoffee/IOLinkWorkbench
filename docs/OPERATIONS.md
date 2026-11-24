@@ -87,6 +87,18 @@ For a recorded whole **ProfileCharacteristic** reply at index 13, subindex 0, op
 
 Omit `--profile` to decode the reply by itself. The CLI returns 1 for a malformed list or a difference against the declared IDs and prints the available evidence. Both views use the supplied bytes offline.
 
+### Device Access Locks
+
+In **Diagnostics → Device profile → Device access locks (12:0)**, choose **Read access locks** for the configured port or **Read and save lock snapshot** to retain the query evidence. Open the JSON under **Offline → Diagnostic snapshots → Access locks snapshots**. To decode a recorded reply directly, paste it under **Offline → Parameter bytes → Device access locks (12:0)**. [IO-Link Interface and System V1.1.5, B.2.4](https://io-link.com/fileadmin/user_upload/Downloads/Package_2025/IOL-Interface-Spec_10002_V1.1.5_Oct2025.zip)
+
+```powershell
+.\iolink-cli.exe read-device-access-locks device.toml --snapshot locks.json
+.\iolink-cli.exe review-device-access-locks locks.json
+.\iolink-cli.exe decode-device-access-locks "00 0C" --profile device.toml
+```
+
+The standard reply has two bytes. Bits 0 and 1 are the legacy parameter-write and Data Storage lock flags. Bits 2 and 3 report local parameterization and local user interface locks. The view shows each observed flag and the saved IODD's support declaration when present. An unavailable read keeps its error and available connection context. The CLI returns 1 for read failures, invalid widths, set reserved bits, or a set flag the IODD marks unsupported. This is the device's recorded lock word. Master Data Storage status and write permission have their own controls and evidence.
+
 ### Device profile snapshots
 
 Open **Diagnostics → Device profile** to explicitly read **ProfileCharacteristic (13:0)**, **PDInputDescriptor (14:0)**, and **PDOutputDescriptor (15:0)** from the configured port. Choose **Read and save device profile snapshot** to retain all three query outcomes. Use **Offline → Diagnostic snapshots → Device profile snapshots** to reopen the JSON. [IO-Link Common Profile V1.2.1, Annex B](https://io-link.com/fileadmin/user_upload/Downloads/Package_2025/IO-Link_Common_Profile_Specification_10.072_V1.2.1_Oct2025.zip)

@@ -35,6 +35,7 @@ class Gateway(BaseHTTPRequestHandler):
     block_index = 64
     fail_detailed = False
     fail_profile_index = None
+    fail_access_locks = False
     change_profile_target = False
     detailed_payload = "E48DFE000000"
     change_serial_after_status = False
@@ -94,7 +95,7 @@ class Gateway(BaseHTTPRequestHandler):
                 # Documented examples use both styles of path key.
                 response["data"][path if self.polls % 2 else path.lstrip("/")] = result
         elif address == self.device + "/iolreadacyclic" and request["data"] in (
-                *({"index": index, "subindex": 0} for index in (13, 14, 15)),
+                *({"index": index, "subindex": 0} for index in (12, 13, 14, 15)),
                 {"index": 19, "subindex": 0}, {"index": 36, "subindex": 0}, {"index": 37, "subindex": 0}, {"index": 48, "subindex": 0}, {"index": 64, "subindex": 0}, {"index": 65, "subindex": 0},
                 *({"index": 66, "subindex": subindex} for subindex in range(5)),
                 *({"index": 67, "subindex": subindex} for subindex in range(8)),
@@ -112,7 +113,7 @@ class Gateway(BaseHTTPRequestHandler):
                 if not self.parameter_release.wait(timeout=3):
                     response["code"] = 500
             response["data"] = {"value": {
-                (13, 0): "40008000FFFF", (14, 0): "010100030F01", (15, 0): "010200020302",
+                (12, 0): "000C", (13, 0): "40008000FFFF", (14, 0): "010100030F01", (15, 0): "010200020302",
                 (19, 0): "53494D2D53454E534F52", (48, 0): "2A", (64, 0): self.threshold_payload, (65, 0): "666978747572652073656E736F72",
                 (36, 0): "02", (37, 0): self.detailed_payload,
                 (66, 0): self.record_payload, (66, 1): "FFEC", (66, 2): "01", (66, 3): "0A", (66, 4): "54455354",
@@ -129,7 +130,11 @@ class Gateway(BaseHTTPRequestHandler):
                 (84, 0): "01FFFB03", (84, 1): "01", (84, 2): "FFFB", (84, 3): "03",
                 (85, 0): "0F23", (85, 1): "FF", (85, 2): "02", (85, 3): "03",
             }[(index, request["data"]["subindex"])]}
-            if (index == 37 and self.fail_detailed) or index == self.fail_profile_index:
+            if (
+                (index == 37 and self.fail_detailed)
+                or index == self.fail_profile_index
+                or (index == 12 and self.fail_access_locks)
+            ):
                 response["code"] = 500
             if index == 13 and self.change_profile_target:
                 self.data[self.device + "/serial"] = "CHANGED-SENSOR"
@@ -341,12 +346,23 @@ def capture(cli, profile, path, *args):
     return report, rows
 
 
-def parallel_parameter_read(cli, fixture, output, diagnostics=False, layout_fixture=None, device_profile=False):
+def parallel_parameter_read(cli, fixture, output, diagnostics=False, layout_fixture=None, device_profile=False, access_locks=False):
     Gateway.device_id = 1
     Gateway.polls = 0
     Gateway.inject_faults = False
     Gateway.block_parameter = True
-    Gateway.block_index = 14 if device_profile else (37 if diagnostics else 64)
+    snapshot_path = output.with_suffix(".json")
+    if layout_fixture is not None:
+        index, command = 64, [cli, "check-layout", layout_fixture, "--read"]
+    elif diagnostics:
+        index, command = 37, [cli, "read-diagnostics", fixture]
+    elif device_profile:
+        index, command = 14, [cli, "read-device-profile", fixture, "--snapshot", snapshot_path]
+    elif access_locks:
+        index, command = 12, [cli, "read-device-access-locks", fixture, "--snapshot", snapshot_path]
+    else:
+        index, command = 64, [cli, "read-parameter", fixture, "V_SIM_Threshold", "--snapshot", snapshot_path]
+    Gateway.block_index = index
     Gateway.parameter_entered.clear()
     Gateway.parameter_release.clear()
     processes = []
@@ -360,15 +376,6 @@ def parallel_parameter_read(cli, fixture, output, diagnostics=False, layout_fixt
             assert sampling.poll() is None, "capture exited before the parallel read"
             time.sleep(0.01)
         assert Gateway.polls >= 5
-        snapshot_path = output.with_suffix(".json")
-        if layout_fixture is not None:
-            command = [cli, "check-layout", layout_fixture, "--read"]
-        elif diagnostics:
-            command = [cli, "read-diagnostics", fixture]
-        elif device_profile:
-            command = [cli, "read-device-profile", fixture, "--snapshot", snapshot_path]
-        else:
-            command = [cli, "read-parameter", fixture, "V_SIM_Threshold", "--snapshot", snapshot_path]
         reading = subprocess.Popen(command,
                                    cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8", env=environment)
         processes.append(reading)
@@ -390,6 +397,9 @@ def parallel_parameter_read(cli, fixture, output, diagnostics=False, layout_fixt
         elif device_profile:
             assert tomllib.loads(stdout)["input_descriptor"]["status"] == "match"
             assert len(json.loads(snapshot_path.read_bytes())["reads"]) == 3
+        elif access_locks:
+            assert tomllib.loads(stdout)["decoded"]["raw_hex"] == "000C"
+            assert json.loads(snapshot_path.read_bytes())["read"]["index"] == 12
         else:
             assert tomllib.loads(stdout)["raw_value"] == "500"
             assert json.loads(snapshot_path.read_text(encoding="utf-8"))["raw_hex"] == "01F4"
@@ -3069,6 +3079,75 @@ def verify_device_profile_comparison(cli, snapshot, output, loopback=False):
     assert Gateway.requests == before and snapshot.read_bytes() == original
 
 
+def verify_access_locks(cli, profile, output, endpoint=None):
+    output.mkdir()
+    if endpoint:
+        active = output / "loopback.toml"
+        run(cli, "set-connection", profile, active, "--gateway", "ifm-al1350", "--endpoint", endpoint,
+            "--expected-mode", "3", "--firmware", "3.1.42", "--poll-us", "10000")
+    else:
+        active = profile
+    before = Gateway.requests
+    command = "decode-device-access-locks"
+    exact = tomllib.loads(run(cli, command, "0x00 0C", "--profile", active))
+    assert exact["raw_hex"] == "000C" and exact["reserved_mask"] == 0
+    assert [(flag["bit"], flag["locked"], flag["iodd_supported"], flag["legacy"]) for flag in exact["flags"]] == [
+        (0, False, False, True), (1, False, False, True), (2, True, True, False), (3, True, True, False),
+    ]
+    unknown = tomllib.loads(run(cli, command, "0003"))
+    assert [flag["locked"] for flag in unknown["flags"]] == [True, True, False, False]
+    assert all("iodd_supported" not in flag for flag in unknown["flags"])
+    conflict = tomllib.loads(run(cli, command, "000D", "--profile", active, expected=1))
+    assert conflict["flags"][0]["locked"] and not conflict["flags"][0]["iodd_supported"]
+    reserved = tomllib.loads(run(cli, command, "8004", expected=1))
+    assert reserved["reserved_mask"] == 0x8000
+    assert [flag["locked"] for flag in reserved["flags"]] == [False, False, True, False]
+    for raw in ("", "0C", "000C00"):
+        bad = tomllib.loads(run(cli, command, raw, "--profile", active, expected=1))
+        assert bad["raw_hex"] == raw and bad["flags"] == [] and bad["decode_error"]
+        assert "reserved_mask" not in bad
+    run(cli, command, "GG", expected=1)
+    assert Gateway.requests == before
+
+    snapshot = output / "locks.json"
+    reads = Gateway.isdu_reads
+    obtained = tomllib.loads(run(cli, "read-device-access-locks", active, "--snapshot", snapshot))
+    assert obtained["decoded"] == exact
+    assert (obtained["read"]["index"], obtained["read"]["subindex"]) == (12, 0)
+    assert obtained["read"]["observation"]["port"] == 1 and obtained["read"]["host_read_utc"].endswith("Z")
+    assert Gateway.isdu_reads == reads + (1 if endpoint else 0)
+    pinned = snapshot.read_bytes()
+    before = Gateway.requests
+    assert tomllib.loads(run(cli, "review-device-access-locks", snapshot)) == obtained
+    run(cli, "read-device-access-locks", active, "--snapshot", snapshot, expected=1)
+    assert Gateway.requests == before and snapshot.read_bytes() == pinned and Gateway.isdu_reads == reads + bool(endpoint)
+    invalid = output / "invalid-snapshot.json"
+    for key, value in (("index", 13), ("raw_hex", "000c"), ("subindex", 1)):
+        body = json.loads(pinned)
+        body["read"][key] = value
+        invalid.write_text(json.dumps(body), encoding="utf-8")
+        run(cli, "review-device-access-locks", invalid, expected=1)
+    assert Gateway.requests == before
+    if not endpoint:
+        return
+
+    failed = output / "failed.json"
+    try:
+        Gateway.fail_access_locks = True
+        result = tomllib.loads(run(cli, "read-device-access-locks", active, "--snapshot", failed, expected=1))
+        assert result["read"]["read_error"] and result["read"]["observation"]["port"] == 1
+        assert "decoded" not in result and "raw_hex" not in result["read"]
+        assert tomllib.loads(run(cli, "review-device-access-locks", failed, expected=1)) == result
+    finally:
+        Gateway.fail_access_locks = False
+    state = Gateway.polls, Gateway.inject_faults, Gateway.device_id
+    try:
+        parallel_parameter_read(cli, active, output / "parallel", access_locks=True)
+    finally:
+        Gateway.polls, Gateway.inject_faults, Gateway.device_id = state
+    assert not Gateway.violations
+
+
 def verify_communication(cli, output):
     output.mkdir()
     xml = ROOT / "samples/sensor-communication.xml"
@@ -3296,6 +3375,7 @@ def main():
     verify_stamps(cli, scratch / "stamps")
     communication_profile = verify_communication(cli, scratch / "communication")
     features_profile = verify_iodd_features(cli, scratch / "iodd-features")
+    verify_access_locks(cli, features_profile, scratch / "sim-access-locks")
     verify_profile_characteristic(cli, features_profile, scratch / "profile-characteristic")
     descriptor_profile = verify_process_descriptors(cli, scratch / "process-descriptors")
     verify_input_descriptor_plan(cli, scratch / "input-descriptor-plan")
@@ -3627,6 +3707,7 @@ kind = "bool"
             verify_cycle_capture(cli, cycle_fixture, scratch / "ifm-cycle", 1200, snapshots=True)
             endpoint = f"http://127.0.0.1:{server.server_port}"
             verify_profile_characteristic_loopback(cli, features_profile, endpoint, scratch / "ifm-profile-characteristic")
+            verify_access_locks(cli, features_profile, scratch / "ifm-access-locks", endpoint)
             verify_process_descriptor_loopback(cli, descriptor_profile, endpoint, scratch / "ifm-process-descriptors")
             verify_device_profile_snapshot(cli, descriptor_profile, scratch / "ifm-device-profile", endpoint)
             verify_device_profile_comparison(cli, scratch / "ifm-device-profile/device-profile.json",
@@ -3755,7 +3836,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1351, AL1352 and AL1353 status, ISDU and capture across all ports, one-shot ifm master inspection with supply diagnostics, read-only port configuration and offline snapshot review and comparison, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")

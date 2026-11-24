@@ -246,6 +246,7 @@ pub(super) fn render(
                 "offline-temporal-input",
                 "acyclic-profile",
                 "offline-parameter",
+                "offline-access-locks",
                 "offline-profile-ids",
                 "offline-process-descriptor",
                 "offline-descriptor-plan",
@@ -285,7 +286,7 @@ pub(super) fn render(
                     "device-identity" => app.setup.page = Page::Identity,
                     "device-iodd" => app.setup.page = Page::Iodd,
                     "device-advanced" => app.setup.page = Page::Advanced,
-                    "mapping-iodd-features" | "offline-profile-ids" => {
+                    "mapping-iodd-features" | "offline-profile-ids" | "offline-access-locks" => {
                         let xml = include_str!("../../../samples/sensor.xml").replace(
                             "<DeviceFunction>",
                             r#"<DeviceFunction><Features blockParameter="true" dataStorage="false" profileCharacteristic="16384 32768"><SupportedAccessLocks parameter="false" dataStorage="false" localParameterization="true" localUserInterface="true"/></Features>"#,
@@ -294,13 +295,19 @@ pub(super) fn render(
                         let (identity, imported) = catalog.select(Some("SIM-SENSOR"), None)?;
                         app.profile.apply_iodd(identity, imported);
                         app.setup.sync(&app.profile);
-                        if label == "offline-profile-ids" {
-                            app.tab = Tab::Offline;
-                            app.workspace.offline = OfflinePage::Parameter;
-                            app.offline_parameter.profile_characteristic_payload =
-                                "40008000".into();
-                        } else {
-                            app.tab = Tab::Mappings;
+                        match label {
+                            "offline-profile-ids" => {
+                                app.tab = Tab::Offline;
+                                app.workspace.offline = OfflinePage::Parameter;
+                                app.offline_parameter.profile_characteristic_payload =
+                                    "40008000".into();
+                            }
+                            "offline-access-locks" => {
+                                app.tab = Tab::Offline;
+                                app.workspace.offline = OfflinePage::Parameter;
+                                app.offline_parameter.access_locks_payload = "000C".into();
+                            }
+                            _ => app.tab = Tab::Mappings,
                         }
                     }
                     "mapping-editor" => {
@@ -860,6 +867,9 @@ pub(super) fn render(
                 "offline-process-descriptor" => Some(
                     "Descriptor matches mapped IODD fields\nRaw reply · 010100030F01\n1 · Set of BooleanT (0x01) · 1 bits at bit 0\n2 · IntegerT (0x03) · 15 bits at bit 1\nSelected IODD layout · IN · 2 bytes\nlevel [1] · IntegerT · 15 bits at bit 1 · Match\nswitch [2] · Set of BooleanT · 1 bits at bit 0 · Match",
                 ),
+                "offline-access-locks" => Some(
+                    "Device Access Locks · 12:0\nRaw reply · 000C\nBit 0 · Parameter write access · Clear · IODD support No · Legacy\nBit 1 · Data Storage · Clear · IODD support No · Legacy\nBit 2 · Local parameterization · Set · IODD support Yes\nBit 3 · Local user interface · Set · IODD support Yes",
+                ),
                 "offline-profile-ids" => Some(
                     "Profile IDs match the IODD\nRaw reply · 40008000\nIODD profile IDs · 0x4000 (16384), 0x8000 (32768)\nReply profile IDs · 0x4000 (16384), 0x8000 (32768)",
                 ),
@@ -1013,7 +1023,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 133);
+        assert_eq!(cases.len(), 134);
         assert!(
             cases
                 .iter()

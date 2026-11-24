@@ -154,6 +154,8 @@ The bundled **sensor-checksum.xml** and **sensor-checksum-de.xml** are original 
 
 **Cyclic time.** IODD `TimeT` and `TimeSpanT` fields display UTC timestamps or signed durations. Their typed CSV columns store exact 64-bit ticks for offline verification and re-decode. Device time is separate from acquisition timing. [Temporal mapping and profile compatibility](docs/OPERATIONS.md#cyclic-timet-and-timespant)
 
+**Device Access Locks.** Read index 12:0 or decode saved bytes to view the lock flags and the IODD's declared support. [Device Access Locks](docs/OPERATIONS.md#device-access-locks)
+
 **Device profile snapshots.** Read profile IDs and process data descriptors from one configured port and reopen the saved replies offline. Compare snapshots for changed profile IDs and descriptor geometry. [Device profile snapshots](docs/OPERATIONS.md#device-profile-snapshots)
 
 **Process data descriptor review.** Decode a recorded input or output descriptor offline and compare its datatypes, bit lengths, and offsets with the selected IODD mapping. Review suggested manual input fields for supported descriptor entries in unoccupied bit ranges. [Process data descriptors](docs/OPERATIONS.md#process-data-descriptors)

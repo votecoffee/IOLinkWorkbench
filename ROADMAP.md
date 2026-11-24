@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Read and decode DeviceAccessLocks at 12:0. Compare observed flags with IODD declarations, retain raw and failed replies in optional snapshots, and reopen them offline.
+
 - Compare saved device profile snapshots by exact reply bytes, added and removed profile IDs, and descriptor changes by starting offset. Review both source snapshots with any restrictions from missing replies or changed target context.
 
 - Read ProfileCharacteristic and both process descriptors from one configured port, with independent acyclic access and saved per-query replies. Reopen the snapshot offline and review partial results and target changes.
