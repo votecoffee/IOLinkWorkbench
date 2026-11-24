@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Decode one recorded ISDU reply with two saved parameter catalogs. Compare changed value interpretations and retain usable record or array members alongside any decode errors.
+
 - Compare saved IODD parameter catalogs by ISDU index and record subindex. Review added, removed, and changed declarations, array element changes, and unresolved standard references.
 
 - Compare saved IODD output layouts by declared length, wire encoding, field definitions, and layout selection. Optionally decode one recorded output image with both profiles.

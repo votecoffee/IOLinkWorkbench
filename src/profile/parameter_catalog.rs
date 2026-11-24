@@ -7,12 +7,17 @@ use std::{
     fmt::Write,
 };
 
+mod reply;
+pub use reply::{ReplyComparison, ReplyRequest};
+
 #[derive(Serialize)]
 pub struct Comparison<'a> {
     pub left: Catalog<'a>,
     pub right: Catalog<'a>,
     pub definition_changes: Option<Vec<ParameterChange<'a>>>,
     pub unresolved_references: Option<ReferenceChanges<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply: Option<ReplyComparison<'a>>,
 }
 
 #[derive(Serialize)]
@@ -86,7 +91,20 @@ pub fn compare<'a>(left: &'a Profile, right: &'a Profile) -> Comparison<'a> {
             .collect()
         }),
         unresolved_references: catalogs.map(|(left, right)| compare_references(left, right)),
+        reply: None,
     }
+}
+
+pub fn compare_with_reply<'a>(
+    left: &'a Profile,
+    right: &'a Profile,
+    request: Option<ReplyRequest<'_>>,
+) -> anyhow::Result<Comparison<'a>> {
+    let mut comparison = compare(left, right);
+    if let Some(request) = request {
+        comparison.reply = Some(ReplyComparison::new(left, right, request)?);
+    }
+    Ok(comparison)
 }
 
 fn pair_by<'a, K: Ord, T>(
@@ -241,7 +259,7 @@ fn compare_references<'a>(left: &'a Imported, right: &'a Imported) -> ReferenceC
 
 impl Comparison<'_> {
     pub fn ok(&self) -> bool {
-        self.definition_changes.is_some()
+        self.definition_changes.is_some() && self.reply.as_ref().is_none_or(ReplyComparison::ok)
     }
 
     pub fn summary_text(&self) -> String {
@@ -305,6 +323,9 @@ impl Comparison<'_> {
                 }
             }
         }
+        if let Some(reply) = &self.reply {
+            reply.write_summary(&mut text);
+        }
         text
     }
 
@@ -313,16 +334,20 @@ impl Comparison<'_> {
         struct Source<'a, 'b> {
             catalog: &'b Catalog<'a>,
             changed_definitions: Vec<&'a Parameter>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            reply: Option<&'b reply::Side<'a>>,
         }
         let entries = self.definition_changes.as_deref().unwrap_or_default();
         Ok([
             toml::to_string_pretty(&Source {
                 catalog: &self.left,
                 changed_definitions: entries.iter().filter_map(|entry| entry.left).collect(),
+                reply: self.reply.as_ref().map(|reply| &reply.left),
             })?,
             toml::to_string_pretty(&Source {
                 catalog: &self.right,
                 changed_definitions: entries.iter().filter_map(|entry| entry.right).collect(),
+                reply: self.reply.as_ref().map(|reply| &reply.right),
             })?,
         ])
     }

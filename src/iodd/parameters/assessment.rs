@@ -14,7 +14,7 @@ pub enum AssessmentStatus {
     NotEvaluated,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct ValueAssessment {
     pub status: AssessmentStatus,
     pub matched_choices: usize,

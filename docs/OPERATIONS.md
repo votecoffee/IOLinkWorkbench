@@ -334,6 +334,14 @@ Open **Offline → Parameter bytes → Compare saved parameter catalogs** and se
 
 The report lists unresolved standard-reference changes separately. A saved IODD with zero declarations is a valid empty catalog. If either profile lacks an IODD, the CLI returns 1 with available context. The comparison reports declared access and defaults. Use explicit reads to check current device values.
 
+Expand **Decode a recorded ISDU reply** to enter an index, subindex, and hexadecimal payload. Leave the payload blank for a catalog-only comparison.
+
+~~~powershell
+.\iolink-cli.exe compare-parameter-catalogs before.toml after.toml --index 66 --subindex 1 --payload "FF EC"
+~~~
+
+The preview uses the same address and bytes on both profiles. It compares the unscaled value, named value, assessment, and display values. A whole record or array compares usable members by subindex within the same datatype. Each side retains its declared access, decoded result, and any errors. If a declaration is absent or a reply needs decoding review, the CLI prints the available results and returns 1. Omit subindex for a whole reply at subindex 0.
+
 ### Save a diagnostic read
 
 ```powershell

@@ -4276,9 +4276,15 @@ def verify_parameter_catalog_comparison(cli, scalar, record, array, output):
     command = "compare-parameter-catalogs"
     samples = ROOT / "samples"
 
-    def compare(left, right, expected=0):
+    def compare(left, right, expected=0, reply=None):
         before = left.read_bytes(), right.read_bytes()
-        result = tomllib.loads(run(cli, command, left, right, expected=expected))
+        args = []
+        if reply is not None:
+            index, subindex, payload = reply
+            args.extend(("--index", index, "--payload", payload))
+            if subindex is not None:
+                args.extend(("--subindex", subindex))
+        result = tomllib.loads(run(cli, command, left, right, *args, expected=expected))
         assert (left.read_bytes(), right.read_bytes()) == before
         assert Gateway.requests == requests
         return result
@@ -4294,6 +4300,7 @@ def verify_parameter_catalog_comparison(cli, scalar, record, array, output):
     same = compare(scalar, scalar)
     assert same["left"] == same["right"] and same["left"]["parameter_count"] == 3
     assert same["definition_changes"] == [] and same["unresolved_references"] == {"added": [], "removed": []}
+    assert "reply" not in same
     manual = compare(samples / "simulator.toml", scalar, expected=1)
     assert "parameter_count" not in manual["left"] and manual["right"]["parameter_count"] == 3
     assert "definition_changes" not in manual and "unresolved_references" not in manual
@@ -4346,6 +4353,49 @@ def verify_parameter_catalog_comparison(cli, scalar, record, array, output):
     assert len(change) == 1 and change[0]["index"] == 64
     assert change[0]["properties"] == ["access", "default"]
     assert change[0]["left"]["access"] == "rw" and change[0]["right"]["access"] == "ro"
+
+    observed = compare(scalar, edited_scalar, reply=(64, None, "01 F4"))["reply"]
+    assert (observed["index"], observed["subindex"], observed["raw_hex"]) == (64, 0, "01F4")
+    assert observed["left"]["declaration"]["access"] == "rw" and observed["right"]["declaration"]["access"] == "ro"
+    assert observed["left"]["decoded"]["raw_value"] == observed["right"]["decoded"]["raw_value"] == "500"
+    assert observed["differences"] == {"properties": [], "compared_members": 0, "members": []}
+
+    record_xml = (samples / "sensor-record.xml").read_text(encoding="utf-8")
+    rescaled = imported("rescaled-record", record_xml.replace('gradient="0.1"', 'gradient="0.2"'))
+    scaled = compare(record, rescaled, reply=(66, 1, "FF EC"))["reply"]
+    assert scaled["differences"]["properties"] == ["display values"]
+    assert scaled["left"]["decoded"]["displays"][0]["value"] == "0.0"
+    assert scaled["right"]["decoded"]["displays"][0]["value"] == "-2.0"
+
+    packed = compare(record, edited_record, reply=(66, 0, "FFEC010A54455354"))["reply"]
+    assert packed["differences"]["compared_members"] == 4
+    assert [entry["subindex"] for entry in packed["differences"]["members"]] == [2]
+    assert "raw value" in packed["differences"]["members"][0]["properties"]
+    partial = compare(record, edited_record, expected=1, reply=(66, 0, "FFEC010AFF455354"))["reply"]
+    assert partial["raw_hex"] == "FFEC010AFF455354" and partial["differences"]["compared_members"] == 3
+    assert partial["left"]["decoded"]["record_items"][3]["value"]["decode_error"]
+    assert [entry["subindex"] for entry in partial["differences"]["members"]] == [2]
+
+    narrower = compare(array, edited_array, expected=1, reply=(67, 0, "02C495F0"))["reply"]
+    assert len(narrower["left"]["decoded"]["array_items"]) == 7
+    assert "width differs" in narrower["right"]["decoded"]["decode_error"] and "differences" not in narrower
+    element = compare(array, edited_array, reply=(67, 1, "01"))["reply"]
+    assert element["left"]["declaration"]["direct_subindex_access"] is True
+    assert element["right"]["declaration"]["direct_subindex_access"] is False
+    absent_member = compare(array, edited_array, expected=1, reply=(67, 7, "01"))["reply"]
+    assert "subindex 7" in absent_member["right"]["resolution_error"] and "differences" not in absent_member
+    assert absent_member["left"]["decoded"]["raw_value"] == "1"
+    absent_address = compare(record, array, expected=1, reply=(66, 1, "FFEC"))["reply"]
+    assert absent_address["left"]["decoded"]["raw_value"] == "-20"
+    assert "Index 66 is absent" in absent_address["right"]["resolution_error"]
+    missing_catalog = compare(samples / "simulator.toml", scalar, expected=1, reply=(64, 0, "01F4"))["reply"]
+    assert "No saved IODD" in missing_catalog["left"]["resolution_error"]
+    assert missing_catalog["right"]["decoded"]["raw_value"] == "500"
+
+    for incomplete in (("--index", 64), ("--payload", "01F4"), ("--subindex", 1)):
+        assert not run(cli, command, scalar, scalar, *incomplete, expected=2)
+    for malformed in ("F", "GG", "00" * 233):
+        assert not run(cli, command, scalar, scalar, "--index", 64, "--payload", malformed, expected=1)
     assert Gateway.requests == requests
 
 
@@ -5008,7 +5058,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, offline access locks comparison, offline Data Storage metadata review, offline Direct Parameter Page 1, identity pins and IODD comparison, optional device error count and saved evidence, offline error count comparison, saved input mapping and recorded payload comparison, saved output mapping and image comparison, saved parameter catalog comparison, device revision reads and saved connection checks, offline device revision comparison, acyclic process data readback and saved evidence, offline process readback comparison, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, offline access locks comparison, offline Data Storage metadata review, offline Direct Parameter Page 1, identity pins and IODD comparison, optional device error count and saved evidence, offline error count comparison, saved input mapping and recorded payload comparison, saved output mapping and image comparison, saved parameter catalog and recorded ISDU reply comparison, device revision reads and saved connection checks, offline device revision comparison, acyclic process data readback and saved evidence, offline process readback comparison, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1351, AL1352 and AL1353 status, ISDU and capture across all ports, one-shot ifm master inspection with supply diagnostics, read-only port configuration and offline snapshot review and comparison, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")

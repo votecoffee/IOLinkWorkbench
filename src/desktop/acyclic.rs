@@ -352,6 +352,9 @@ pub(super) struct Reads {
     mapping_payload: String,
     parameter_catalog_left: String,
     parameter_catalog_right: String,
+    parameter_catalog_index: u16,
+    parameter_catalog_subindex: u8,
+    parameter_catalog_reply: String,
     readback_direction: diagnostics::ReadbackDirection,
     readback_save: String,
     readback_open: String,
@@ -464,29 +467,75 @@ impl App {
                     &mut self.acyclic.parameter_catalog_right,
                     "Second profile TOML path",
                 );
+                ui.collapsing("Decode a recorded ISDU reply", |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut self.acyclic.parameter_catalog_index)
+                                .prefix("Index "),
+                        );
+                        ui.add(
+                            egui::DragValue::new(&mut self.acyclic.parameter_catalog_subindex)
+                                .prefix("Subindex "),
+                        );
+                    });
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.acyclic.parameter_catalog_reply)
+                            .hint_text("Recorded ISDU reply hex (optional)")
+                            .desired_width(350.0),
+                    );
+                });
             });
             let left = self.acyclic.parameter_catalog_left.trim();
             let right = self.acyclic.parameter_catalog_right.trim();
+            let payload = self.acyclic.parameter_catalog_reply.trim();
+            let button = if payload.is_empty() {
+                "Compare parameter catalogs"
+            } else {
+                "Compare catalogs and reply"
+            };
             if ui
                 .add_enabled(
                     available && !left.is_empty() && !right.is_empty(),
-                    egui::Button::new("Compare parameter catalogs"),
+                    egui::Button::new(button),
                 )
                 .clicked()
             {
-                self.start_parameter_catalog_comparison(PathBuf::from(left), PathBuf::from(right));
+                let recorded = (!payload.is_empty()).then(|| {
+                    (
+                        self.acyclic.parameter_catalog_index,
+                        self.acyclic.parameter_catalog_subindex,
+                        payload.to_owned(),
+                    )
+                });
+                self.start_parameter_catalog_comparison(
+                    PathBuf::from(left),
+                    PathBuf::from(right),
+                    recorded,
+                );
             }
             self.acyclic_result(ui, Kind::CompareParameterCatalogs);
         });
     }
 
-    pub(super) fn start_parameter_catalog_comparison(&mut self, left: PathBuf, right: PathBuf) {
+    pub(super) fn start_parameter_catalog_comparison(
+        &mut self,
+        left: PathBuf,
+        right: PathBuf,
+        recorded: Option<(u16, u8, String)>,
+    ) {
         self.start_acyclic_output(
             Query::CompareParameterCatalogs(left.clone(), right.clone()),
             move || {
                 let left = Profile::load(&left)?;
                 let right = Profile::load(&right)?;
-                let report = parameter_catalog::compare(&left, &right);
+                let request = recorded.as_ref().map(|(index, subindex, payload)| {
+                    parameter_catalog::ReplyRequest {
+                        index: *index,
+                        subindex: *subindex,
+                        payload,
+                    }
+                });
+                let report = parameter_catalog::compare_with_reply(&left, &right, request)?;
                 Ok(Output {
                     text: report.summary_text(),
                     comparison_sources: Some(report.source_texts()?),

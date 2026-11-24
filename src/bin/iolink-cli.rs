@@ -151,7 +151,19 @@ enum Command {
     /// List imported IODD parameters without contacting a gateway.
     Parameters { profile: PathBuf },
     /// Compare imported parameter declarations in two saved profiles.
-    CompareParameterCatalogs { left: PathBuf, right: PathBuf },
+    CompareParameterCatalogs {
+        left: PathBuf,
+        right: PathBuf,
+        /// ISDU index of the recorded reply.
+        #[arg(long, requires = "payload")]
+        index: Option<u16>,
+        /// Subindex of the recorded reply. Omit for subindex 0.
+        #[arg(long, requires = "index")]
+        subindex: Option<u8>,
+        /// Hexadecimal ISDU reply to decode using both catalogs.
+        #[arg(long, value_name = "HEX", requires = "index")]
+        payload: Option<String>,
+    },
     /// Inspect declared defaults from a saved profile without gateway access or writes.
     Defaults {
         profile: PathBuf,
@@ -1007,14 +1019,33 @@ fn main() -> Result<()> {
                 "ProfileCharacteristic needs review. See the report above."
             );
         }
-        Command::CompareParameterCatalogs { left, right } => {
+        Command::CompareParameterCatalogs {
+            left,
+            right,
+            index,
+            subindex,
+            payload,
+        } => {
+            use iolink_workbench::profile::parameter_catalog::{ReplyRequest, compare_with_reply};
+
             let left = Profile::load(&left)?;
             let right = Profile::load(&right)?;
-            let comparison = iolink_workbench::profile::parameter_catalog::compare(&left, &right);
+            let request = index
+                .zip(payload.as_deref())
+                .map(|(index, payload)| ReplyRequest {
+                    index,
+                    subindex: subindex.unwrap_or_default(),
+                    payload,
+                });
+            let comparison = compare_with_reply(&left, &right, request)?;
             print!("{}", toml::to_string_pretty(&comparison)?);
             ensure!(
-                comparison.ok(),
+                comparison.definition_changes.is_some(),
                 "Both profiles need a saved IODD parameter catalog. Available context is printed above."
+            );
+            ensure!(
+                comparison.ok(),
+                "Recorded reply needs decoding review. Available results are printed above."
             );
         }
         Command::Parameters { profile } => {

@@ -1502,13 +1502,18 @@ mod tests {
             .items[0]
             .parameter;
         member.access = Access::ReadWrite;
+        member.displays[0].field.scale = 0.2;
         profile.save_new(&right)?;
         let originals = [std::fs::read(&left)?, std::fs::read(&right)?];
 
         let mut app = App::new();
         let active = app.profile.clone();
         let serial = crate::desktop::WORKER_TEST_LOCK.lock().unwrap();
-        app.start_parameter_catalog_comparison(left.clone(), right.clone());
+        app.start_parameter_catalog_comparison(
+            left.clone(),
+            right.clone(),
+            Some((66, 1, "FF EC".into())),
+        );
         let deadline = Instant::now() + Duration::from_secs(5);
         while app.acyclic.busy() && Instant::now() < deadline {
             app.acyclic.update();
@@ -1525,11 +1530,18 @@ mod tests {
             .map_err(|error| anyhow::anyhow!("{error:#}"))?;
         assert!(report.text.contains("Changed parameter indexes · 1"));
         assert!(report.text.contains("66:1 · Changed access"));
+        assert!(report.text.contains("Recorded reply · 66:1 · FFEC"));
+        assert!(
+            report
+                .text
+                .contains("Changed interpretation · display values")
+        );
         let [left_text, right_text] = report
             .comparison_sources
             .as_ref()
             .context("both catalogs")?;
         assert!(left_text.contains("access = \"ro\"") && right_text.contains("access = \"rw\""));
+        assert!(left_text.contains("value = \"0.0\"") && right_text.contains("value = \"-2.0\""));
         assert_eq!([std::fs::read(&left)?, std::fs::read(&right)?], originals);
         assert_eq!(app.profile, active);
         Ok(())

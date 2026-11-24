@@ -16,7 +16,7 @@ pub struct Display {
     pub format: NumberFormat,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct DisplayValue {
     pub id: String,
     pub value: String,

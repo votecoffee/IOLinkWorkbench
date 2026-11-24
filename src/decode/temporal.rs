@@ -6,7 +6,7 @@ pub(crate) const TICKS_PER_SECOND: u64 = 1 << 32;
 pub(crate) const ERA_THRESHOLD: u32 = 0x9DFF_4400;
 pub(crate) const UNIX_OFFSET: i64 = 2_208_988_800;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct TimeValue {
     pub datatype: &'static str,
     pub bits: u8,
