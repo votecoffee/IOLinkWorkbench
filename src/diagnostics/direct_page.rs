@@ -1,12 +1,18 @@
 //! Offline decoding of the wired IO-Link V1.1 Direct Parameter Page 1.
 
-use crate::{decode, profile::Identity};
+use crate::{
+    decode,
+    profile::{Identity, Profile},
+};
 use anyhow::Result;
 use serde::Serialize;
 use std::fmt::Write;
 
 const PAGE_BYTES: usize = 16;
 const V11_REVISION: u8 = 0x11;
+
+mod comparison;
+use comparison::IoddComparison;
 
 #[derive(Serialize)]
 pub struct DirectPage {
@@ -15,6 +21,7 @@ pub struct DirectPage {
     pub protocol_revision: Option<String>,
     pub issues: Vec<&'static str>,
     pub link: Option<Link>,
+    pub iodd_comparison: Option<IoddComparison>,
 }
 
 #[derive(Serialize)]
@@ -44,6 +51,10 @@ pub struct ProcessLength {
 impl DirectPage {
     pub fn ok(&self) -> bool {
         self.issues.is_empty()
+            && self
+                .iodd_comparison
+                .as_ref()
+                .is_none_or(|comparison| !comparison.has_difference())
     }
 
     pub fn text(&self) -> String {
@@ -103,6 +114,15 @@ impl DirectPage {
     }
 }
 
+/// Review a recorded page using the profile's identity pins and saved IODD.
+pub fn review_direct_page(profile: Option<&Profile>, hex: &str) -> Result<DirectPage> {
+    let mut report = decode_direct_page(profile.map(|profile| &profile.expected_identity), hex)?;
+    if let (Some(profile), Some(link)) = (profile, &report.link) {
+        report.iodd_comparison = IoddComparison::new(profile, link);
+    }
+    Ok(report)
+}
+
 impl ProcessLength {
     fn decode(raw: u8) -> Self {
         let octet_structured = raw & 0x80 != 0;
@@ -127,6 +147,12 @@ impl ProcessLength {
             None => format!("Reserved length code (0x{:02X})", self.raw),
         }
     }
+
+    fn bytes_if_valid(&self, reserved_mask: u8) -> Option<usize> {
+        self.bits
+            .filter(|_| self.raw & reserved_mask == 0)
+            .map(|bits| usize::from(bits).div_ceil(8))
+    }
 }
 
 /// Decode bytes in ascending direct-parameter address order (0x00–0x0F).
@@ -142,6 +168,7 @@ pub fn decode_direct_page(expected: Option<&Identity>, hex: &str) -> Result<Dire
         protocol_revision: None,
         issues: Vec::new(),
         link: None,
+        iodd_comparison: None,
     };
     let Ok(page) = <[u8; PAGE_BYTES]>::try_from(bytes) else {
         report.issues.push("Page 1 requires exactly 16 bytes");

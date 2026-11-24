@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Compare recorded Page 1 minimum cycle, SIO, M-sequence capability and payload byte widths with the saved IODD. Keep geometry comparisons conditional on the selected layout and show unavailable evidence explicitly.
+
 - Decode recorded wired IO-Link 1.1 Direct Parameter Page 1. Show reported cycle settings, process-data lengths, capabilities and Vendor/Device IDs, with offline comparison against profile pins.
 
 - Decode recorded Data Storage state, storage size, checksum marker, and index-list pages offline. Reject writes to reserved index 3 in AL1350 plans.

@@ -668,11 +668,18 @@ impl Offline {
                     .hint_text("Paste the recorded page in hex"),
             );
             if !self.direct_page_payload.trim().is_empty() {
-                match diagnostics::decode_direct_page(
-                    Some(&profile.expected_identity),
-                    &self.direct_page_payload,
-                ) {
+                match diagnostics::review_direct_page(Some(profile), &self.direct_page_payload) {
                     Ok(report) => {
+                        if let Some(comparison) = &report.iodd_comparison {
+                            let title = if comparison.has_difference() {
+                                "IODD comparison · Differences"
+                            } else {
+                                "IODD comparison"
+                            };
+                            ui.collapsing(title, |ui| {
+                                ui.label(comparison.text());
+                            });
+                        }
                         ui.label(report.text());
                     }
                     Err(error) => {

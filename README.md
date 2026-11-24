@@ -154,7 +154,7 @@ The bundled **sensor-checksum.xml** and **sensor-checksum-de.xml** are original 
 
 **Cyclic time.** IODD `TimeT` and `TimeSpanT` fields display UTC timestamps or signed durations. Their typed CSV columns store exact 64-bit ticks for offline verification and re-decode. Device time is separate from acquisition timing. [Temporal mapping and profile compatibility](docs/OPERATIONS.md#cyclic-timet-and-timespant)
 
-**Direct Parameter Page 1.** Inspect a recorded wired IO-Link 1.1 page for link cycles, process-data lengths, capabilities and device IDs in **Offline → Parameter bytes** or with `decode-direct-page`. [Direct Parameter Page 1](docs/OPERATIONS.md#direct-parameter-page-1)
+**Direct Parameter Page 1.** Inspect a recorded wired IO-Link 1.1 page for link cycles, process-data lengths, capabilities and device IDs. Compare it with the selected IODD in **Offline → Parameter bytes** or with `decode-direct-page --profile`. [Direct Parameter Page 1](docs/OPERATIONS.md#direct-parameter-page-1)
 
 **Data Storage metadata.** Decode a captured state, size, revision marker, or index-list page for index 3 in **Offline → Parameter bytes** or with `decode-data-storage`. [Data Storage metadata](docs/OPERATIONS.md#data-storage-metadata)
 

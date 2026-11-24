@@ -604,8 +604,7 @@ fn main() -> Result<()> {
         }
         Command::DecodeDirectPage { payload, profile } => {
             let profile = profile.as_deref().map(Profile::load).transpose()?;
-            let expected = profile.as_ref().map(|profile| &profile.expected_identity);
-            let report = diagnostics::decode_direct_page(expected, &payload)?;
+            let report = diagnostics::review_direct_page(profile.as_ref(), &payload)?;
             print!("{}", toml::to_string_pretty(&report)?);
             ensure!(
                 report.ok(),
