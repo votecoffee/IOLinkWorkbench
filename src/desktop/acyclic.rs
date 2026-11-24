@@ -2,7 +2,7 @@
 use super::{App, WARNING, Worker, background, poll_worker};
 use eframe::egui::{self, Ui};
 use iolink_workbench::diagnostics;
-use iolink_workbench::profile::{Profile, input_mapping};
+use iolink_workbench::profile::{Profile, input_mapping, parameter_catalog};
 use iolink_workbench::transport::{
     MasterInspection, MasterInspectionComparison, MasterInspectionSnapshot, inspect_master,
     layout_condition,
@@ -97,6 +97,7 @@ pub(super) enum Kind {
     ProcessReadback,
     SavedProcessReadback,
     CompareMappings,
+    CompareParameterCatalogs,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -144,6 +145,7 @@ pub(super) enum Query {
     SavedProcessReadback(PathBuf),
     CompareProcessReadbacks(PathBuf, PathBuf),
     CompareMappings(MappingDirection, PathBuf, PathBuf),
+    CompareParameterCatalogs(PathBuf, PathBuf),
 }
 
 impl Query {
@@ -162,6 +164,7 @@ impl Query {
             Self::SavedErrorCount(_) | Self::CompareErrorCounts(..) => Kind::SavedErrorCount,
             Self::DeviceRevisions => Kind::DeviceRevisions,
             Self::CompareMappings(..) => Kind::CompareMappings,
+            Self::CompareParameterCatalogs(..) => Kind::CompareParameterCatalogs,
             Self::ProcessReadback(_) => Kind::ProcessReadback,
             Self::SavedProcessReadback(_) | Self::CompareProcessReadbacks(..) => {
                 Kind::SavedProcessReadback
@@ -234,6 +237,11 @@ impl Query {
             Self::CompareMappings(direction, left, right) => format!(
                 "Saved {} mappings · {} → {}",
                 direction.label(),
+                left.display(),
+                right.display()
+            ),
+            Self::CompareParameterCatalogs(left, right) => format!(
+                "Saved parameter catalogs · {} → {}",
                 left.display(),
                 right.display()
             ),
@@ -337,11 +345,13 @@ pub(super) struct Reading {
 #[derive(Default)]
 pub(super) struct Reads {
     pending: Option<(Query, Worker<Output>)>,
-    latest: [Option<Reading>; Kind::CompareMappings as usize + 1],
+    latest: [Option<Reading>; Kind::CompareParameterCatalogs as usize + 1],
     mapping_direction: MappingDirection,
     mapping_left: String,
     mapping_right: String,
     mapping_payload: String,
+    parameter_catalog_left: String,
+    parameter_catalog_right: String,
     readback_direction: diagnostics::ReadbackDirection,
     readback_save: String,
     readback_open: String,
@@ -394,6 +404,7 @@ impl Reads {
         let saved_revisions = self.latest[Kind::SavedDeviceRevisions as usize].take();
         let saved_readback = self.latest[Kind::SavedProcessReadback as usize].take();
         let saved_mappings = self.latest[Kind::CompareMappings as usize].take();
+        let parameter_catalogs = self.latest[Kind::CompareParameterCatalogs as usize].take();
         self.latest = Default::default();
         self.latest[Kind::SavedMasterInspection as usize] = saved_master;
         self.latest[Kind::SavedDeviceProfile as usize] = saved_profile;
@@ -402,6 +413,7 @@ impl Reads {
         self.latest[Kind::SavedDeviceRevisions as usize] = saved_revisions;
         self.latest[Kind::SavedProcessReadback as usize] = saved_readback;
         self.latest[Kind::CompareMappings as usize] = saved_mappings;
+        self.latest[Kind::CompareParameterCatalogs as usize] = parameter_catalogs;
     }
 
     pub fn clear_named(&mut self, id: &str) {
@@ -438,6 +450,52 @@ fn saved_master_text(snapshot: &MasterInspectionSnapshot) -> String {
 }
 
 impl App {
+    pub(super) fn saved_parameter_catalog_panel(&mut self, ui: &mut Ui) {
+        ui.collapsing("Compare saved parameter catalogs", |ui| {
+            let available = self.acyclic_job_block_reason().is_none();
+            ui.add_enabled_ui(available, |ui| {
+                super::path_entry(
+                    ui,
+                    &mut self.acyclic.parameter_catalog_left,
+                    "First profile TOML path",
+                );
+                super::path_entry(
+                    ui,
+                    &mut self.acyclic.parameter_catalog_right,
+                    "Second profile TOML path",
+                );
+            });
+            let left = self.acyclic.parameter_catalog_left.trim();
+            let right = self.acyclic.parameter_catalog_right.trim();
+            if ui
+                .add_enabled(
+                    available && !left.is_empty() && !right.is_empty(),
+                    egui::Button::new("Compare parameter catalogs"),
+                )
+                .clicked()
+            {
+                self.start_parameter_catalog_comparison(PathBuf::from(left), PathBuf::from(right));
+            }
+            self.acyclic_result(ui, Kind::CompareParameterCatalogs);
+        });
+    }
+
+    pub(super) fn start_parameter_catalog_comparison(&mut self, left: PathBuf, right: PathBuf) {
+        self.start_acyclic_output(
+            Query::CompareParameterCatalogs(left.clone(), right.clone()),
+            move || {
+                let left = Profile::load(&left)?;
+                let right = Profile::load(&right)?;
+                let report = parameter_catalog::compare(&left, &right);
+                Ok(Output {
+                    text: report.summary_text(),
+                    comparison_sources: Some(report.source_texts()?),
+                    port_configuration: None,
+                })
+            },
+        );
+    }
+
     pub(super) fn saved_mapping_panel(&mut self, ui: &mut Ui) {
         ui.collapsing("Compare saved mappings", |ui| {
             let available = self.acyclic_job_block_reason().is_none();
@@ -1209,7 +1267,8 @@ impl App {
             | Query::CompareDeviceRevisions(..)
             | Query::SavedProcessReadback(_)
             | Query::CompareProcessReadbacks(..)
-            | Query::CompareMappings(..) => self.acyclic_job_block_reason(),
+            | Query::CompareMappings(..)
+            | Query::CompareParameterCatalogs(..) => self.acyclic_job_block_reason(),
             _ => self.acyclic_block_reason(),
         };
         if let Some(reason) = blocked {
@@ -1285,6 +1344,10 @@ impl App {
                             Query::CompareMappings(MappingDirection::Output, ..) => (
                                 "First profile output mapping",
                                 "Second profile output mapping",
+                            ),
+                            Query::CompareParameterCatalogs(..) => (
+                                "First profile catalog details",
+                                "Second profile catalog details",
                             ),
                             _ => ("Left master snapshot", "Right master snapshot"),
                         };

@@ -45,6 +45,8 @@ Use **Offline → Process bytes → Compare saved mappings** to review two TOML 
 
 Paste an example in **Recorded payload hex (optional)** to see how each saved profile decodes those bytes. The summary shows changed values and any profile-specific issues. Expand either profile for its full decoded result.
 
+Use **Offline → Parameter bytes → Compare saved parameter catalogs** to compare declarations from two saved IODD imports. The summary identifies the affected ISDU indexes and member subindexes. Expand either profile for the full definitions at the changed addresses.
+
 Switch to **Input bytes** to keep working with your existing entry under the current mapping. A new copy replaces only the **From Inputs** sample. The copied sample stays in memory for this app session. **Output bytes** keeps its own hex entry and uses the applied profile’s output layout. Output-only profiles open on **Output bytes** and keep any copied Inputs sample available. Monitoring or CSV recording continues while you inspect it.
 
 ## Review the route before starting

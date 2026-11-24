@@ -4270,6 +4270,85 @@ kind = "unsigned"
     assert Gateway.requests == requests
 
 
+def verify_parameter_catalog_comparison(cli, scalar, record, array, output):
+    output.mkdir()
+    requests = Gateway.requests
+    command = "compare-parameter-catalogs"
+    samples = ROOT / "samples"
+
+    def compare(left, right, expected=0):
+        before = left.read_bytes(), right.read_bytes()
+        result = tomllib.loads(run(cli, command, left, right, expected=expected))
+        assert (left.read_bytes(), right.read_bytes()) == before
+        assert Gateway.requests == requests
+        return result
+
+    def imported(name, xml, variant=None):
+        source = output / f"{name}.xml"
+        source.write_text(xml, encoding="utf-8")
+        profile = output / f"{name}.toml"
+        variant_args = () if variant is None else ("--variant", variant)
+        run(cli, "import", source, profile, *variant_args)
+        return profile
+
+    same = compare(scalar, scalar)
+    assert same["left"] == same["right"] and same["left"]["parameter_count"] == 3
+    assert same["definition_changes"] == [] and same["unresolved_references"] == {"added": [], "removed": []}
+    manual = compare(samples / "simulator.toml", scalar, expected=1)
+    assert "parameter_count" not in manual["left"] and manual["right"]["parameter_count"] == 3
+    assert "definition_changes" not in manual and "unresolved_references" not in manual
+
+    replaced = compare(record, array)
+    assert [(change["index"], change["change"]) for change in replaced["definition_changes"]] == [
+        (66, "removed"), (67, "added"),
+    ]
+    assert "right" not in replaced["definition_changes"][0] and "left" not in replaced["definition_changes"][1]
+
+    xml = (samples / "sensor-record.xml").read_text(encoding="utf-8")
+    edited_record = imported("edited-record", xml.replace(' accessRightRestriction="ro"', "")
+                             .replace('subindex="1" defaultValue="-20"', 'subindex="1" defaultValue="-19"')
+                             .replace('subindex="2" bitOffset="40"', 'subindex="2" bitOffset="41"'))
+    change = compare(record, edited_record)["definition_changes"]
+    assert len(change) == 1 and change[0]["index"] == 66 and change[0]["properties"] == []
+    assert change[0]["record_members"] == [
+        {"subindex": 1, "change": "changed", "properties": ["access", "default"]},
+        {"subindex": 2, "change": "changed", "properties": ["bit offset"]},
+    ]
+    assert change[0]["left"]["record"]["items"][0]["parameter"]["access"] == "ro"
+    assert change[0]["right"]["record"]["items"][0]["parameter"]["access"] == "rw"
+
+    empty_xml = re.sub(r"<VariableCollection>.*?</VariableCollection>", "", xml, flags=re.S)
+    empty_xml = re.sub(r"<UserInterface>.*?</UserInterface>", "", empty_xml, flags=re.S)
+    empty = imported("empty-catalog", empty_xml)
+    added = compare(empty, record)
+    assert added["left"]["parameter_count"] == 0 and added["right"]["parameter_count"] == 1
+    assert [(change["index"], change["change"]) for change in added["definition_changes"]] == [(66, "added")]
+
+    xml = (samples / "sensor-array.xml").read_text(encoding="utf-8")
+    edited_array = imported("edited-array", xml.replace('count="7" subindexAccessSupported="true"',
+                            'count="6" subindexAccessSupported="false"')
+                            .replace('defaultValue="0"', 'defaultValue="1"'))
+    change = compare(array, edited_array)["definition_changes"]
+    assert len(change) == 1 and change[0]["index"] == 67
+    assert set(change[0]["properties"]) == {"bit length", "default", "subindex access", "array length"}
+    assert change[0]["array_element_properties"] == ["default"] and change[0]["record_members"] == []
+    assert change[0]["right"]["array"]["count"] == 6
+
+    xml = (samples / "sensor.xml").read_text(encoding="utf-8")
+    edited_scalar = imported("edited-scalar",
+                             xml.replace('index="64" accessRights="rw" defaultValue="500"',
+                                         'index="64" accessRights="ro" defaultValue="499"')
+                             .replace('<StdVariableRef id="V_ProductID"/>', ""),
+                             variant="SIM-SENSOR")
+    result = compare(scalar, edited_scalar)
+    assert result["unresolved_references"] == {"added": [], "removed": ["V_ProductID"]}
+    change = result["definition_changes"]
+    assert len(change) == 1 and change[0]["index"] == 64
+    assert change[0]["properties"] == ["access", "default"]
+    assert change[0]["left"]["access"] == "rw" and change[0]["right"]["access"] == "ro"
+    assert Gateway.requests == requests
+
+
 def verify_stamps(cli, output):
     output.mkdir()
     main = ROOT / "samples/sensor-checksum.xml"
@@ -4585,6 +4664,8 @@ def main():
     run(cli, "decode-parameter", offline_only, "V_SIM_Record", "FFEC", "--subindex", 1)
     array_profile = scratch / "array.toml"
     run(cli, "import", ROOT / "samples" / "sensor-array.xml", array_profile)
+    verify_parameter_catalog_comparison(cli, features_profile, record_profile, array_profile,
+                                        scratch / "parameter-catalog-comparison")
     array = tomllib.loads(run(cli, "decode-parameter", array_profile, "V_SIM_History", "02C495F0"))
     expected = ["2", "-4", "4", "-7", "5", "-1", "0"]
     assert [item["value"]["raw_value"] for item in array["array_items"]] == expected
@@ -4927,7 +5008,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, offline access locks comparison, offline Data Storage metadata review, offline Direct Parameter Page 1, identity pins and IODD comparison, optional device error count and saved evidence, offline error count comparison, saved input mapping and recorded payload comparison, saved output mapping and image comparison, device revision reads and saved connection checks, offline device revision comparison, acyclic process data readback and saved evidence, offline process readback comparison, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, offline access locks comparison, offline Data Storage metadata review, offline Direct Parameter Page 1, identity pins and IODD comparison, optional device error count and saved evidence, offline error count comparison, saved input mapping and recorded payload comparison, saved output mapping and image comparison, saved parameter catalog comparison, device revision reads and saved connection checks, offline device revision comparison, acyclic process data readback and saved evidence, offline process readback comparison, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1351, AL1352 and AL1353 status, ISDU and capture across all ports, one-shot ifm master inspection with supply diagnostics, read-only port configuration and offline snapshot review and comparison, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")

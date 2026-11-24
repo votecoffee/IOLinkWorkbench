@@ -1480,6 +1480,62 @@ mod tests {
     }
 
     #[test]
+    fn saved_catalog_worker_compares_record_access_and_preserves_profiles() -> Result<()> {
+        use crate::desktop::acyclic::Kind;
+        use iolink_workbench::iodd::Access;
+
+        let catalog = iodd::parse(
+            include_str!("../../../samples/sensor-record.xml"),
+            "synthetic parameter catalog".into(),
+        )?;
+        let (identity, imported) = catalog.select(None, None)?;
+        let mut profile = Profile::default();
+        profile.apply_iodd(identity, imported);
+        let directory = tempfile::tempdir()?;
+        let left = directory.path().join("first.toml");
+        let right = directory.path().join("second.toml");
+        profile.save_new(&left)?;
+        let member = &mut profile.iodd.as_mut().unwrap().parameters[0]
+            .record
+            .as_mut()
+            .unwrap()
+            .items[0]
+            .parameter;
+        member.access = Access::ReadWrite;
+        profile.save_new(&right)?;
+        let originals = [std::fs::read(&left)?, std::fs::read(&right)?];
+
+        let mut app = App::new();
+        let active = app.profile.clone();
+        let serial = crate::desktop::WORKER_TEST_LOCK.lock().unwrap();
+        app.start_parameter_catalog_comparison(left.clone(), right.clone());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while app.acyclic.busy() && Instant::now() < deadline {
+            app.acyclic.update();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        drop(serial);
+        let result = app
+            .acyclic
+            .latest(Kind::CompareParameterCatalogs)
+            .context("catalog result")?;
+        let report = result
+            .output
+            .as_ref()
+            .map_err(|error| anyhow::anyhow!("{error:#}"))?;
+        assert!(report.text.contains("Changed parameter indexes · 1"));
+        assert!(report.text.contains("66:1 · Changed access"));
+        let [left_text, right_text] = report
+            .comparison_sources
+            .as_ref()
+            .context("both catalogs")?;
+        assert!(left_text.contains("access = \"ro\"") && right_text.contains("access = \"rw\""));
+        assert_eq!([std::fs::read(&left)?, std::fs::read(&right)?], originals);
+        assert_eq!(app.profile, active);
+        Ok(())
+    }
+
+    #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
         assert_eq!(cases.len(), 141);

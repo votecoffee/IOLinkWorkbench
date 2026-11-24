@@ -150,6 +150,8 @@ enum Command {
     DecodeOutput { profile: PathBuf, payload: String },
     /// List imported IODD parameters without contacting a gateway.
     Parameters { profile: PathBuf },
+    /// Compare imported parameter declarations in two saved profiles.
+    CompareParameterCatalogs { left: PathBuf, right: PathBuf },
     /// Inspect declared defaults from a saved profile without gateway access or writes.
     Defaults {
         profile: PathBuf,
@@ -1003,6 +1005,16 @@ fn main() -> Result<()> {
                     ProfileCharacteristicStatus::Match | ProfileCharacteristicStatus::Undeclared
                 ),
                 "ProfileCharacteristic needs review. See the report above."
+            );
+        }
+        Command::CompareParameterCatalogs { left, right } => {
+            let left = Profile::load(&left)?;
+            let right = Profile::load(&right)?;
+            let comparison = iolink_workbench::profile::parameter_catalog::compare(&left, &right);
+            print!("{}", toml::to_string_pretty(&comparison)?);
+            ensure!(
+                comparison.ok(),
+                "Both profiles need a saved IODD parameter catalog. Available context is printed above."
             );
         }
         Command::Parameters { profile } => {

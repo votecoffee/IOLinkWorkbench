@@ -8,6 +8,7 @@ mod identity;
 pub mod input_mapping;
 mod logging;
 mod mapping;
+pub mod parameter_catalog;
 pub use identity::IdentityDraft;
 pub use logging::{CapturePlan, PlannedField};
 

@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Compare saved IODD parameter catalogs by ISDU index and record subindex. Review added, removed, and changed declarations, array element changes, and unresolved standard references.
+
 - Compare saved IODD output layouts by declared length, wire encoding, field definitions, and layout selection. Optionally decode one recorded output image with both profiles.
 
 - Decode the same recorded payload through two saved input mappings. Review value differences, wire warnings, and per-profile errors alongside the mapping comparison.

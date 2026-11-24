@@ -324,6 +324,16 @@ If the selected IODD input layout has a paired output declaration, the applied p
 
 An explicit parameter or diagnostic read uses its own client, apart from the cyclic loop. Save named reads with `read-parameter --snapshot` and use `compare-parameters LEFT.json RIGHT.json` to compare exact bytes and both connection observations offline. The reads must share an ISDU address. Measure gateway-side contention on hardware. For authorized one-shot AL1350 mode, parameter, SystemCommand and process output writes, use [Device → Writes or the CLI preview](WRITES.md).
 
+### Compare saved parameter catalogs
+
+Open **Offline → Parameter bytes → Compare saved parameter catalogs** and select two saved TOML profiles. The report pairs declarations by ISDU index and record members by subindex. It shows added and removed entries, changed properties such as access and defaults, and exact definitions for the affected addresses. Array length and access changes appear at the parent index. Changes to the shared element definition appear once for the array.
+
+~~~powershell
+.\iolink-cli.exe compare-parameter-catalogs before.toml after.toml
+~~~
+
+The report lists unresolved standard-reference changes separately. A saved IODD with zero declarations is a valid empty catalog. If either profile lacks an IODD, the CLI returns 1 with available context. The comparison reports declared access and defaults. Use explicit reads to check current device values.
+
 ### Save a diagnostic read
 
 ```powershell

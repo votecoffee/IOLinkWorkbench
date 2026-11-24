@@ -456,6 +456,7 @@ impl App {
                     }
                     None => {}
                 }
+                self.saved_parameter_catalog_panel(ui);
             }
             OfflinePage::Snapshot => self.saved_parameter.show(ui),
             OfflinePage::Events => self.offline_diagnostics.show(ui, &self.profile),

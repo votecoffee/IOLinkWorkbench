@@ -160,6 +160,8 @@ The bundled **sensor-checksum.xml** and **sensor-checksum-de.xml** are original 
 
 **Compare mappings.** Check two saved profiles for changes in input fields or IODD output layouts. Supply recorded bytes to compare the decoded values. [Input mapping comparison](docs/OPERATIONS.md#compare-saved-input-mappings) · [Output mapping comparison](docs/OPERATIONS.md#compare-saved-output-mappings)
 
+**Compare parameter catalogs.** Review changed IODD declarations by ISDU index or record subindex, including access, defaults, and unresolved standard references. [Compare saved parameter catalogs](docs/OPERATIONS.md#compare-saved-parameter-catalogs)
+
 **Device error count.** Read the optional application error count from the configured port, inspect recorded bytes, or compare two saved replies offline. [Device error count](docs/OPERATIONS.md#device-error-count)
 
 **Direct Parameter Page 1.** Inspect a recorded wired IO-Link 1.1 page for link cycles, process-data lengths, capabilities and device IDs. Compare it with the selected IODD in **Offline → Parameter bytes** or with `decode-direct-page --profile`. [Direct Parameter Page 1](docs/OPERATIONS.md#direct-parameter-page-1)
