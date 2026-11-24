@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Decode recorded wired IO-Link 1.1 Direct Parameter Page 1. Show reported cycle settings, process-data lengths, capabilities and Vendor/Device IDs, with offline comparison against profile pins.
+
 - Decode recorded Data Storage state, storage size, checksum marker, and index-list pages offline. Reject writes to reserved index 3 in AL1350 plans.
 
 - Read and decode DeviceAccessLocks at 12:0. Compare observed flags with IODD declarations, retain raw and failed replies in optional snapshots, and reopen them offline.

@@ -3079,6 +3079,65 @@ def verify_device_profile_comparison(cli, snapshot, output, loopback=False):
     assert Gateway.requests == before and snapshot.read_bytes() == original
 
 
+def verify_direct_page(cli, profile):
+    before = Gateway.requests
+    command = "decode-direct-page"
+
+    def payload(master=0x0A, minimum=4, mseq=0x1B, revision=0x11,
+                pdin=0x50, pdout=0x82, vendor=0xFFFF, device=1):
+        # Command slots contain arbitrary read values. The decoder ignores them.
+        return (bytes([0x9A, master, minimum, mseq, revision, pdin, pdout])
+                + vendor.to_bytes(2, "big") + device.to_bytes(3, "big")
+                + bytes([0, 0, 0, 0x80])).hex(" ").upper()
+
+    def review(raw, *args, expected=0):
+        results = tomllib.loads(run(cli, command, raw, *args, expected=expected))
+        assert results["raw_hex"] == raw.replace(" ", "")
+        return results
+
+    baseline = review(payload(), "--profile", profile)
+    assert baseline["revision_id"] == 0x11 and baseline["protocol_revision"] == "1.1"
+    assert baseline["issues"] == []
+    assert baseline["link"] == {
+        "vendor_id": 65535, "device_id": 1, "expected_vendor_id": 65535, "expected_device_id": 1,
+        "master_cycle_us": 1000, "device_min_cycle_us": 400, "m_sequence_capability": 0x1B,
+        "isdu_supported": True, "sio_supported": True, "operate_code": 5, "preoperate_code": 1,
+        "input": {"raw": 0x50, "octet_structured": False, "bits": 16},
+        "output": {"raw": 0x82, "octet_structured": True, "bits": 24},
+    }
+    unpinned = review(payload(vendor=0x1234, device=0x56789A))
+    assert unpinned["link"]["vendor_id"] == 0x1234 and unpinned["link"]["device_id"] == 0x56789A
+    assert "expected_vendor_id" not in unpinned["link"] and "expected_device_id" not in unpinned["link"]
+    for code, micros in ((4, 400), (0x3F, 6300), (0x40, 6400), (0x7F, 31600),
+                         (0x80, 32000), (0xBF, 132800)):
+        values = review(payload(master=code, minimum=code))["link"]
+        assert values["master_cycle_us"] == values["device_min_cycle_us"] == micros
+    values = review(payload(minimum=0, mseq=0x0A, pdin=0x9F, pdout=0))["link"]
+    assert "device_min_cycle_us" not in values
+    assert values["input"]["bits"] == 256 and values["output"]["bits"] == 0
+    assert not values["isdu_supported"] and not values["sio_supported"]
+    invalid = review(payload(master=3, minimum=0xFF, mseq=0xC3, pdin=0x31, pdout=0xC1,
+                             vendor=0xABCD, device=0), "--profile", profile, expected=1)
+    assert len(invalid["issues"]) == 10 and all(any(part in issue for issue in invalid["issues"])
+                                               for part in ("MasterCycleTime", "MinCycleTime", "M-sequence",
+                                                            "ProcessDataIn", "ProcessDataOut", "DeviceID 0",
+                                                            "Vendor ID differs", "Device ID differs"))
+    assert invalid["link"]["input"] == {"raw": 0x31, "octet_structured": False}
+    assert invalid["link"]["output"] == {"raw": 0xC1, "octet_structured": True}
+    assert invalid["link"]["vendor_id"] == 0xABCD and invalid["link"]["device_id"] == 0
+    for code, revision in ((0x10, "1.0"), (0x20, "2.0")):
+        unsupported = review(payload(revision=code), expected=1)
+        assert unsupported["revision_id"] == code and unsupported["protocol_revision"] == revision
+        assert "link" not in unsupported and "requires wired IO-Link" in unsupported["issues"][0]
+    for raw in ("", "00" * 15, "00" * 17):
+        malformed = review(raw, expected=1)
+        assert malformed["issues"] == ["Page 1 requires exactly 16 bytes"]
+        assert "link" not in malformed and "protocol_revision" not in malformed
+    assert not run(cli, command, "00" * 233, expected=1)
+    assert not run(cli, command, "G1", expected=1)
+    assert Gateway.requests == before
+
+
 def verify_data_storage(cli):
     before = Gateway.requests
     command = "decode-data-storage"
@@ -3431,6 +3490,7 @@ def main():
     features_profile = verify_iodd_features(cli, scratch / "iodd-features")
     verify_access_locks(cli, features_profile, scratch / "sim-access-locks")
     verify_data_storage(cli)
+    verify_direct_page(cli, features_profile)
     verify_profile_characteristic(cli, features_profile, scratch / "profile-characteristic")
     descriptor_profile = verify_process_descriptors(cli, scratch / "process-descriptors")
     verify_input_descriptor_plan(cli, scratch / "input-descriptor-plan")
@@ -3891,7 +3951,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, offline Data Storage metadata review, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, offline Data Storage metadata review, offline Direct Parameter Page 1 and identity pin review, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1351, AL1352 and AL1353 status, ISDU and capture across all ports, one-shot ifm master inspection with supply diagnostics, read-only port configuration and offline snapshot review and comparison, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")

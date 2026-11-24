@@ -99,6 +99,16 @@ In **Diagnostics → Device profile → Device access locks (12:0)**, choose **R
 
 The standard reply has two bytes. Bits 0 and 1 are the legacy parameter-write and Data Storage lock flags. Bits 2 and 3 report local parameterization and local user interface locks. The view shows each observed flag and the saved IODD's support declaration when present. An unavailable read keeps its error and available connection context. The CLI returns 1 for read failures, invalid widths, set reserved bits, or a set flag the IODD marks unsupported. This is the device's recorded lock word. Master Data Storage status and write permission have their own controls and evidence.
 
+### Direct Parameter Page 1
+
+Open **Offline → Parameter bytes → Direct Parameter Page 1 (0:0)** and paste the 16 recorded wired IO-Link bytes in ascending address order, from 0x00 to 0x0F. The decoder retains the complete page and interprets wired protocol revision 1.1. It displays the recorded master cycle setting, the device's reported minimum cycle, ISDU and SIO capability, M-sequence codes, process-data lengths, and the 16-bit Vendor ID and 24-bit Device ID. [IO-Link Interface and System V1.1.5, B.1.1 and B.1.3–9](https://io-link.com/fileadmin/user_upload/Downloads/Package_2025/IOL-Interface-Spec_10002_V1.1.5_Oct2025.zip)
+
+```powershell
+.\iolink-cli.exe decode-direct-page "00 0A 04 1B 11 50 82 FF FF 00 00 01 00 00 00 00" --profile device.toml
+```
+
+The active GUI profile or optional CLI profile supplies expected Vendor and Device IDs. Zero device minimum means the page supplied no minimum. Compare the reported durations separately from measured receive spacing and gateway update rate. M-sequence codes are shown as recorded. Command slots stay in the raw hex because reads of those slots return unspecified values. The CLI returns 1 with retained evidence for malformed length, unsupported protocol revision, reserved encodings and bits in the decoded fields, a zero Device ID, or mismatched identity pins. This workflow only interprets supplied bytes.
+
 ### Data Storage metadata
 
 Use **Offline → Parameter bytes → Data Storage metadata (3:2–5)** to select the field and paste a recorded reply. The IO-Link specification reserves this index for private exchanges between the master and device. Workbench decodes these bytes offline and rejects index 3 in AL1350 write plans. [IO-Link Interface and System V1.1.5, B.2.3](https://io-link.com/fileadmin/user_upload/Downloads/Package_2025/IOL-Interface-Spec_10002_V1.1.5_Oct2025.zip)

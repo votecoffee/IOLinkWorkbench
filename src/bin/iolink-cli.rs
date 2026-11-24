@@ -166,6 +166,12 @@ enum Command {
     ReviewDiagnostics { snapshot: PathBuf },
     /// Compare two saved diagnostic snapshots by query and wire slot, entirely offline.
     CompareDiagnostics { left: PathBuf, right: PathBuf },
+    /// Decode a recorded 16-byte wired Direct Parameter Page 1 in address order.
+    DecodeDirectPage {
+        payload: String,
+        #[arg(long)]
+        profile: Option<PathBuf>,
+    },
     /// Decode a recorded Data Storage metadata reply from index 3, subindex 2–5.
     DecodeDataStorage { subindex: u8, payload: String },
     /// Decode a recorded DeviceAccessLocks reply (12:0).
@@ -594,6 +600,16 @@ fn main() -> Result<()> {
             ensure!(
                 review.ok(),
                 "saved diagnostic snapshot needs review; retained results are printed above"
+            );
+        }
+        Command::DecodeDirectPage { payload, profile } => {
+            let profile = profile.as_deref().map(Profile::load).transpose()?;
+            let expected = profile.as_ref().map(|profile| &profile.expected_identity);
+            let report = diagnostics::decode_direct_page(expected, &payload)?;
+            print!("{}", toml::to_string_pretty(&report)?);
+            ensure!(
+                report.ok(),
+                "Direct Parameter Page 1 needs review. Retained results are printed above."
             );
         }
         Command::DecodeDataStorage { subindex, payload } => {

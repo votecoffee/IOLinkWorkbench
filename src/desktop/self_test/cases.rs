@@ -248,6 +248,7 @@ pub(super) fn render(
                 "offline-parameter",
                 "offline-access-locks",
                 "offline-data-storage",
+                "offline-direct-page",
                 "offline-profile-ids",
                 "offline-process-descriptor",
                 "offline-descriptor-plan",
@@ -310,6 +311,14 @@ pub(super) fn render(
                             }
                             _ => app.tab = Tab::Mappings,
                         }
+                    }
+                    "offline-direct-page" => {
+                        app.tab = Tab::Offline;
+                        app.workspace.offline = OfflinePage::Parameter;
+                        app.profile.expected_identity.vendor_id = None;
+                        app.profile.expected_identity.device_id = None;
+                        app.offline_parameter.direct_page_payload =
+                            "000A041B115082FFFF00000100000000".into();
                     }
                     "offline-data-storage" => {
                         app.tab = Tab::Offline;
@@ -873,6 +882,9 @@ pub(super) fn render(
                 "offline-process-descriptor" => Some(
                     "Descriptor matches mapped IODD fields\nRaw reply · 010100030F01\n1 · Set of BooleanT (0x01) · 1 bits at bit 0\n2 · IntegerT (0x03) · 15 bits at bit 1\nSelected IODD layout · IN · 2 bytes\nlevel [1] · IntegerT · 15 bits at bit 1 · Match\nswitch [2] · Set of BooleanT · 1 bits at bit 0 · Match",
                 ),
+                "offline-direct-page" => Some(
+                    "Direct Parameter Page 1 · 0:0\nRaw reply · 000A041B115082FFFF00000100000000\nProtocol revision · 1.1\nVendor ID · 0xFFFF\nDevice ID · 0x000001\nRecorded master cycle · 1000 µs\nRecorded device minimum cycle · 400 µs\nISDU · Supported · SIO · Supported\nM-sequence codes · PREOPERATE 1 · OPERATE 5\nProcess input · 16 bits\nProcess output · 3 octets (24 bits)",
+                ),
                 "offline-data-storage" => Some(
                     "Device Data Storage · 3:2\nRaw reply · 82\nState · Upload\nUpload request · Pending",
                 ),
@@ -1032,7 +1044,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 135);
+        assert_eq!(cases.len(), 136);
         assert!(
             cases
                 .iter()

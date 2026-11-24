@@ -479,6 +479,7 @@ pub struct Offline {
     pub(super) access_locks_payload: String,
     data_storage_part: diagnostics::DataStoragePart,
     pub(super) data_storage_payload: String,
+    pub(super) direct_page_payload: String,
     pub(super) process_descriptor_payload: String,
     descriptor_direction: diagnostics::DescriptorDirection,
     empty_descriptor: bool,
@@ -650,6 +651,26 @@ impl Offline {
                 match diagnostics::decode_data_storage(
                     self.data_storage_part,
                     &self.data_storage_payload,
+                ) {
+                    Ok(report) => {
+                        ui.label(report.text());
+                    }
+                    Err(error) => {
+                        ui.colored_label(WARNING, error.to_string());
+                    }
+                }
+            }
+        });
+        ui.collapsing("Direct Parameter Page 1 (0:0)", |ui| {
+            ui.small("Paste 16 recorded bytes in address order, from 0x00 to 0x0F.");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.direct_page_payload)
+                    .hint_text("Paste the recorded page in hex"),
+            );
+            if !self.direct_page_payload.trim().is_empty() {
+                match diagnostics::decode_direct_page(
+                    Some(&profile.expected_identity),
+                    &self.direct_page_payload,
                 ) {
                     Ok(report) => {
                         ui.label(report.text());
