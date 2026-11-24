@@ -477,6 +477,8 @@ pub struct Offline {
     payload: String,
     pub(super) profile_characteristic_payload: String,
     pub(super) access_locks_payload: String,
+    data_storage_part: diagnostics::DataStoragePart,
+    pub(super) data_storage_payload: String,
     pub(super) process_descriptor_payload: String,
     descriptor_direction: diagnostics::DescriptorDirection,
     empty_descriptor: bool,
@@ -628,6 +630,36 @@ impl Offline {
                 definition(ui, parent, target, subindex, salt);
             });
         }
+        egui::CollapsingHeader::new("Data Storage metadata (3:2–5)").show(ui, |ui| {
+            ui.small("Paste recorded metadata from a master/device exchange.");
+            egui::ComboBox::from_id_salt("offline-data-storage-part")
+                .selected_text(self.data_storage_part.label())
+                .show_ui(ui, |ui| {
+                    for part in diagnostics::DataStoragePart::ALL {
+                        ui.selectable_value(&mut self.data_storage_part, part, part.label());
+                    }
+                });
+            ui.add(
+                egui::TextEdit::multiline(&mut self.data_storage_payload)
+                    .hint_text("Paste the recorded reply in hex")
+                    .code_editor()
+                    .desired_rows(2)
+                    .desired_width(f32::INFINITY),
+            );
+            if !self.data_storage_payload.trim().is_empty() {
+                match diagnostics::decode_data_storage(
+                    self.data_storage_part,
+                    &self.data_storage_payload,
+                ) {
+                    Ok(report) => {
+                        ui.label(report.text());
+                    }
+                    Err(error) => {
+                        ui.colored_label(WARNING, error.to_string());
+                    }
+                }
+            }
+        });
         edit
     }
 }

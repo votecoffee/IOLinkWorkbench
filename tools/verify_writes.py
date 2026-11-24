@@ -104,6 +104,13 @@ def verify(cli, profile, server):
     assert "isdu_comparison" not in plan
     assert "confirmation mismatch" in run([*mode[:-1], "1"], confirm=plan["confirmation"], status=1)
     assert not server.requests
+    for subindex in ("0", "1", "2", "5"):
+        reserved = ["isdu", "--index", "3", "--subindex", subindex,
+                    "--expected", "00", "--desired", "01"]
+        assert "DataStorageIndex 3 is reserved" in run(reserved, status=1)
+        assert "DataStorageIndex 3 is reserved" in run(reserved[:5], status=1, command="read-current")
+        assert "DataStorageIndex 3 is reserved" in run(reserved, confirm=plan["confirmation"], status=1)
+    assert not server.requests and not server.writes
     observed = run(["port-mode"], command="read-current")
     assert observed["point"] == {"kind": "port_mode"} and observed["value"] == 3
     assert "iodd_value" not in observed

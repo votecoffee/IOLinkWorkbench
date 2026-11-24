@@ -166,6 +166,8 @@ enum Command {
     ReviewDiagnostics { snapshot: PathBuf },
     /// Compare two saved diagnostic snapshots by query and wire slot, entirely offline.
     CompareDiagnostics { left: PathBuf, right: PathBuf },
+    /// Decode a recorded Data Storage metadata reply from index 3, subindex 2–5.
+    DecodeDataStorage { subindex: u8, payload: String },
     /// Decode a recorded DeviceAccessLocks reply (12:0).
     DecodeDeviceAccessLocks {
         payload: String,
@@ -592,6 +594,14 @@ fn main() -> Result<()> {
             ensure!(
                 review.ok(),
                 "saved diagnostic snapshot needs review; retained results are printed above"
+            );
+        }
+        Command::DecodeDataStorage { subindex, payload } => {
+            let report = diagnostics::decode_data_storage(subindex.try_into()?, &payload)?;
+            print!("{}", toml::to_string_pretty(&report)?);
+            ensure!(
+                report.ok(),
+                "Data Storage metadata needs review. Retained results are printed above."
             );
         }
         Command::DecodeDeviceAccessLocks { payload, profile } => {

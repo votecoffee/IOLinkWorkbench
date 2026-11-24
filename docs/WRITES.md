@@ -91,7 +91,7 @@ The CLI dispatches at most one write for each invocation. It makes a fresh readb
 - `gateway_acknowledged` records the SystemCommand acknowledgement. Verify the command's effect according to the device documentation.
 - `unconfirmed` includes a gateway error, lost or malformed reply, or failed or different readback. The CLI returns exit 1 after printing the receipt. Inspect the current state before deciding on any further action.
 
-Monitoring, capture and optional data feeds use read-only paths. The reviewed write workflow covers mode changes, individual readable ISDU parameters, one-shot documented SystemCommands, and a single full output image. Cyclic output ownership, write-only vendor parameters, and Data Storage workflows remain follow-on work.
+Monitoring, capture and optional data feeds use read-only paths. The reviewed write workflow covers mode changes, individual readable ISDU parameters, one-shot documented SystemCommands, and a single full output image. The ISDU write path rejects Data Storage index 3 because it is reserved for master/device exchanges. Cyclic output ownership, write-only vendor parameters, and master-side Data Storage workflows remain follow-on work.
 
 ## Review process outputs
 

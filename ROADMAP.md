@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Decode recorded Data Storage state, storage size, checksum marker, and index-list pages offline. Reject writes to reserved index 3 in AL1350 plans.
+
 - Read and decode DeviceAccessLocks at 12:0. Compare observed flags with IODD declarations, retain raw and failed replies in optional snapshots, and reopen them offline.
 
 - Compare saved device profile snapshots by exact reply bytes, added and removed profile IDs, and descriptor changes by starting offset. Review both source snapshots with any restrictions from missing replies or changed target context.

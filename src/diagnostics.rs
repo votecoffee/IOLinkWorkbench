@@ -10,6 +10,7 @@ use std::time::Instant;
 
 mod access_locks;
 mod comparison;
+mod data_storage;
 mod device_profile;
 mod device_profile_comparison;
 mod error_type;
@@ -25,6 +26,10 @@ pub use access_locks::{
 pub use comparison::{
     Comparison, PendingEventComparison, PendingEventCount, ReplyComparison, SlotChange,
     StatusValues, compare,
+};
+pub use data_storage::{
+    DATA_STORAGE_INDEX, DataStorageAddress, DataStoragePart, DataStorageReply, DataStorageState,
+    DataStorageValue, decode_data_storage,
 };
 pub use device_profile::{DeviceProfileReview, DeviceProfileSnapshot};
 pub use device_profile_comparison::{

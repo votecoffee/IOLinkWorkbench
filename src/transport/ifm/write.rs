@@ -2,6 +2,7 @@
 use super::{Client, InputTransport, label, number};
 use crate::{
     decode::{MAX_INPUT, hex, parse_hex_bounded},
+    diagnostics::DATA_STORAGE_INDEX,
     iodd::{
         Access, DecodedOutput, DecodedParameter, Parameter, ProcessDataLayout,
         decode_text_parameter,
@@ -764,6 +765,10 @@ fn read_id(client: &mut Client, index: u16) -> Result<String> {
 }
 
 fn check_isdu_index(index: u16) -> Result<()> {
+    ensure!(
+        index != DATA_STORAGE_INDEX,
+        "DataStorageIndex 3 is reserved for master/device exchanges"
+    );
     ensure!(
         matches!(index, 4..=254 | 256..=0x41ff | 0x4300..=0x4fff),
         "use a parameter index supported by this write path. Use device-command for SystemCommand"

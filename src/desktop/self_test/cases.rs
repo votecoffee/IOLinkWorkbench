@@ -247,6 +247,7 @@ pub(super) fn render(
                 "acyclic-profile",
                 "offline-parameter",
                 "offline-access-locks",
+                "offline-data-storage",
                 "offline-profile-ids",
                 "offline-process-descriptor",
                 "offline-descriptor-plan",
@@ -309,6 +310,11 @@ pub(super) fn render(
                             }
                             _ => app.tab = Tab::Mappings,
                         }
+                    }
+                    "offline-data-storage" => {
+                        app.tab = Tab::Offline;
+                        app.workspace.offline = OfflinePage::Parameter;
+                        app.offline_parameter.data_storage_payload = "82".into();
                     }
                     "mapping-editor" => {
                         app.tab = Tab::Mappings;
@@ -867,6 +873,9 @@ pub(super) fn render(
                 "offline-process-descriptor" => Some(
                     "Descriptor matches mapped IODD fields\nRaw reply · 010100030F01\n1 · Set of BooleanT (0x01) · 1 bits at bit 0\n2 · IntegerT (0x03) · 15 bits at bit 1\nSelected IODD layout · IN · 2 bytes\nlevel [1] · IntegerT · 15 bits at bit 1 · Match\nswitch [2] · Set of BooleanT · 1 bits at bit 0 · Match",
                 ),
+                "offline-data-storage" => Some(
+                    "Device Data Storage · 3:2\nRaw reply · 82\nState · Upload\nUpload request · Pending",
+                ),
                 "offline-access-locks" => Some(
                     "Device Access Locks · 12:0\nRaw reply · 000C\nBit 0 · Parameter write access · Clear · IODD support No · Legacy\nBit 1 · Data Storage · Clear · IODD support No · Legacy\nBit 2 · Local parameterization · Set · IODD support Yes\nBit 3 · Local user interface · Set · IODD support Yes",
                 ),
@@ -1023,7 +1032,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 134);
+        assert_eq!(cases.len(), 135);
         assert!(
             cases
                 .iter()

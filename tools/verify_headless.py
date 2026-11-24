@@ -3079,6 +3079,60 @@ def verify_device_profile_comparison(cli, snapshot, output, loopback=False):
     assert Gateway.requests == before and snapshot.read_bytes() == original
 
 
+def verify_data_storage(cli):
+    before = Gateway.requests
+    command = "decode-data-storage"
+
+    def review(subindex, payload, expected=0):
+        report = tomllib.loads(run(cli, command, subindex, payload, expected=expected))
+        assert report["index"] == 3 and report["subindex"] == subindex
+        return report
+
+    for raw, state, upload in (
+        ("00", "inactive", False), ("0x82", "upload", True),
+        ("04", "download", False), ("86", "locked", True),
+    ):
+        report = review(2, raw)
+        assert report["value"] == {
+            "kind": "state", "state": state, "upload_requested": upload, "reserved_bits": 0,
+        }
+        assert "issue" not in report
+    report = review(2, "FF", expected=1)
+    assert report["raw_hex"] == "FF" and report["value"]["reserved_bits"] == 0x79
+    assert report["value"]["state"] == "locked" and report["value"]["upload_requested"]
+    assert "Reserved bits" in report["issue"]
+
+    for raw, size, status in (("00000000", 0, 0), ("00000800", 2048, 0), ("00000801", 2049, 1)):
+        report = review(3, raw, expected=status)
+        assert report["value"] == {"kind": "size", "bytes": size}
+        assert ("issue" in report) == bool(status)
+    report = review(4, "FE DC BA 98")
+    assert report["raw_hex"] == "FEDCBA98"
+    assert report["value"] == {"kind": "checksum", "revision_marker": 0xFEDCBA98}
+
+    report = review(5, "00 40 01 12 34 FE C0 00")
+    assert report["value"] == {
+        "kind": "index_list", "entries": [{"index": 64, "subindex": 1},
+                                         {"index": 0x1234, "subindex": 254}],
+        "next_index": 0xC000,
+    }
+    assert review(5, "0000")["value"] == {"kind": "index_list", "entries": [], "next_index": 0}
+    assert len(review(5, "004000" * 70 + "0000")["value"]["entries"]) == 70
+    for subindex, raw, issue in (
+        (2, "8200", "one byte"), (3, "0008", "four bytes"), (4, "0102030405", "four bytes"),
+        (5, "", "termination marker"), (5, "00", "termination marker"),
+        (5, "00400000", "three-byte entries"),
+        (5, "004000" * 71 + "0000", "70 entries"),
+    ):
+        report = review(subindex, raw, expected=1)
+        assert report["raw_hex"] == raw and issue in report["issue"] and "value" not in report
+    assert not run(cli, command, 1, "01", expected=1)
+    assert not run(cli, command, 0, "00000000", expected=1)
+    assert not run(cli, command, 5, "00" * 233, expected=1)
+    assert not run(cli, command, 2, "GG", expected=1)
+    assert Gateway.requests == before
+
+
 def verify_access_locks(cli, profile, output, endpoint=None):
     output.mkdir()
     if endpoint:
@@ -3376,6 +3430,7 @@ def main():
     communication_profile = verify_communication(cli, scratch / "communication")
     features_profile = verify_iodd_features(cli, scratch / "iodd-features")
     verify_access_locks(cli, features_profile, scratch / "sim-access-locks")
+    verify_data_storage(cli)
     verify_profile_characteristic(cli, features_profile, scratch / "profile-characteristic")
     descriptor_profile = verify_process_descriptors(cli, scratch / "process-descriptors")
     verify_input_descriptor_plan(cli, scratch / "input-descriptor-plan")
@@ -3836,7 +3891,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, offline Data Storage metadata review, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1351, AL1352 and AL1353 status, ISDU and capture across all ports, one-shot ifm master inspection with supply diagnostics, read-only port configuration and offline snapshot review and comparison, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")

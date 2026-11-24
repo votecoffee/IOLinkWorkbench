@@ -99,6 +99,19 @@ In **Diagnostics → Device profile → Device access locks (12:0)**, choose **R
 
 The standard reply has two bytes. Bits 0 and 1 are the legacy parameter-write and Data Storage lock flags. Bits 2 and 3 report local parameterization and local user interface locks. The view shows each observed flag and the saved IODD's support declaration when present. An unavailable read keeps its error and available connection context. The CLI returns 1 for read failures, invalid widths, set reserved bits, or a set flag the IODD marks unsupported. This is the device's recorded lock word. Master Data Storage status and write permission have their own controls and evidence.
 
+### Data Storage metadata
+
+Use **Offline → Parameter bytes → Data Storage metadata (3:2–5)** to select the field and paste a recorded reply. The IO-Link specification reserves this index for private exchanges between the master and device. Workbench decodes these bytes offline and rejects index 3 in AL1350 write plans. [IO-Link Interface and System V1.1.5, B.2.3](https://io-link.com/fileadmin/user_upload/Downloads/Package_2025/IOL-Interface-Spec_10002_V1.1.5_Oct2025.zip)
+
+```powershell
+.\iolink-cli.exe decode-data-storage 2 "82"
+.\iolink-cli.exe decode-data-storage 3 "00 00 08 00"
+.\iolink-cli.exe decode-data-storage 4 "FE DC BA 98"
+.\iolink-cli.exe decode-data-storage 5 "00 40 01 00 00"
+```
+
+Subindex 2 shows the transfer state and pending upload flag. Subindex 3 gives the required storage size. Subindex 4 shows the parameter-set revision marker as supplied by the device. Subindex 5 lists the index and subindex pairs on one page. A zero marker ends the list. A nonzero marker gives the index of the next page, which you can decode separately if you have its bytes. The report retains raw hex. The CLI exits 1 for a malformed reply, set reserved state bits, or a storage size above 2048 bytes.
+
 ### Device profile snapshots
 
 Open **Diagnostics → Device profile** to explicitly read **ProfileCharacteristic (13:0)**, **PDInputDescriptor (14:0)**, and **PDOutputDescriptor (15:0)** from the configured port. Choose **Read and save device profile snapshot** to retain all three query outcomes. Use **Offline → Diagnostic snapshots → Device profile snapshots** to reopen the JSON. [IO-Link Common Profile V1.2.1, Annex B](https://io-link.com/fileadmin/user_upload/Downloads/Package_2025/IO-Link_Common_Profile_Specification_10.072_V1.2.1_Oct2025.zip)
