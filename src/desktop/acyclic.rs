@@ -96,7 +96,23 @@ pub(super) enum Kind {
     SavedDeviceRevisions,
     ProcessReadback,
     SavedProcessReadback,
-    CompareInputMappings,
+    CompareMappings,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(super) enum MappingDirection {
+    #[default]
+    Input,
+    Output,
+}
+
+impl MappingDirection {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Input => "input",
+            Self::Output => "output",
+        }
+    }
 }
 
 pub(super) enum Query {
@@ -127,7 +143,7 @@ pub(super) enum Query {
     ProcessReadback(diagnostics::ReadbackDirection),
     SavedProcessReadback(PathBuf),
     CompareProcessReadbacks(PathBuf, PathBuf),
-    CompareInputMappings(PathBuf, PathBuf),
+    CompareMappings(MappingDirection, PathBuf, PathBuf),
 }
 
 impl Query {
@@ -145,7 +161,7 @@ impl Query {
             Self::ErrorCount => Kind::ErrorCount,
             Self::SavedErrorCount(_) | Self::CompareErrorCounts(..) => Kind::SavedErrorCount,
             Self::DeviceRevisions => Kind::DeviceRevisions,
-            Self::CompareInputMappings(..) => Kind::CompareInputMappings,
+            Self::CompareMappings(..) => Kind::CompareMappings,
             Self::ProcessReadback(_) => Kind::ProcessReadback,
             Self::SavedProcessReadback(_) | Self::CompareProcessReadbacks(..) => {
                 Kind::SavedProcessReadback
@@ -215,8 +231,9 @@ impl Query {
                 left.display(),
                 right.display()
             ),
-            Self::CompareInputMappings(left, right) => format!(
-                "Saved input mappings · {} → {}",
+            Self::CompareMappings(direction, left, right) => format!(
+                "Saved {} mappings · {} → {}",
+                direction.label(),
                 left.display(),
                 right.display()
             ),
@@ -320,10 +337,11 @@ pub(super) struct Reading {
 #[derive(Default)]
 pub(super) struct Reads {
     pending: Option<(Query, Worker<Output>)>,
-    latest: [Option<Reading>; Kind::CompareInputMappings as usize + 1],
-    input_mapping_left: String,
-    input_mapping_right: String,
-    input_mapping_payload: String,
+    latest: [Option<Reading>; Kind::CompareMappings as usize + 1],
+    mapping_direction: MappingDirection,
+    mapping_left: String,
+    mapping_right: String,
+    mapping_payload: String,
     readback_direction: diagnostics::ReadbackDirection,
     readback_save: String,
     readback_open: String,
@@ -375,7 +393,7 @@ impl Reads {
         let saved_error_count = self.latest[Kind::SavedErrorCount as usize].take();
         let saved_revisions = self.latest[Kind::SavedDeviceRevisions as usize].take();
         let saved_readback = self.latest[Kind::SavedProcessReadback as usize].take();
-        let saved_mappings = self.latest[Kind::CompareInputMappings as usize].take();
+        let saved_mappings = self.latest[Kind::CompareMappings as usize].take();
         self.latest = Default::default();
         self.latest[Kind::SavedMasterInspection as usize] = saved_master;
         self.latest[Kind::SavedDeviceProfile as usize] = saved_profile;
@@ -383,7 +401,7 @@ impl Reads {
         self.latest[Kind::SavedErrorCount as usize] = saved_error_count;
         self.latest[Kind::SavedDeviceRevisions as usize] = saved_revisions;
         self.latest[Kind::SavedProcessReadback as usize] = saved_readback;
-        self.latest[Kind::CompareInputMappings as usize] = saved_mappings;
+        self.latest[Kind::CompareMappings as usize] = saved_mappings;
     }
 
     pub fn clear_named(&mut self, id: &str) {
@@ -420,62 +438,86 @@ fn saved_master_text(snapshot: &MasterInspectionSnapshot) -> String {
 }
 
 impl App {
-    pub(super) fn saved_input_mapping_panel(&mut self, ui: &mut Ui) {
-        ui.collapsing("Compare saved input mappings", |ui| {
+    pub(super) fn saved_mapping_panel(&mut self, ui: &mut Ui) {
+        ui.collapsing("Compare saved mappings", |ui| {
             let available = self.acyclic_job_block_reason().is_none();
             ui.add_enabled_ui(available, |ui| {
+                ui.horizontal(|ui| {
+                    ui.selectable_value(
+                        &mut self.acyclic.mapping_direction,
+                        MappingDirection::Input,
+                        "Input",
+                    );
+                    ui.selectable_value(
+                        &mut self.acyclic.mapping_direction,
+                        MappingDirection::Output,
+                        "Output",
+                    );
+                });
                 super::path_entry(
                     ui,
-                    &mut self.acyclic.input_mapping_left,
+                    &mut self.acyclic.mapping_left,
                     "First profile TOML path",
                 );
                 super::path_entry(
                     ui,
-                    &mut self.acyclic.input_mapping_right,
+                    &mut self.acyclic.mapping_right,
                     "Second profile TOML path",
                 );
                 ui.add(
-                    egui::TextEdit::singleline(&mut self.acyclic.input_mapping_payload)
+                    egui::TextEdit::singleline(&mut self.acyclic.mapping_payload)
                         .hint_text("Recorded payload hex (optional)")
                         .desired_width(350.0),
                 );
             });
-            let left = self.acyclic.input_mapping_left.trim();
-            let right = self.acyclic.input_mapping_right.trim();
+            let left = self.acyclic.mapping_left.trim();
+            let right = self.acyclic.mapping_right.trim();
             if ui
                 .add_enabled(
                     available && !left.is_empty() && !right.is_empty(),
-                    egui::Button::new("Compare input mappings"),
+                    egui::Button::new("Compare mappings"),
                 )
                 .clicked()
             {
-                let payload = self.acyclic.input_mapping_payload.trim();
-                self.start_input_mapping_comparison(
+                let payload = self.acyclic.mapping_payload.trim();
+                self.start_mapping_comparison(
+                    self.acyclic.mapping_direction,
                     PathBuf::from(left),
                     PathBuf::from(right),
                     (!payload.is_empty()).then(|| payload.to_owned()),
                 );
             }
-            self.acyclic_result(ui, Kind::CompareInputMappings);
+            self.acyclic_result(ui, Kind::CompareMappings);
         });
     }
 
-    pub(super) fn start_input_mapping_comparison(
+    pub(super) fn start_mapping_comparison(
         &mut self,
+        direction: MappingDirection,
         left: PathBuf,
         right: PathBuf,
         payload: Option<String>,
     ) {
         self.start_acyclic_output(
-            Query::CompareInputMappings(left.clone(), right.clone()),
+            Query::CompareMappings(direction, left.clone(), right.clone()),
             move || {
                 let left = Profile::load(&left)?;
                 let right = Profile::load(&right)?;
-                let report =
-                    input_mapping::compare_with_payload(&left, &right, payload.as_deref())?;
+                let (text, sources) = match direction {
+                    MappingDirection::Input => {
+                        let report =
+                            input_mapping::compare_with_payload(&left, &right, payload.as_deref())?;
+                        (report.summary_text(), report.source_texts()?)
+                    }
+                    MappingDirection::Output => {
+                        let report =
+                            input_mapping::compare_outputs(&left, &right, payload.as_deref())?;
+                        (report.summary_text(), report.source_texts()?)
+                    }
+                };
                 Ok(Output {
-                    text: report.summary_text(),
-                    comparison_sources: Some(report.source_texts()?),
+                    text,
+                    comparison_sources: Some(sources),
                     port_configuration: None,
                 })
             },
@@ -1167,7 +1209,7 @@ impl App {
             | Query::CompareDeviceRevisions(..)
             | Query::SavedProcessReadback(_)
             | Query::CompareProcessReadbacks(..)
-            | Query::CompareInputMappings(..) => self.acyclic_job_block_reason(),
+            | Query::CompareMappings(..) => self.acyclic_job_block_reason(),
             _ => self.acyclic_block_reason(),
         };
         if let Some(reason) = blocked {
@@ -1236,9 +1278,13 @@ impl App {
                             Query::CompareErrorCounts(..) => {
                                 ("Left error count snapshot", "Right error count snapshot")
                             }
-                            Query::CompareInputMappings(..) => (
+                            Query::CompareMappings(MappingDirection::Input, ..) => (
                                 "First profile input mapping",
                                 "Second profile input mapping",
+                            ),
+                            Query::CompareMappings(MappingDirection::Output, ..) => (
+                                "First profile output mapping",
+                                "Second profile output mapping",
                             ),
                             _ => ("Left master snapshot", "Right master snapshot"),
                         };

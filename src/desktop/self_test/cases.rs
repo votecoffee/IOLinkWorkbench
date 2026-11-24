@@ -1350,7 +1350,8 @@ mod tests {
         let left_bytes = std::fs::read(&left_path)?;
         let right_bytes = std::fs::read(&right_path)?;
 
-        app.start_input_mapping_comparison(
+        app.start_mapping_comparison(
+            crate::desktop::acyclic::MappingDirection::Input,
             left_path.clone(),
             right_path.clone(),
             Some("03 E9".into()),
@@ -1377,14 +1378,14 @@ mod tests {
                 ..Default::default()
             },
             |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| app.saved_input_mapping_panel(ui));
+                egui::CentralPanel::default().show(ctx, |ui| app.saved_mapping_panel(ui));
             },
         );
         let mut texts = Vec::new();
         for shape in &output.shapes {
             text_shapes(&shape.shape, &mut texts);
         }
-        assert!(texts.contains(&"Compare input mappings"));
+        assert!(texts.contains(&"Compare mappings"));
         assert!(texts.contains(&"First profile input mapping"));
         assert!(texts.contains(&"Second profile input mapping"));
         assert!(
@@ -1407,6 +1408,74 @@ mod tests {
         assert_eq!(app.profile, active);
         assert_eq!(std::fs::read(&left_path)?, left_bytes);
         assert_eq!(std::fs::read(&right_path)?, right_bytes);
+        Ok(())
+    }
+
+    #[test]
+    fn saved_mapping_worker_selects_output_and_preserves_both_profiles() -> Result<()> {
+        use crate::desktop::acyclic::{Kind, MappingDirection};
+
+        let xml = include_str!("../../../samples/sensor.xml").replace(
+            "</ProcessData>",
+            r#"<ProcessDataOut id="OUT" bitLength="8"><Datatype xsi:type="UIntegerT" bitLength="8"/></ProcessDataOut></ProcessData>"#,
+        );
+        let catalog = iodd::parse(&xml, "synthetic output mapping review".into())?;
+        let (identity, imported) = catalog.select(Some("SIM-SENSOR"), None)?;
+        let mut profile = Profile::default();
+        profile.apply_iodd(identity, imported);
+        let directory = tempfile::tempdir()?;
+        let left = directory.path().join("first.toml");
+        let right = directory.path().join("second.toml");
+        profile.save_new(&left)?;
+        let output = profile
+            .iodd
+            .as_mut()
+            .and_then(|iodd| iodd.output.as_mut())
+            .context("selected IODD output")?;
+        output.fields[0].scale = 2.0;
+        profile.save_new(&right)?;
+        let originals = [std::fs::read(&left)?, std::fs::read(&right)?];
+
+        let mut app = App::new();
+        let active = app.profile.clone();
+        let serial = crate::desktop::WORKER_TEST_LOCK.lock().unwrap();
+        app.start_mapping_comparison(
+            MappingDirection::Output,
+            left.clone(),
+            right.clone(),
+            Some("05".into()),
+        );
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while app.acyclic.busy() && Instant::now() < deadline {
+            app.acyclic.update();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        drop(serial);
+        let result = app
+            .acyclic
+            .latest(Kind::CompareMappings)
+            .context("mapping worker result")?;
+        let report = result
+            .output
+            .as_ref()
+            .map_err(|error| anyhow::anyhow!("{error:#}"))?;
+        assert!(report.text.contains("Recorded payload · 05"));
+        assert!(
+            report
+                .text
+                .contains("5 (raw 5, bits 0x5) → 10 (raw 5, bits 0x5)")
+        );
+        let sources = report
+            .comparison_sources
+            .as_ref()
+            .context("both output layouts")?;
+        assert!(
+            sources
+                .iter()
+                .all(|text| text.contains("output_bytes = 1") && text.contains("Payload result"))
+        );
+        assert_eq!([std::fs::read(&left)?, std::fs::read(&right)?], originals);
+        assert_eq!(app.profile, active);
         Ok(())
     }
 

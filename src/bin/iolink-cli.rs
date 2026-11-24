@@ -75,6 +75,14 @@ enum Command {
         #[arg(long, value_name = "HEX")]
         payload: Option<String>,
     },
+    /// Compare process output layouts from two saved IODD profiles.
+    CompareOutputMappings {
+        left: PathBuf,
+        right: PathBuf,
+        /// Decode one recorded output image with both layouts.
+        #[arg(long, value_name = "HEX")]
+        payload: Option<String>,
+    },
     /// Review configured row semantics, settings and CSV columns offline; no gateway access.
     Logging { profile: PathBuf },
     /// Save logging mode, queue, rotation and CSV selection to a new profile offline.
@@ -1198,6 +1206,24 @@ fn main() -> Result<()> {
             ensure!(
                 report.ok(),
                 "Payload comparison needs review. Retained results are printed above."
+            );
+        }
+        Command::CompareOutputMappings {
+            left,
+            right,
+            payload,
+        } => {
+            let left = Profile::load(&left)?;
+            let right = Profile::load(&right)?;
+            let report = iolink_workbench::profile::input_mapping::compare_outputs(
+                &left,
+                &right,
+                payload.as_deref(),
+            )?;
+            print!("{}", toml::to_string_pretty(&report)?);
+            ensure!(
+                report.ok(),
+                "Output payload comparison needs review. Retained results are printed above."
             );
         }
         Command::Validate { profile } => {

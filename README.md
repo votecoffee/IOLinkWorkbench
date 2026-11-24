@@ -158,7 +158,7 @@ The bundled **sensor-checksum.xml** and **sensor-checksum-de.xml** are original 
 
 **Device revisions.** Read optional sensor hardware and firmware revision strings and compare two saved snapshots, with separate wire and text results. [Device revisions](docs/OPERATIONS.md#device-revisions)
 
-**Compare input mappings.** Check two saved profiles for changes in IODD selection, input width, encoding, effective fields, and mapping origins. Supply recorded bytes to compare the resulting values. [Compare saved input mappings](docs/OPERATIONS.md#compare-saved-input-mappings)
+**Compare mappings.** Check two saved profiles for changes in input fields or IODD output layouts. Supply recorded bytes to compare the decoded values. [Input mapping comparison](docs/OPERATIONS.md#compare-saved-input-mappings) · [Output mapping comparison](docs/OPERATIONS.md#compare-saved-output-mappings)
 
 **Device error count.** Read the optional application error count from the configured port, inspect recorded bytes, or compare two saved replies offline. [Device error count](docs/OPERATIONS.md#device-error-count)
 

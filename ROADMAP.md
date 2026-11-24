@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Compare saved IODD output layouts by declared length, wire encoding, field definitions, and layout selection. Optionally decode one recorded output image with both profiles.
+
 - Decode the same recorded payload through two saved input mappings. Review value differences, wire warnings, and per-profile errors alongside the mapping comparison.
 
 - Compare saved input mappings before applying an IODD re-import or host edit. Review effective field definitions and origins, field order, the IODD selection, and input geometry offline.

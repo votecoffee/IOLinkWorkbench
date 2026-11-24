@@ -41,7 +41,7 @@ The saved profiles supply each port's duration-independent settings and the capt
 
 In **Inputs**, choose **Inspect bytes offline** beside the raw input. **Offline → Process bytes → From Inputs** shows one fixed copy of the bytes, receipt quality, and the mapping used at copy time. You can inspect held or invalid bytes and see their original Inputs state. For host polls, source age and update count remain unknown.
 
-Use **Offline → Process bytes → Compare saved input mappings** to review two TOML profiles before adopting an IODD revision or mapping edit. The comparison opens in place and retains both effective definitions. The active profile used for the bytes shown above stays separate from the two files selected for comparison.
+Use **Offline → Process bytes → Compare saved mappings** to review two TOML profiles before adopting an IODD revision or mapping edit. Choose **Input** for effective input fields or **Output** for the selected IODD output layout. The comparison opens in place and retains both definitions. The active profile used for the bytes shown above stays separate from the two files selected for comparison.
 
 Paste an example in **Recorded payload hex (optional)** to see how each saved profile decodes those bytes. The summary shows changed values and any profile-specific issues. Expand either profile for its full decoded result.
 

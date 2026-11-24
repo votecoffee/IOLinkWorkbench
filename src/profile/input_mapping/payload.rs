@@ -16,7 +16,7 @@ pub struct PayloadComparison<'a> {
 pub struct PayloadSide<'a> {
     pub fields: Option<Vec<DecodedField<'a>>>,
     pub decode_error: Option<String>,
-    pub wire_warning: Option<&'static str>,
+    pub wire_warning: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -33,7 +33,7 @@ pub struct PayloadDifferences<'a> {
 }
 
 impl<'a> PayloadSide<'a> {
-    fn decode(profile: &'a Profile, bytes: &[u8]) -> Self {
+    fn decode_input(profile: &'a Profile, bytes: &[u8]) -> Self {
         let (fields, decode_error) = match profile.decode(bytes) {
             Ok(decoded) => (
                 Some(
@@ -53,7 +53,35 @@ impl<'a> PayloadSide<'a> {
         Self {
             fields,
             decode_error,
-            wire_warning: profile.input_encoding_warning(bytes),
+            wire_warning: profile.input_encoding_warning(bytes).map(str::to_owned),
+        }
+    }
+
+    fn decode_output(profile: &'a Profile, bytes: &[u8]) -> Self {
+        let Some(layout) = profile.output_layout() else {
+            return Self {
+                fields: None,
+                decode_error: Some("No IODD output layout is saved in this profile".into()),
+                wire_warning: None,
+            };
+        };
+        let decoded = layout.decode_output(bytes, None);
+        let fields = decoded.decode_error.is_none().then(|| {
+            layout
+                .fields
+                .iter()
+                .zip(decoded.fields)
+                .map(|(field, decoded)| DecodedField {
+                    name: &field.name,
+                    unit: &field.unit,
+                    value: decoded.value,
+                })
+                .collect()
+        });
+        Self {
+            fields,
+            decode_error: decoded.decode_error,
+            wire_warning: decoded.encoding_warning,
         }
     }
 
@@ -66,7 +94,7 @@ impl<'a> PayloadSide<'a> {
     }
 
     fn write_issues(&self, output: &mut String, label: &str) {
-        for issue in [self.decode_error.as_deref(), self.wire_warning]
+        for issue in [self.decode_error.as_deref(), self.wire_warning.as_deref()]
             .into_iter()
             .flatten()
         {
@@ -96,8 +124,22 @@ impl DecodedField<'_> {
 
 impl<'a> PayloadComparison<'a> {
     pub(super) fn new(left: &'a Profile, right: &'a Profile, bytes: &[u8]) -> Self {
-        let left = PayloadSide::decode(left, bytes);
-        let right = PayloadSide::decode(right, bytes);
+        Self::from_sides(
+            bytes,
+            PayloadSide::decode_input(left, bytes),
+            PayloadSide::decode_input(right, bytes),
+        )
+    }
+
+    pub(super) fn for_output(left: &'a Profile, right: &'a Profile, bytes: &[u8]) -> Self {
+        Self::from_sides(
+            bytes,
+            PayloadSide::decode_output(left, bytes),
+            PayloadSide::decode_output(right, bytes),
+        )
+    }
+
+    fn from_sides(bytes: &[u8], left: PayloadSide<'a>, right: PayloadSide<'a>) -> Self {
         let differences = left
             .fields
             .as_deref()

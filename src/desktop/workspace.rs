@@ -428,7 +428,7 @@ impl App {
             }
             OfflinePage::Process => {
                 self.payload_inspector.show(ui, &self.profile);
-                self.saved_input_mapping_panel(ui);
+                self.saved_mapping_panel(ui);
             }
             OfflinePage::Parameter => {
                 let editable = !self.acquisition_active()

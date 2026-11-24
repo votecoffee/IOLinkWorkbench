@@ -44,7 +44,7 @@ Editing an imported name creates an override; removing it restores the imported 
 
 ### Compare saved input mappings
 
-After saving both profiles, open **Offline → Process bytes → Compare saved input mappings** and enter their TOML paths. Review the summary and expand either profile to see its effective definitions in field order.
+After saving both profiles, open **Offline → Process bytes → Compare saved mappings** and choose **Input**. Enter both TOML paths, review the summary, and expand either profile to see its effective definitions in field order.
 
 ~~~powershell
 .\iolink-cli.exe compare-input-mappings before.toml after.toml
@@ -59,6 +59,17 @@ Enter **Recorded payload hex (optional)** to decode the same recorded input with
 ~~~
 
 The preview compares decoded fields by exact name and shows changes in values, units, display text, or raw bits. Each profile's result includes its wire encoding warnings and field errors. If one profile expects a different byte width, the other profile's result remains available. Malformed text in one field still allows comparison of other usable fields. The CLI prints the available results and returns 1 when a profile or field cannot decode the payload. Wire encoding warnings by themselves keep exit 0.
+
+### Compare saved output mappings
+
+Choose **Output** in **Offline → Process bytes → Compare saved mappings** to compare the selected IODD output layouts from two TOML profiles. Review wire byte width, declared bit length, encoding, layout selection and condition, and output fields by exact name. A profile without a saved output layout is identified in the result. Expand both sources for the saved definitions and any IODD review notes.
+
+~~~powershell
+.\iolink-cli.exe compare-output-mappings before.toml after.toml
+.\iolink-cli.exe compare-output-mappings before.toml after.toml --payload "00 05"
+~~~
+
+The optional recorded bytes decode against each selected output layout independently. The report retains any successful result when the other profile lacks a layout or expects a different width. The CLI returns 1 after reporting a payload decoding error. Noncanonical Boolean or integer padding produces a warning alongside the decoded value.
 
 ### Check a conditional layout
 

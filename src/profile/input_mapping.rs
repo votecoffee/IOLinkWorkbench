@@ -1,4 +1,4 @@
-//! Compare effective process input definitions from saved host profiles.
+//! Compare process data definitions from saved host profiles.
 use super::{InputEncoding, Profile};
 use crate::decode::{Field, Kind};
 use serde::Serialize;
@@ -7,7 +7,9 @@ use std::{
     fmt::Write,
 };
 
+mod output;
 mod payload;
+pub use output::{OutputComparison, OutputMapping, compare_outputs};
 pub use payload::{DecodedField, PayloadComparison, PayloadDifferences, PayloadSide};
 
 #[derive(Serialize)]
@@ -36,7 +38,9 @@ pub struct Mapping<'a> {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Encoding {
     NoInput,
+    NoOutput,
     Standard,
+    Packed,
     StandaloneBoolean,
     PaddedInteger { bits: u16, signed: bool },
 }
@@ -106,8 +110,25 @@ impl<'a> From<&'a Profile> for Mapping<'a> {
 pub fn compare<'a>(left: &'a Profile, right: &'a Profile) -> Comparison<'a> {
     let left = Mapping::from(left);
     let right = Mapping::from(right);
-    let left_names = fields_by_name(&left);
-    let right_names = fields_by_name(&right);
+    let (changes, common_field_order_changed) = compare_fields(&left.fields, &right.fields);
+    Comparison {
+        input_width_changed: left.input_bytes != right.input_bytes,
+        input_encoding_changed: left.encoding != right.encoding,
+        selection_changed: left.selection != right.selection,
+        common_field_order_changed,
+        left,
+        right,
+        changes,
+        payload: None,
+    }
+}
+
+fn compare_fields<'a>(
+    left: &[MappedField<'a>],
+    right: &[MappedField<'a>],
+) -> (Vec<FieldChange<'a>>, bool) {
+    let left_names = fields_by_name(left);
+    let right_names = fields_by_name(right);
     let names: BTreeSet<_> = left_names
         .keys()
         .chain(right_names.keys())
@@ -136,25 +157,14 @@ pub fn compare<'a>(left: &'a Profile, right: &'a Profile) -> Comparison<'a> {
         })
         .collect();
     let common_field_order_changed = !left
-        .fields
         .iter()
         .map(|field| field.definition.name.as_str())
         .filter(|name| right_names.contains_key(name))
         .eq(right
-            .fields
             .iter()
             .map(|field| field.definition.name.as_str())
             .filter(|name| left_names.contains_key(name)));
-    Comparison {
-        input_width_changed: left.input_bytes != right.input_bytes,
-        input_encoding_changed: left.encoding != right.encoding,
-        selection_changed: left.selection != right.selection,
-        common_field_order_changed,
-        left,
-        right,
-        changes,
-        payload: None,
-    }
+    (changes, common_field_order_changed)
 }
 
 pub fn compare_with_payload<'a>(
@@ -170,9 +180,8 @@ pub fn compare_with_payload<'a>(
     Ok(report)
 }
 
-fn fields_by_name<'a, 'b>(mapping: &'b Mapping<'a>) -> BTreeMap<&'a str, &'b MappedField<'a>> {
-    mapping
-        .fields
+fn fields_by_name<'a, 'b>(fields: &'b [MappedField<'a>]) -> BTreeMap<&'a str, &'b MappedField<'a>> {
+    fields
         .iter()
         .map(|field| (field.definition.name.as_str(), field))
         .collect()
@@ -202,21 +211,42 @@ fn changed_properties(left: &MappedField<'_>, right: &MappedField<'_>) -> Vec<&'
     .collect()
 }
 
+fn mapping_source_texts(
+    left: &impl Serialize,
+    right: &impl Serialize,
+    payload: Option<&PayloadComparison<'_>>,
+) -> anyhow::Result<[String; 2]> {
+    let mut left = toml::to_string_pretty(left)?;
+    let mut right = toml::to_string_pretty(right)?;
+    if let Some(payload) = payload {
+        left.push_str("\nPayload result\n");
+        left.push_str(&toml::to_string_pretty(&payload.left)?);
+        right.push_str("\nPayload result\n");
+        right.push_str(&toml::to_string_pretty(&payload.right)?);
+    }
+    Ok([left, right])
+}
+
+fn write_field_changes(text: &mut String, changes: &[FieldChange<'_>]) {
+    for change in changes {
+        let _ = write!(text, "\n{}", change.name);
+        match change.status {
+            Change::Added => text.push_str(" · Added"),
+            Change::Removed => text.push_str(" · Removed"),
+            Change::Changed => {
+                let _ = write!(text, " · Changed {}", change.properties.join(", "));
+            }
+        }
+    }
+}
+
 impl Comparison<'_> {
     pub fn ok(&self) -> bool {
         self.payload.as_ref().is_none_or(PayloadComparison::ok)
     }
 
     pub fn source_texts(&self) -> anyhow::Result<[String; 2]> {
-        let mut left = toml::to_string_pretty(&self.left)?;
-        let mut right = toml::to_string_pretty(&self.right)?;
-        if let Some(payload) = &self.payload {
-            left.push_str("\nPayload result\n");
-            left.push_str(&toml::to_string_pretty(&payload.left)?);
-            right.push_str("\nPayload result\n");
-            right.push_str(&toml::to_string_pretty(&payload.right)?);
-        }
-        Ok([left, right])
+        mapping_source_texts(&self.left, &self.right, self.payload.as_ref())
     }
 
     pub fn summary_text(&self) -> String {
@@ -243,16 +273,7 @@ impl Comparison<'_> {
                 let _ = write!(text, "\n{description}");
             }
         }
-        for change in &self.changes {
-            let _ = write!(text, "\n{}", change.name);
-            match change.status {
-                Change::Added => text.push_str(" · Added"),
-                Change::Removed => text.push_str(" · Removed"),
-                Change::Changed => {
-                    let _ = write!(text, " · Changed {}", change.properties.join(", "));
-                }
-            }
-        }
+        write_field_changes(&mut text, &self.changes);
         if !self.input_width_changed
             && !self.input_encoding_changed
             && !self.selection_changed

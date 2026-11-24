@@ -3315,6 +3315,107 @@ def verify_process_readback(cli, output, endpoint=None):
         parallel_parameter_read(cli, input_profile, output / "parallel", query="process_readback")
 
 
+def verify_output_mapping_comparison(cli, source, output):
+    output.mkdir()
+    paired = source / "paired.toml"
+    conditional = source / "conditional.toml"
+    confirmed = source / "confirmed.toml"
+    manual = ROOT / "samples/simulator.toml"
+    requests = Gateway.requests
+    command = "compare-output-mappings"
+
+    def compare(left, right, payload=None, expected=0):
+        original = left.read_bytes(), right.read_bytes()
+        args = () if payload is None else ("--payload", payload)
+        result = tomllib.loads(run(cli, command, left, right, *args, expected=expected))
+        assert (left.read_bytes(), right.read_bytes()) == original
+        assert Gateway.requests == requests
+        return result
+
+    same = compare(paired, paired)
+    assert same["left"] == same["right"] and same["changes"] == []
+    assert same["left"]["output_bytes"] == 2 and same["left"]["bit_length"] == 16
+    assert "payload" not in same
+
+    source_header, definition = paired.read_text(encoding="utf-8").split("[[iodd.output.fields]]", 1)
+    scaled = output / "scaled.toml"
+    assert "scale = 1.0" in definition
+    scaled.write_text(source_header + "[[iodd.output.fields]]" + definition.replace(
+        "scale = 1.0", "scale = 2.0", 1
+    ), encoding="utf-8")
+    changed = compare(paired, scaled, "00 A5")
+    name = same["left"]["fields"][0]["definition"]["name"]
+    assert changed["changes"] == [{"name": name, "status": "changed", "properties": ["scale"]}]
+    assert changed["payload"]["raw_hex"] == "00A5"
+    assert changed["payload"]["differences"] == {"compared_fields": 1, "changed_fields": [name]}
+    assert [
+        (changed["payload"][side]["fields"][0]["value"]["raw"],
+         changed["payload"][side]["fields"][0]["value"]["value"])
+        for side in ("left", "right")
+    ] == [("165", "165"), ("165", "330")]
+
+    absent = compare(manual, manual)
+    assert absent["left"]["encoding"] == absent["right"]["encoding"] == {"kind": "no_output"}
+    assert "output_bytes" not in absent["left"]
+    gained = compare(manual, paired, "00A5", expected=1)
+    assert gained["output_width_changed"] and gained["selection_changed"]
+    assert gained["changes"] == [{"name": name, "status": "added", "properties": []}]
+    assert "no iodd output layout" in gained["payload"]["left"]["decode_error"].lower()
+    assert gained["payload"]["right"]["fields"][0]["value"]["raw"] == "165"
+    assert "differences" not in gained["payload"]
+
+    condition = compare(conditional, confirmed, "00A5")
+    assert condition["selection_changed"] and condition["changes"] == []
+    assert condition["left"]["selection"]["condition_confirmed"] is False
+    assert condition["right"]["selection"]["condition_confirmed"] is True
+    assert condition["payload"]["differences"] == {"compared_fields": 1, "changed_fields": []}
+
+    xml = (source / "readback.xml").read_text(encoding="utf-8")
+    start = xml.index('<ProcessDataOut id="OUT"')
+    end = xml.index("</ProcessDataOut>", start) + len("</ProcessDataOut>")
+
+    def imported(label, bits, datatype):
+        description = output / f"{label}.xml"
+        description.write_text(
+            xml[:start] + f'<ProcessDataOut id="OUT" bitLength="{bits}">{datatype}</ProcessDataOut>' + xml[end:],
+            encoding="utf-8",
+        )
+        profile = output / f"{label}.toml"
+        run(cli, "import", description, profile)
+        return profile
+
+    boolean = imported("boolean", 1, '<Datatype xsi:type="BooleanT"/>')
+    boolean_review = compare(boolean, boolean, "01")
+    assert boolean_review["left"]["output_bytes"] == 1 and boolean_review["left"]["bit_length"] == 1
+    assert boolean_review["left"]["encoding"] == {"kind": "standalone_boolean"}
+    assert "noncanonical" in boolean_review["payload"]["left"]["wire_warning"]
+    assert boolean_review["payload"]["left"]["fields"][0]["value"]["raw"] == "true"
+    mismatch = compare(boolean, paired, "01", expected=1)["payload"]
+    assert mismatch["left"]["fields"][0]["value"]["raw"] == "true"
+    assert "requires 2 bytes" in mismatch["right"]["decode_error"]
+    assert "differences" not in mismatch
+
+    padded = imported("padded", 17, '<Datatype xsi:type="IntegerT" bitLength="17"/>')
+    padding_review = compare(padded, padded, "0001FFFF")
+    assert padding_review["left"]["output_bytes"] == 4 and padding_review["left"]["bit_length"] == 17
+    assert padding_review["left"]["encoding"] == {"kind": "padded_integer", "bits": 17, "signed": True}
+    assert "padding is noncanonical" in padding_review["payload"]["left"]["wire_warning"]
+    assert padding_review["payload"]["left"]["fields"][0]["value"]["raw"] == "-1"
+
+    packed = imported("packed", 16, (
+        '<Datatype xsi:type="RecordT" bitLength="16">'
+        '<RecordItem subindex="1" bitOffset="0"><SimpleDatatype xsi:type="UIntegerT" bitLength="8"/></RecordItem>'
+        '<RecordItem subindex="2" bitOffset="8"><SimpleDatatype xsi:type="UIntegerT" bitLength="8"/></RecordItem>'
+        '</Datatype>'
+    ))
+    packed_review = compare(paired, packed)
+    assert packed_review["right"]["encoding"] == {"kind": "packed"}
+    assert packed_review["output_encoding_changed"] and not packed_review["output_width_changed"]
+    assert not packed_review["output_bit_length_changed"]
+    assert len(packed_review["right"]["fields"]) == 2
+    assert Gateway.requests == requests
+
+
 def verify_device_revision_comparison(cli, source, output, loopback=False):
     output.mkdir()
     command = "compare-device-revisions"
@@ -4351,6 +4452,7 @@ def main():
     verify_direct_page(cli, features_profile)
     verify_error_count(cli, features_profile, scratch / "sim-error-count")
     verify_process_readback(cli, scratch / "sim-process-readback")
+    verify_output_mapping_comparison(cli, scratch / "sim-process-readback", scratch / "output-mapping-comparison")
     verify_process_readback_comparison(cli, scratch / "sim-process-readback", scratch / "sim-readback-comparison")
     verify_device_revisions(cli, features_profile, scratch / "sim-device-revisions")
     verify_device_revision_comparison(cli, scratch / "sim-device-revisions/device-revisions.json",
@@ -4825,7 +4927,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, offline access locks comparison, offline Data Storage metadata review, offline Direct Parameter Page 1, identity pins and IODD comparison, optional device error count and saved evidence, offline error count comparison, saved input mapping and recorded payload comparison, device revision reads and saved connection checks, offline device revision comparison, acyclic process data readback and saved evidence, offline process readback comparison, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, offline access locks comparison, offline Data Storage metadata review, offline Direct Parameter Page 1, identity pins and IODD comparison, optional device error count and saved evidence, offline error count comparison, saved input mapping and recorded payload comparison, saved output mapping and image comparison, device revision reads and saved connection checks, offline device revision comparison, acyclic process data readback and saved evidence, offline process readback comparison, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1351, AL1352 and AL1353 status, ISDU and capture across all ports, one-shot ifm master inspection with supply diagnostics, read-only port configuration and offline snapshot review and comparison, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
