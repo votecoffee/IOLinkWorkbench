@@ -42,6 +42,16 @@ In Device → IODD import, select the IODD variant/layout and apply it. Effectiv
 
 Editing an imported name creates an override; removing it restores the imported definition. Removing a standalone field selected explicitly for CSV is rejected until the saved selection is reset. Do not guess scaling or units from an unfamiliar payload. Save unresolved fields for input and keep raw logging available.
 
+### Compare saved input mappings
+
+After saving both profiles, open **Offline → Process bytes → Compare saved input mappings** and enter their TOML paths. Review the summary and expand either profile to see its effective definitions in field order.
+
+~~~powershell
+.\iolink-cli.exe compare-input-mappings before.toml after.toml
+~~~
+
+The comparison checks input byte width and encoding, the saved IODD variant and layout condition, and effective fields by exact name. It lists added and removed fields, changed properties and origins, and a change in the relative order of fields common to both profiles. A renamed field appears as a removal and an addition. Each definition shows whether it comes from the IODD, an override, or a manual field. Both profiles are read offline. The comparison covers saved input definitions and requires a separate connected-device check to establish the actual active layout.
+
 ### Check a conditional layout
 
 Select the IODD layout in the profile. In **Mappings → Layout condition**, review the selector's ISDU index, subindex, and declared value. Use **Read layout selector** for one acyclic observation.

@@ -2,6 +2,7 @@
 use super::{App, WARNING, Worker, background, poll_worker};
 use eframe::egui::{self, Ui};
 use iolink_workbench::diagnostics;
+use iolink_workbench::profile::{Profile, input_mapping};
 use iolink_workbench::transport::{
     MasterInspection, MasterInspectionComparison, MasterInspectionSnapshot, inspect_master,
     layout_condition,
@@ -95,6 +96,7 @@ pub(super) enum Kind {
     SavedDeviceRevisions,
     ProcessReadback,
     SavedProcessReadback,
+    CompareInputMappings,
 }
 
 pub(super) enum Query {
@@ -125,6 +127,7 @@ pub(super) enum Query {
     ProcessReadback(diagnostics::ReadbackDirection),
     SavedProcessReadback(PathBuf),
     CompareProcessReadbacks(PathBuf, PathBuf),
+    CompareInputMappings(PathBuf, PathBuf),
 }
 
 impl Query {
@@ -142,6 +145,7 @@ impl Query {
             Self::ErrorCount => Kind::ErrorCount,
             Self::SavedErrorCount(_) | Self::CompareErrorCounts(..) => Kind::SavedErrorCount,
             Self::DeviceRevisions => Kind::DeviceRevisions,
+            Self::CompareInputMappings(..) => Kind::CompareInputMappings,
             Self::ProcessReadback(_) => Kind::ProcessReadback,
             Self::SavedProcessReadback(_) | Self::CompareProcessReadbacks(..) => {
                 Kind::SavedProcessReadback
@@ -208,6 +212,11 @@ impl Query {
             ),
             Self::CompareProcessReadbacks(left, right) => format!(
                 "Process readback snapshots · {} → {}",
+                left.display(),
+                right.display()
+            ),
+            Self::CompareInputMappings(left, right) => format!(
+                "Saved input mappings · {} → {}",
                 left.display(),
                 right.display()
             ),
@@ -311,7 +320,9 @@ pub(super) struct Reading {
 #[derive(Default)]
 pub(super) struct Reads {
     pending: Option<(Query, Worker<Output>)>,
-    latest: [Option<Reading>; Kind::SavedProcessReadback as usize + 1],
+    latest: [Option<Reading>; Kind::CompareInputMappings as usize + 1],
+    input_mapping_left: String,
+    input_mapping_right: String,
     readback_direction: diagnostics::ReadbackDirection,
     readback_save: String,
     readback_open: String,
@@ -363,6 +374,7 @@ impl Reads {
         let saved_error_count = self.latest[Kind::SavedErrorCount as usize].take();
         let saved_revisions = self.latest[Kind::SavedDeviceRevisions as usize].take();
         let saved_readback = self.latest[Kind::SavedProcessReadback as usize].take();
+        let saved_mappings = self.latest[Kind::CompareInputMappings as usize].take();
         self.latest = Default::default();
         self.latest[Kind::SavedMasterInspection as usize] = saved_master;
         self.latest[Kind::SavedDeviceProfile as usize] = saved_profile;
@@ -370,6 +382,7 @@ impl Reads {
         self.latest[Kind::SavedErrorCount as usize] = saved_error_count;
         self.latest[Kind::SavedDeviceRevisions as usize] = saved_revisions;
         self.latest[Kind::SavedProcessReadback as usize] = saved_readback;
+        self.latest[Kind::CompareInputMappings as usize] = saved_mappings;
     }
 
     pub fn clear_named(&mut self, id: &str) {
@@ -406,6 +419,55 @@ fn saved_master_text(snapshot: &MasterInspectionSnapshot) -> String {
 }
 
 impl App {
+    pub(super) fn saved_input_mapping_panel(&mut self, ui: &mut Ui) {
+        ui.collapsing("Compare saved input mappings", |ui| {
+            let available = self.acyclic_job_block_reason().is_none();
+            ui.add_enabled_ui(available, |ui| {
+                super::path_entry(
+                    ui,
+                    &mut self.acyclic.input_mapping_left,
+                    "First profile TOML path",
+                );
+                super::path_entry(
+                    ui,
+                    &mut self.acyclic.input_mapping_right,
+                    "Second profile TOML path",
+                );
+            });
+            let left = self.acyclic.input_mapping_left.trim();
+            let right = self.acyclic.input_mapping_right.trim();
+            if ui
+                .add_enabled(
+                    available && !left.is_empty() && !right.is_empty(),
+                    egui::Button::new("Compare input mappings"),
+                )
+                .clicked()
+            {
+                self.start_input_mapping_comparison(PathBuf::from(left), PathBuf::from(right));
+            }
+            self.acyclic_result(ui, Kind::CompareInputMappings);
+        });
+    }
+
+    pub(super) fn start_input_mapping_comparison(&mut self, left: PathBuf, right: PathBuf) {
+        self.start_acyclic_output(
+            Query::CompareInputMappings(left.clone(), right.clone()),
+            move || {
+                let left = Profile::load(&left)?;
+                let right = Profile::load(&right)?;
+                let report = input_mapping::compare(&left, &right);
+                Ok(Output {
+                    text: report.summary_text(),
+                    comparison_sources: Some([
+                        toml::to_string_pretty(&report.left)?,
+                        toml::to_string_pretty(&report.right)?,
+                    ]),
+                    port_configuration: None,
+                })
+            },
+        );
+    }
+
     pub(super) fn master_inspection_panel(&mut self, ui: &mut Ui) {
         if self.profile.connection.gateway.ifm_model().is_none() {
             return;
@@ -1090,7 +1152,8 @@ impl App {
             | Query::SavedDeviceRevisions(_)
             | Query::CompareDeviceRevisions(..)
             | Query::SavedProcessReadback(_)
-            | Query::CompareProcessReadbacks(..) => self.acyclic_job_block_reason(),
+            | Query::CompareProcessReadbacks(..)
+            | Query::CompareInputMappings(..) => self.acyclic_job_block_reason(),
             _ => self.acyclic_block_reason(),
         };
         if let Some(reason) = blocked {
@@ -1159,6 +1222,10 @@ impl App {
                             Query::CompareErrorCounts(..) => {
                                 ("Left error count snapshot", "Right error count snapshot")
                             }
+                            Query::CompareInputMappings(..) => (
+                                "First profile input mapping",
+                                "Second profile input mapping",
+                            ),
                             _ => ("Left master snapshot", "Right master snapshot"),
                         };
                         ui.collapsing(left_title, |ui| ui.monospace(left));

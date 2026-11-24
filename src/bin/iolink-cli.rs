@@ -67,6 +67,8 @@ enum Command {
     },
     /// Check a profile and list its effective fields.
     Validate { profile: PathBuf },
+    /// Compare effective process input mappings from two saved profiles.
+    CompareInputMappings { left: PathBuf, right: PathBuf },
     /// Review configured row semantics, settings and CSV columns offline; no gateway access.
     Logging { profile: PathBuf },
     /// Save logging mode, queue, rotation and CSV selection to a new profile offline.
@@ -1173,6 +1175,12 @@ fn main() -> Result<()> {
                     && report.unresolved_standard_parameter_refs.is_empty(),
                 "declared default metadata needs review; declarations retained above"
             );
+        }
+        Command::CompareInputMappings { left, right } => {
+            let left = Profile::load(&left)?;
+            let right = Profile::load(&right)?;
+            let report = iolink_workbench::profile::input_mapping::compare(&left, &right);
+            print!("{}", toml::to_string_pretty(&report)?);
         }
         Command::Validate { profile } => {
             let profile = Profile::load(&profile)?;

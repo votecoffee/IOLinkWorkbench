@@ -1336,6 +1336,62 @@ mod tests {
     }
 
     #[test]
+    fn saved_input_mapping_worker_preserves_profiles_and_shows_the_changes() -> Result<()> {
+        let mut app = App::new();
+        let active = app.profile.clone();
+        let directory = tempfile::tempdir()?;
+        let left_path = directory.path().join("before.toml");
+        let right_path = directory.path().join("after.toml");
+        let mut profile = Profile::parse(include_str!("../../../samples/simulator.toml"))?;
+        profile.save_new(&left_path)?;
+        profile.fields[0].scale = 0.2;
+        profile.save_new(&right_path)?;
+        let left_bytes = std::fs::read(&left_path)?;
+        let right_bytes = std::fs::read(&right_path)?;
+
+        app.start_input_mapping_comparison(left_path.clone(), right_path.clone());
+        assert!(app.acyclic.busy());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while app.acyclic.busy() && Instant::now() < deadline {
+            app.acyclic.update();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(!app.acyclic.busy());
+        app.acyclic.clear_results();
+        let ctx = Context::default();
+        configure_context(&ctx);
+        ctx.memory_mut(|memory| memory.set_everything_is_visible(true));
+        let output = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(SIZE[0] as f32, SIZE[1] as f32),
+                )),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| app.saved_input_mapping_panel(ui));
+            },
+        );
+        let mut texts = Vec::new();
+        for shape in &output.shapes {
+            text_shapes(&shape.shape, &mut texts);
+        }
+        assert!(texts.contains(&"Compare input mappings"));
+        assert!(texts.contains(&"First profile input mapping"));
+        assert!(texts.contains(&"Second profile input mapping"));
+        assert!(
+            texts
+                .iter()
+                .any(|text| text.contains("level · Changed scale"))
+        );
+        assert_eq!(app.profile, active);
+        assert_eq!(std::fs::read(&left_path)?, left_bytes);
+        assert_eq!(std::fs::read(&right_path)?, right_bytes);
+        Ok(())
+    }
+
+    #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
         assert_eq!(cases.len(), 141);

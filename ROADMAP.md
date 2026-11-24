@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Compare saved input mappings before applying an IODD re-import or host edit. Review effective field definitions and origins, field order, the IODD selection, and input geometry offline.
+
 - Compare saved Device ErrorCount replies by wire equality and signed numeric difference when recorded context matches. Keep both source reviews and the unknown interval error total visible.
 
 - Compare saved Device Access Locks reads by wire equality and XOR mask. List changed lock flags for compatible recorded identity and IODD support while retaining both source reviews.

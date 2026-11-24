@@ -426,7 +426,10 @@ impl App {
                         .map(|recording| recording.directory.as_path()),
                 );
             }
-            OfflinePage::Process => self.payload_inspector.show(ui, &self.profile),
+            OfflinePage::Process => {
+                self.payload_inspector.show(ui, &self.profile);
+                self.saved_input_mapping_panel(ui);
+            }
             OfflinePage::Parameter => {
                 let editable = !self.acquisition_active()
                     && !self.acyclic.busy()
