@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Compare two saved device revision snapshots. Check wire bytes per reply and compare decoded strings when the recorded connection and device context match. Keep both source reviews and any comparison limits visible.
+
 - Read device HardwareRevision and FirmwareRevision at 22:0 and 23:0. Preserve partial replies, detect changed device or master context, and decode recorded strings offline.
 
 - Read the optional device ErrorCount at 32:0, with saved raw replies, read errors and offline decoding. Keep the vendor count separate from pending events and source-loss accounting.

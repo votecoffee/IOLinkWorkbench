@@ -111,6 +111,16 @@ Open **Diagnostics → Connection & identity → Device revisions (22:0 / 23:0)*
 
 For raw replies use **Offline → Parameter bytes → Device revisions**, or pass index 22 for hardware and 23 for firmware to the CLI decoder. Each optional UTF-8 reply can contain up to 64 bytes. Condensed text and trailing NUL padding are accepted and original bytes are retained. The reads use independent acyclic clients. The CLI exits 1 for a failed, blank, or malformed reply or when the recorded contexts conflict. If a context field is missing, the report marks the pairing as unavailable and still shows each valid string.
 
+#### Compare two saved device revision snapshots
+
+Open **Offline → Diagnostic snapshots → Device revision snapshots → Compare two device revision snapshots**. Select the earlier snapshot in the first path and the later snapshot in the second path. Expand either source review to see the original bytes, observations, and errors.
+
+```powershell
+.\iolink-cli.exe compare-device-revisions before.json after.json
+```
+
+Workbench checks raw-byte equality for each available pair of replies. It compares the decoded revision strings only when the recorded endpoints and per-query master, port, and device identity match, and neither snapshot has an internal context conflict. A change in NUL padding can change the raw bytes while leaving the decoded string equal. Revision strings compare exactly, including spaces and letter case. Both source reviews remain available if either comparison needs review. CLI exit 0 means both fields were comparable and includes genuine revision changes. Exit 1 retains the available evidence when one field or context could not be compared.
+
 ### Device error count
 
 In **Diagnostics → Device events → Device error count (32:0)**, choose **Read error count** or **Read and save error count snapshot**. Review a saved reply under **Offline → Diagnostic snapshots → Error count snapshots**. To decode recorded bytes directly, use **Offline → Event codes → Device error count (32:0)**. [IO-Link Interface and System V1.1.5, B.2.20](https://io-link.com/fileadmin/user_upload/Downloads/Package_2025/IOL-Interface-Spec_10002_V1.1.5_Oct2025.zip)

@@ -1092,6 +1092,52 @@ pub(super) fn render(
 mod tests {
     use super::*;
     #[test]
+    fn saved_device_revision_panel_shows_comparison_and_source_reviews() -> Result<()> {
+        use crate::desktop::acyclic::{Output, Query};
+        use iolink_workbench::diagnostics::{DeviceRevisionsSnapshot, compare_device_revisions};
+
+        let mut app = App::new();
+        let before = app.profile.clone();
+        ensure!(before.connection.gateway == Gateway::Simulator);
+        let left = DeviceRevisionsSnapshot::read(&before)?;
+        let mut right = DeviceRevisionsSnapshot::read(&before)?;
+        right.reads[1].raw_hex = Some("53494D2D46572D312E33".into());
+        let comparison = compare_device_revisions(&left, &right)?;
+        app.acyclic.store_result(
+            Query::CompareDeviceRevisions("left.json".into(), "right.json".into()),
+            Ok(Output::from(comparison)),
+        );
+        let ctx = Context::default();
+        configure_context(&ctx);
+        ctx.memory_mut(|memory| memory.set_everything_is_visible(true));
+        let output = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(SIZE[0] as f32, SIZE[1] as f32),
+                )),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| app.saved_device_revisions_panel(ui));
+            },
+        );
+        let mut texts = Vec::new();
+        for shape in &output.shapes {
+            text_shapes(&shape.shape, &mut texts);
+        }
+        assert!(texts.contains(&"Compare device revisions"));
+        assert!(texts.contains(&"Left device revision snapshot"));
+        assert!(texts.contains(&"Right device revision snapshot"));
+        assert!(texts.iter().any(|text| {
+            text.contains("Firmware revision text differs · \"SIM-FW-1.2\" → \"SIM-FW-1.3\"")
+        }));
+        assert!(!app.acyclic.busy());
+        assert_eq!(app.profile, before);
+        Ok(())
+    }
+
+    #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
         assert_eq!(cases.len(), 141);

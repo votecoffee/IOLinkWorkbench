@@ -92,6 +92,7 @@ pub(super) enum Query {
     SavedErrorCount(PathBuf),
     DeviceRevisions,
     SavedDeviceRevisions(PathBuf),
+    CompareDeviceRevisions(PathBuf, PathBuf),
 }
 
 impl Query {
@@ -109,7 +110,9 @@ impl Query {
             Self::ErrorCount => Kind::ErrorCount,
             Self::SavedErrorCount(_) => Kind::SavedErrorCount,
             Self::DeviceRevisions => Kind::DeviceRevisions,
-            Self::SavedDeviceRevisions(_) => Kind::SavedDeviceRevisions,
+            Self::SavedDeviceRevisions(_) | Self::CompareDeviceRevisions(..) => {
+                Kind::SavedDeviceRevisions
+            }
             Self::SavedDeviceProfile(_) | Self::CompareDeviceProfiles(..) => {
                 Kind::SavedDeviceProfile
             }
@@ -148,6 +151,11 @@ impl Query {
             Self::SavedDeviceRevisions(path) => {
                 format!("Saved device revisions · {}", path.display())
             }
+            Self::CompareDeviceRevisions(left, right) => format!(
+                "Device revision snapshots · {} → {}",
+                left.display(),
+                right.display()
+            ),
             Self::CompareDeviceProfiles(left, right) => format!(
                 "Device profile snapshots · {} → {}",
                 left.display(),
@@ -184,6 +192,16 @@ impl From<&MasterInspection> for Output {
     }
 }
 
+impl From<diagnostics::DeviceRevisionComparison<'_>> for Output {
+    fn from(comparison: diagnostics::DeviceRevisionComparison<'_>) -> Self {
+        Self {
+            text: comparison.summary_text(),
+            port_configuration: None,
+            comparison_sources: Some([comparison.left.text(), comparison.right.text()]),
+        }
+    }
+}
+
 impl From<String> for Output {
     fn from(text: String) -> Self {
         Self {
@@ -211,6 +229,7 @@ pub(super) struct Reads {
     latest: [Option<Reading>; Kind::SavedDeviceRevisions as usize + 1],
     revisions_save: String,
     revisions_open: String,
+    revisions_compare: String,
     error_count_save: String,
     error_count_open: String,
     access_locks_save: String,
@@ -586,6 +605,35 @@ impl App {
                             .text())
                     });
                 }
+                ui.collapsing("Compare two device revision snapshots", |ui| {
+                    ui.small("Use the file above as the first snapshot.");
+                    ui.add_enabled_ui(available, |ui| {
+                        super::path_entry(
+                            ui,
+                            &mut self.acyclic.revisions_compare,
+                            "Second device revision snapshot JSON path",
+                        );
+                    });
+                    let left = self.acyclic.revisions_open.trim();
+                    let right = self.acyclic.revisions_compare.trim();
+                    if ui
+                        .add_enabled(
+                            available && !left.is_empty() && !right.is_empty(),
+                            egui::Button::new("Compare device revisions"),
+                        )
+                        .clicked()
+                    {
+                        let (left, right) = (PathBuf::from(left), PathBuf::from(right));
+                        self.start_acyclic_output(
+                            Query::CompareDeviceRevisions(left.clone(), right.clone()),
+                            move || {
+                                let left = diagnostics::DeviceRevisionsSnapshot::load(&left)?;
+                                let right = diagnostics::DeviceRevisionsSnapshot::load(&right)?;
+                                Ok(diagnostics::compare_device_revisions(&left, &right)?.into())
+                            },
+                        );
+                    }
+                });
                 self.acyclic_result(ui, Kind::SavedDeviceRevisions);
             });
     }
@@ -839,7 +887,8 @@ impl App {
             | Query::CompareDeviceProfiles(..)
             | Query::SavedAccessLocks(_)
             | Query::SavedErrorCount(_)
-            | Query::SavedDeviceRevisions(_) => self.acyclic_job_block_reason(),
+            | Query::SavedDeviceRevisions(_)
+            | Query::CompareDeviceRevisions(..) => self.acyclic_job_block_reason(),
             _ => self.acyclic_block_reason(),
         };
         if let Some(reason) = blocked {
@@ -884,15 +933,17 @@ impl App {
                     }
                     ui.monospace(&output.text);
                     if let Some([left, right]) = &output.comparison_sources {
-                        let (left_title, right_title) =
-                            if matches!(reading.query, Query::CompareDeviceProfiles(..)) {
-                                (
-                                    "Left device profile snapshot",
-                                    "Right device profile snapshot",
-                                )
-                            } else {
-                                ("Left master snapshot", "Right master snapshot")
-                            };
+                        let (left_title, right_title) = match reading.query {
+                            Query::CompareDeviceProfiles(..) => (
+                                "Left device profile snapshot",
+                                "Right device profile snapshot",
+                            ),
+                            Query::CompareDeviceRevisions(..) => (
+                                "Left device revision snapshot",
+                                "Right device revision snapshot",
+                            ),
+                            _ => ("Left master snapshot", "Right master snapshot"),
+                        };
                         ui.collapsing(left_title, |ui| ui.monospace(left));
                         ui.collapsing(right_title, |ui| ui.monospace(right));
                     }

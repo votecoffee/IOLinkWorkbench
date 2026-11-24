@@ -177,6 +177,8 @@ enum Command {
     },
     /// Review saved device revision replies offline.
     ReviewDeviceRevisions { snapshot: PathBuf },
+    /// Compare two saved device revision snapshots entirely offline.
+    CompareDeviceRevisions { left: PathBuf, right: PathBuf },
     /// Decode a recorded Device ErrorCount reply (32:0).
     DecodeErrorCount { payload: String },
     /// Read the optional Device ErrorCount once from the configured port.
@@ -656,6 +658,16 @@ fn main() -> Result<()> {
             ensure!(
                 review.ok(),
                 "Saved device revisions need review. Retained results are printed above."
+            );
+        }
+        Command::CompareDeviceRevisions { left, right } => {
+            let left = diagnostics::DeviceRevisionsSnapshot::load(&left)?;
+            let right = diagnostics::DeviceRevisionsSnapshot::load(&right)?;
+            let comparison = diagnostics::compare_device_revisions(&left, &right)?;
+            print!("{}", toml::to_string_pretty(&comparison)?);
+            ensure!(
+                comparison.ok(),
+                "Device revision comparison is incomplete. Retained results are printed above."
             );
         }
         Command::DecodeErrorCount { payload } => {
