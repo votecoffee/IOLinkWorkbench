@@ -117,7 +117,7 @@ impl ProcessReadbackComparison<'_> {
     }
 }
 
-type MappedFields<'a> = BTreeMap<&'a str, (&'a Field, &'a Value)>;
+pub(super) type MappedFields<'a> = BTreeMap<&'a str, (&'a Field, &'a Value)>;
 
 pub fn compare_process_readbacks<'a>(
     left: &'a ProcessReadbackSnapshot,
@@ -193,7 +193,7 @@ fn compare_bytes(left: &[u8], right: &[u8]) -> Vec<ReadbackByteChange> {
         .collect()
 }
 
-fn mapped_fields(decoded: Option<&ProcessReadback>) -> MappedFields<'_> {
+pub(super) fn mapped_fields(decoded: Option<&ProcessReadback>) -> MappedFields<'_> {
     let Some(decoded) = decoded else {
         return BTreeMap::new();
     };

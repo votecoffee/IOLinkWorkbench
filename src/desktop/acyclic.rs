@@ -160,6 +160,7 @@ pub(super) enum Query {
     ProcessReadback(diagnostics::ReadbackDirection),
     SavedProcessReadback(PathBuf),
     CompareProcessReadbacks(PathBuf, PathBuf),
+    CompareProcessReadbackProfile(PathBuf, PathBuf),
     CompareMappings(MappingDirection, PathBuf, PathBuf),
     CompareParameterCatalogs(PathBuf, PathBuf),
 }
@@ -182,9 +183,9 @@ impl Query {
             Self::CompareMappings(..) => Kind::CompareMappings,
             Self::CompareParameterCatalogs(..) => Kind::CompareParameterCatalogs,
             Self::ProcessReadback(_) => Kind::ProcessReadback,
-            Self::SavedProcessReadback(_) | Self::CompareProcessReadbacks(..) => {
-                Kind::SavedProcessReadback
-            }
+            Self::SavedProcessReadback(_)
+            | Self::CompareProcessReadbacks(..)
+            | Self::CompareProcessReadbackProfile(..) => Kind::SavedProcessReadback,
             Self::SavedDeviceRevisions(_) | Self::CompareDeviceRevisions(..) => {
                 Kind::SavedDeviceRevisions
             }
@@ -249,6 +250,11 @@ impl Query {
                 "Process readback snapshots · {} → {}",
                 left.display(),
                 right.display()
+            ),
+            Self::CompareProcessReadbackProfile(snapshot, profile) => format!(
+                "Process readback and revised profile · {} → {}",
+                snapshot.display(),
+                profile.display()
             ),
             Self::CompareMappings(direction, left, right) => format!(
                 "Saved {} mappings · {} → {}",
@@ -377,6 +383,7 @@ pub(super) struct Reads {
     readback_save: String,
     readback_open: String,
     readback_compare: String,
+    readback_profile: String,
     revisions_save: String,
     revisions_open: String,
     revisions_compare: String,
@@ -957,8 +964,52 @@ impl App {
                         },
                     );
                 }
+                ui.collapsing("Compare with revised profile", |ui| {
+                    ui.add_enabled_ui(available, |ui| {
+                        super::path_entry(
+                            ui,
+                            &mut self.acyclic.readback_profile,
+                            "Revised profile TOML path",
+                        );
+                    });
+                    let snapshot = self.acyclic.readback_open.trim();
+                    let profile = self.acyclic.readback_profile.trim();
+                    if ui
+                        .add_enabled(
+                            available && !snapshot.is_empty() && !profile.is_empty(),
+                            egui::Button::new("Compare saved reply and profile"),
+                        )
+                        .clicked()
+                    {
+                        self.start_process_readback_profile_comparison(
+                            PathBuf::from(snapshot),
+                            PathBuf::from(profile),
+                        );
+                    }
+                });
                 self.acyclic_result(ui, Kind::SavedProcessReadback);
             });
+    }
+
+    pub(super) fn start_process_readback_profile_comparison(
+        &mut self,
+        snapshot: PathBuf,
+        candidate: PathBuf,
+    ) {
+        self.start_acyclic_output(
+            Query::CompareProcessReadbackProfile(snapshot.clone(), candidate.clone()),
+            move || {
+                let snapshot = diagnostics::ProcessReadbackSnapshot::load(&snapshot)?;
+                let candidate = Profile::load(&candidate)?;
+                let comparison =
+                    diagnostics::compare_process_readback_profile(&snapshot, &candidate)?;
+                Ok(Output {
+                    text: comparison.summary_text(),
+                    comparison_sources: Some(comparison.source_texts()?),
+                    port_configuration: None,
+                })
+            },
+        );
     }
 
     fn device_access_locks_panel(&mut self, ui: &mut Ui) {
@@ -1375,6 +1426,7 @@ impl App {
             | Query::CompareDeviceRevisions(..)
             | Query::SavedProcessReadback(_)
             | Query::CompareProcessReadbacks(..)
+            | Query::CompareProcessReadbackProfile(..)
             | Query::CompareMappings(..)
             | Query::CompareParameterCatalogs(..) => self.acyclic_job_block_reason(),
             _ => self.acyclic_block_reason(),
@@ -1439,6 +1491,9 @@ impl App {
                                 "Left process readback snapshot",
                                 "Right process readback snapshot",
                             ),
+                            Query::CompareProcessReadbackProfile(..) => {
+                                ("Snapshot mapping details", "Revised mapping details")
+                            }
                             Query::CompareAccessLocks(..) => {
                                 ("Left access locks snapshot", "Right access locks snapshot")
                             }

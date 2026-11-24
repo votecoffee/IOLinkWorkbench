@@ -151,7 +151,7 @@ fn write_field(text: &mut String, field: &Field, origin: &str, value: &Value) {
     }
 }
 
-fn decode_bytes(
+pub(super) fn decode_bytes(
     direction: ReadbackDirection,
     profile: Option<&Profile>,
     bytes: &[u8],

@@ -22,6 +22,7 @@ mod input_descriptor_mapping;
 mod process_descriptor;
 mod process_readback;
 mod process_readback_comparison;
+mod process_readback_profile;
 mod profile_characteristic;
 mod snapshot;
 pub use crate::snapshot_file::check_destination;
@@ -63,6 +64,10 @@ pub use process_readback::{
 pub use process_readback_comparison::{
     ProcessReadbackComparison, ReadbackByteChange, ReadbackFieldChange, ReadbackFieldValue,
     compare_process_readbacks,
+};
+pub use process_readback_profile::{
+    ReadbackMapping, ReadbackProfileComparison, ReadbackProfileFieldChange,
+    ReadbackValueDifferences, compare_process_readback_profile,
 };
 pub use profile_characteristic::{
     ProfileCharacteristic, ProfileCharacteristicStatus, ProfileIdComparison,

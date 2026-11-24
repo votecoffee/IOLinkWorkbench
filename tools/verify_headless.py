@@ -3328,6 +3328,86 @@ def verify_process_readback(cli, output, endpoint=None):
         parallel_parameter_read(cli, input_profile, output / "parallel", query="process_readback")
 
 
+def verify_process_readback_profile_comparison(cli, source, output):
+    output.mkdir()
+    original_input = source / "input.json"
+    original_output = source / "output.json"
+    manual = ROOT / "samples/simulator.toml"
+    requests = Gateway.requests
+    command = "compare-process-readback-profile"
+
+    def compare(snapshot, profile, expected=0):
+        pinned = snapshot.read_bytes(), profile.read_bytes()
+        report = tomllib.loads(run(cli, command, snapshot, profile, expected=expected))
+        assert (snapshot.read_bytes(), profile.read_bytes()) == pinned
+        assert Gateway.requests == requests
+        return report
+
+    input_profile = output / "scaled-input.toml"
+    run(cli, "set-field", manual, input_profile, "level", "--scale", "0.2", "--unit", "cm")
+    input_report = compare(original_input, input_profile)
+    read = json.loads(original_input.read_bytes())["read"]
+    assert input_report["original"]["read"]["host_read_utc"] == read["host_read_utc"]
+    assert input_report["original"]["read"]["observation"]["route"] == read["observation"]["route"]
+    assert input_report["original"]["direction"] == input_report["revised"]["direction"] == "input"
+    assert input_report["original"]["decoded"]["raw_hex"] == input_report["revised"]["raw_hex"] == "03E9"
+    assert input_report["mapping"]["changes"][0]["properties"] == ["scale", "unit"]
+    assert input_report["value_differences"] == {
+        "compared_fields": 2,
+        "changes": [{
+            "name": "level", "left_unit": "mm", "right_unit": "cm",
+            "left": {"bits_hex": "1F4", "raw": "500", "display": "50.0"},
+            "right": {"bits_hex": "1F4", "raw": "500", "display": "100.0"},
+        }],
+    }
+
+    different_device = output / "different-device.toml"
+    run(cli, "set-identity", input_profile, different_device, "--device-id", 9999)
+    mismatch = compare(original_input, different_device)
+    assert "identity mismatch for device_id" in mismatch["revised_identity_check"]
+    assert mismatch["value_differences"] == input_report["value_differences"]
+
+    wider = output / "wider-input.toml"
+    wider.write_text(input_profile.read_text(encoding="utf-8").replace("input_bytes = 2", "input_bytes = 4"),
+                     encoding="utf-8")
+    partial = compare(original_input, wider, expected=1)
+    assert "expected 4 bytes, received 2" in partial["revised"]["decode_error"]
+    assert partial["original"]["decoded"]["input_fields"][0]["value"]["value"] == "50.0"
+    assert partial["revised"]["raw_hex"] == "03E9" and "value_differences" not in partial
+
+    paired = source / "paired.toml"
+    output_profile = output / "scaled-output.toml"
+    header, fields = paired.read_text(encoding="utf-8").split("[[iodd.output.fields]]", 1)
+    assert "scale = 1.0" in fields
+    output_profile.write_text(header + "[[iodd.output.fields]]" + fields.replace("scale = 1.0", "scale = 2.0", 1),
+                              encoding="utf-8")
+    output_report = compare(original_output, output_profile)
+    raw = json.loads(original_output.read_bytes())["read"]["raw_hex"]
+    assert output_report["original"]["direction"] == output_report["revised"]["direction"] == "output"
+    assert output_report["original"]["decoded"]["raw_hex"] == output_report["revised"]["raw_hex"] == raw
+    assert output_report["mapping"]["changes"][0]["properties"] == ["scale"]
+    assert output_report["value_differences"]["changes"][0]["right"]["display"] == str(int(raw, 16) * 2)
+
+    conditional = compare(original_output, source / "conditional.toml", expected=1)
+    assert conditional["revised"]["raw_hex"] == raw and "value_differences" not in conditional
+    assert "unconfirmed" in conditional["revised"]["mapping_note"]
+    unavailable_layout = compare(original_output, manual, expected=1)
+    assert "no IODD output layout" in unavailable_layout["revised"]["mapping_note"]
+    assert unavailable_layout["original"]["decoded"]["iodd_output"]["fields"]
+
+    bad = output / "bad-query.json"
+    data = json.loads(original_input.read_bytes())
+    data["read"]["index"] = 41
+    bad.write_text(json.dumps(data), encoding="utf-8")
+    assert not run(cli, command, bad, input_profile, expected=1)
+    failed_read = source / "unavailable.json"
+    if failed_read.is_file():
+        unavailable = compare(failed_read, output_profile, expected=1)
+        assert unavailable["original"]["read"]["read_error"]
+        assert "revised" not in unavailable and "value_differences" not in unavailable
+    assert Gateway.requests == requests
+
+
 def verify_output_mapping_comparison(cli, source, output):
     output.mkdir()
     paired = source / "paired.toml"
@@ -4687,6 +4767,8 @@ def main():
     verify_direct_page(cli, features_profile)
     verify_error_count(cli, features_profile, scratch / "sim-error-count")
     verify_process_readback(cli, scratch / "sim-process-readback")
+    verify_process_readback_profile_comparison(cli, scratch / "sim-process-readback",
+                                               scratch / "sim-readback-revised-profile")
     verify_output_mapping_comparison(cli, scratch / "sim-process-readback", scratch / "output-mapping-comparison")
     verify_process_readback_comparison(cli, scratch / "sim-process-readback", scratch / "sim-readback-comparison")
     verify_device_revisions(cli, features_profile, scratch / "sim-device-revisions")
@@ -5107,6 +5189,8 @@ kind = "bool"
             verify_diagnostic_snapshots(cli, parameter_fixture, scratch / "ifm-diagnostic-snapshots", loopback=True)
             verify_error_count(cli, parameter_fixture, scratch / "ifm-error-count", loopback=True)
             verify_process_readback(cli, scratch / "ifm-process-readback", endpoint)
+            verify_process_readback_profile_comparison(cli, scratch / "ifm-process-readback",
+                                                       scratch / "ifm-readback-revised-profile")
             verify_process_readback_comparison(cli, scratch / "ifm-process-readback",
                                                scratch / "ifm-readback-comparison", loopback=True)
             verify_device_revisions(cli, parameter_fixture, scratch / "ifm-device-revisions", loopback=True)
@@ -5164,7 +5248,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, offline access locks comparison, offline Data Storage metadata review, offline Direct Parameter Page 1, identity pins and IODD comparison, optional device error count and saved evidence, offline error count comparison, saved input mapping and recorded payload comparison, saved output mapping and image comparison, saved parameter catalog and recorded ISDU reply comparison, saved parameter snapshot replay and embedded baseline comparison, device revision reads and saved connection checks, offline device revision comparison, acyclic process data readback and saved evidence, offline process readback comparison, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, offline access locks comparison, offline Data Storage metadata review, offline Direct Parameter Page 1, identity pins and IODD comparison, optional device error count and saved evidence, offline error count comparison, saved input mapping and recorded payload comparison, saved output mapping and image comparison, saved parameter catalog and recorded ISDU reply comparison, saved parameter snapshot replay and embedded baseline comparison, device revision reads and saved connection checks, offline device revision comparison, acyclic process data readback and saved evidence, offline process readback comparison, saved process readback under a revised profile, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1351, AL1352 and AL1353 status, ISDU and capture across all ports, one-shot ifm master inspection with supply diagnostics, read-only port configuration and offline snapshot review and comparison, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")

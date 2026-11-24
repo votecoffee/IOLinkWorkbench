@@ -161,6 +161,16 @@ Open **Offline → Diagnostic snapshots → Process readback snapshots → Compa
 
 The report lists changed bytes by zero-based wire offset, with an XOR mask for byte positions present in both replies. Typed changes require matching readback directions, recorded gateway and device context, and effective field mappings. A field change shows the original and revised raw bits and displayed values. The host observation times belong to the independent reads. Each source process sample time remains unknown. CLI exit 0 means the typed comparison ran, including when values differ. Exit 1 retains the available raw comparison and both source reviews when typed comparison needs review.
 
+#### Preview a saved readback with a revised profile
+
+In **Offline → Diagnostic snapshots → Process readback snapshots**, enter a snapshot path and expand **Compare with revised profile**. Choose the revised TOML profile. The input or output direction comes from the snapshot. The report shows mapping changes and decoded changes for common named fields using the same saved bytes.
+
+~~~powershell
+.\iolink-cli.exe compare-process-readback-profile readback.json revised.toml
+~~~
+
+The comparison retains the original host read time, reply, and connection observation. The revised profile’s identity check uses that recorded observation. A missing mapping, width mismatch, unconfirmed layout condition, or unsuccessful saved read remains visible in the report. The CLI returns 1 when either mapping needs decoding review or has no decoded fields.
+
 ### Device revisions
 
 Open **Diagnostics → Connection & identity → Device revisions (22:0 / 23:0)** to read the connected sensor’s hardware and firmware strings. The master firmware appears separately in the connection details. Choose **Read and save device revisions snapshot** to keep each raw reply or read error, its observation time, and its master, port, and device identity. Reopen the file under **Offline → Diagnostic snapshots → Device revision snapshots**. [IO-Link Interface and System V1.1.5, Table B.8 and B.2.14–15](https://io-link.com/fileadmin/user_upload/Downloads/Package_2025/IOL-Interface-Spec_10002_V1.1.5_Oct2025.zip)

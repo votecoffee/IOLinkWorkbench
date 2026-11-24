@@ -1643,6 +1643,65 @@ mod tests {
     }
 
     #[test]
+    fn saved_readback_worker_compares_the_same_bytes_with_a_revised_profile() -> Result<()> {
+        use crate::desktop::acyclic::Kind;
+        use iolink_workbench::diagnostics::{ProcessReadbackSnapshot, ReadbackDirection};
+
+        let mut profile = Profile::parse(include_str!("../../../samples/simulator.toml"))?;
+        assert_eq!(profile.connection.gateway, Gateway::Simulator);
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("readback.json");
+        let candidate = directory.path().join("revised.toml");
+        let snapshot = ProcessReadbackSnapshot::read(&profile, ReadbackDirection::Input)?;
+        snapshot.save(&path)?;
+        profile.fields[0].scale = 0.2;
+        profile.save_new(&candidate)?;
+        let originals = [std::fs::read(&path)?, std::fs::read(&candidate)?];
+
+        let mut app = App::new();
+        let active = app.profile.clone();
+        let serial = crate::desktop::WORKER_TEST_LOCK.lock().unwrap();
+        app.start_process_readback_profile_comparison(path.clone(), candidate.clone());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while app.acyclic.busy() && Instant::now() < deadline {
+            app.acyclic.update();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        drop(serial);
+        let result = app
+            .acyclic
+            .latest(Kind::SavedProcessReadback)
+            .context("readback comparison result")?;
+        let report = result
+            .output
+            .as_ref()
+            .map_err(|error| anyhow::anyhow!("{error:#}"))?;
+        assert!(report.text.contains("Raw reply · 03E9"));
+        assert!(
+            report
+                .text
+                .contains("sample time and current validity unavailable")
+        );
+        assert!(report.text.contains("level · Changed scale"));
+        assert!(
+            report
+                .text
+                .contains("level · 50.0 mm → 100.0 mm · bits 0x1F4 → 0x1F4")
+        );
+        let [original, revised] = report
+            .comparison_sources
+            .as_ref()
+            .context("both mappings")?;
+        assert!(original.contains("Saved mapping") && revised.contains("Revised mapping"));
+        assert_eq!(
+            [std::fs::read(&path)?, std::fs::read(&candidate)?],
+            originals
+        );
+        assert_eq!(app.profile, active);
+        Ok(())
+    }
+
+    #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
         assert_eq!(cases.len(), 141);

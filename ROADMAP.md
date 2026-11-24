@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Compare a saved process readback with a revised profile. Reuse the captured input or output bytes and show mapping and value changes beside the original read context.
+
 - Compare a parameter snapshot directly with a revised profile. The snapshot supplies the original catalog and recorded reply for the offline comparison.
 
 - Use a saved parameter snapshot as the reply source for catalog comparison. Preserve the recorded address, bytes, host time, and connection identity checks.
