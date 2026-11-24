@@ -114,6 +114,8 @@ pub fn read_isdu(index: u16, subindex: u8) -> Result<Vec<u8>> {
         (32, 0) => Ok(vec![0, 5]),
         (36, 0) => Ok(vec![2]),
         (37, 0) => Ok(vec![0xE4, 0x8D, 0xFE, 0, 0, 0]),
+        (40, 0) => Ok(vec![0x03, 0xE9]),
+        (41, 0) => Ok(vec![0x00, 0xA5]),
         (64, 0) => Ok(500i16.to_be_bytes().to_vec()),
         (65, 0) => Ok(b"synthetic sensor".to_vec()),
         (66, 0) => Ok(vec![0xFF, 0xEC, 1, 10, b'T', b'E', b'S', b'T']),
@@ -163,7 +165,7 @@ pub fn read_isdu(index: u16, subindex: u8) -> Result<Vec<u8>> {
         (85, 2) => Ok(vec![2]),
         _ => {
             bail!(
-                "simulator defines identity (18:0, 19:0, 21:0, 22:0, 23:0), diagnostics (32:0, 36:0, 37:0), synthetic offset (48:0), threshold (64:0), label (65:0), record (66:0 through 66:4), array (67:0 through 67:7), time parameters (71:0 through 75:2), text/octet parameters (76:0 through 80:2; record 78 also has subindex 3), and value-definition parameters (81:0 through 83:0, 84:0 through 85:3)"
+                "simulator defines identity (18:0, 19:0, 21:0, 22:0, 23:0), diagnostics (32:0, 36:0, 37:0), process readback (40:0, 41:0), synthetic offset (48:0), threshold (64:0), label (65:0), record (66:0 through 66:4), array (67:0 through 67:7), time parameters (71:0 through 75:2), text/octet parameters (76:0 through 80:2; record 78 also has subindex 3), and value-definition parameters (81:0 through 83:0, 84:0 through 85:3)"
             )
         }
     }

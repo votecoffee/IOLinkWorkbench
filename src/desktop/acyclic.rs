@@ -68,6 +68,8 @@ pub(super) enum Kind {
     SavedErrorCount,
     DeviceRevisions,
     SavedDeviceRevisions,
+    ProcessReadback,
+    SavedProcessReadback,
 }
 
 pub(super) enum Query {
@@ -93,6 +95,8 @@ pub(super) enum Query {
     DeviceRevisions,
     SavedDeviceRevisions(PathBuf),
     CompareDeviceRevisions(PathBuf, PathBuf),
+    ProcessReadback(diagnostics::ReadbackDirection),
+    SavedProcessReadback(PathBuf),
 }
 
 impl Query {
@@ -110,6 +114,8 @@ impl Query {
             Self::ErrorCount => Kind::ErrorCount,
             Self::SavedErrorCount(_) => Kind::SavedErrorCount,
             Self::DeviceRevisions => Kind::DeviceRevisions,
+            Self::ProcessReadback(_) => Kind::ProcessReadback,
+            Self::SavedProcessReadback(_) => Kind::SavedProcessReadback,
             Self::SavedDeviceRevisions(_) | Self::CompareDeviceRevisions(..) => {
                 Kind::SavedDeviceRevisions
             }
@@ -148,6 +154,10 @@ impl Query {
             Self::ErrorCount => "Device error count · index 32:0".into(),
             Self::SavedErrorCount(path) => format!("Saved error count · {}", path.display()),
             Self::DeviceRevisions => "Device revisions · indexes 22:0 and 23:0".into(),
+            Self::ProcessReadback(direction) => format!("Process readback · {}", direction.label()),
+            Self::SavedProcessReadback(path) => {
+                format!("Saved process readback · {}", path.display())
+            }
             Self::SavedDeviceRevisions(path) => {
                 format!("Saved device revisions · {}", path.display())
             }
@@ -226,7 +236,10 @@ pub(super) struct Reading {
 #[derive(Default)]
 pub(super) struct Reads {
     pending: Option<(Query, Worker<Output>)>,
-    latest: [Option<Reading>; Kind::SavedDeviceRevisions as usize + 1],
+    latest: [Option<Reading>; Kind::SavedProcessReadback as usize + 1],
+    readback_direction: diagnostics::ReadbackDirection,
+    readback_save: String,
+    readback_open: String,
     revisions_save: String,
     revisions_open: String,
     revisions_compare: String,
@@ -271,12 +284,14 @@ impl Reads {
         let saved_locks = self.latest[Kind::SavedAccessLocks as usize].take();
         let saved_error_count = self.latest[Kind::SavedErrorCount as usize].take();
         let saved_revisions = self.latest[Kind::SavedDeviceRevisions as usize].take();
+        let saved_readback = self.latest[Kind::SavedProcessReadback as usize].take();
         self.latest = Default::default();
         self.latest[Kind::SavedMasterInspection as usize] = saved_master;
         self.latest[Kind::SavedDeviceProfile as usize] = saved_profile;
         self.latest[Kind::SavedAccessLocks as usize] = saved_locks;
         self.latest[Kind::SavedErrorCount as usize] = saved_error_count;
         self.latest[Kind::SavedDeviceRevisions as usize] = saved_revisions;
+        self.latest[Kind::SavedProcessReadback as usize] = saved_readback;
     }
 
     pub fn clear_named(&mut self, id: &str) {
@@ -490,6 +505,81 @@ impl App {
         }
         self.acyclic_result(ui, Kind::DeviceProfile);
         self.device_access_locks_panel(ui);
+        self.process_readback_panel(ui);
+    }
+
+    pub(super) fn process_readback_panel(&mut self, ui: &mut Ui) {
+        ui.collapsing("Acyclic process data readback", |ui| {
+            ui.small("Choose one direction to read the device's last valid process data.");
+            let available = self.acyclic_controls(ui);
+            ui.add_enabled_ui(available, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    for direction in diagnostics::ReadbackDirection::ALL {
+                        ui.selectable_value(
+                            &mut self.acyclic.readback_direction,
+                            direction,
+                            direction.label(),
+                        );
+                    }
+                });
+            });
+            let (read, destination) = snapshot_read_controls(
+                ui,
+                available,
+                &mut self.acyclic.readback_save,
+                "process data",
+            );
+            if read || destination.is_some() {
+                let profile = self.profile.clone();
+                let direction = self.acyclic.readback_direction;
+                self.start_acyclic(Query::ProcessReadback(direction), move || {
+                    if let Some(path) = &destination {
+                        diagnostics::check_destination(path)?;
+                    }
+                    let snapshot = diagnostics::ProcessReadbackSnapshot::read(&profile, direction)?;
+                    let mut text = snapshot.review()?.text();
+                    if let Some(path) = destination {
+                        match snapshot.save(&path) {
+                            Ok(()) => text.push_str(&format!(
+                                "\n\nSaved process readback snapshot {}",
+                                path.display()
+                            )),
+                            Err(error) => {
+                                text.push_str(&format!("\n\nSnapshot save failed · {error:#}"))
+                            }
+                        }
+                    }
+                    Ok(text)
+                });
+            }
+            if ui.button("Review saved readback…").clicked() {
+                self.acyclic.readback_open = self.acyclic.readback_save.clone();
+                self.workspace.offline = super::workspace::OfflinePage::DiagnosticSnapshots;
+                self.tab = super::Tab::Offline;
+            }
+            self.acyclic_result(ui, Kind::ProcessReadback);
+        });
+    }
+
+    pub(super) fn saved_process_readback_panel(&mut self, ui: &mut Ui) {
+        egui::CollapsingHeader::new("Process readback snapshots")
+            .default_open(!self.acyclic.readback_open.is_empty())
+            .show(ui, |ui| {
+                let available = self.acyclic_job_block_reason().is_none();
+                if let Some(path) = snapshot_open_control(
+                    ui,
+                    available,
+                    &mut self.acyclic.readback_open,
+                    "process readback",
+                ) {
+                    self.start_acyclic(Query::SavedProcessReadback(path.clone()), move || {
+                        Ok(diagnostics::ProcessReadbackSnapshot::load(&path)?
+                            .review()?
+                            .text())
+                    });
+                }
+                self.acyclic_result(ui, Kind::SavedProcessReadback);
+            });
     }
 
     fn device_access_locks_panel(&mut self, ui: &mut Ui) {
@@ -888,7 +978,8 @@ impl App {
             | Query::SavedAccessLocks(_)
             | Query::SavedErrorCount(_)
             | Query::SavedDeviceRevisions(_)
-            | Query::CompareDeviceRevisions(..) => self.acyclic_job_block_reason(),
+            | Query::CompareDeviceRevisions(..)
+            | Query::SavedProcessReadback(_) => self.acyclic_job_block_reason(),
             _ => self.acyclic_block_reason(),
         };
         if let Some(reason) = blocked {
@@ -921,6 +1012,11 @@ impl App {
                     if (self.isdu_index, self.isdu_subindex) != (*index, *subindex) =>
                 {
                     ui.small("The current address differs from this read.");
+                }
+                Query::ProcessReadback(direction)
+                    if self.acyclic.readback_direction != *direction =>
+                {
+                    ui.small("The selected direction differs from this read.");
                 }
                 _ => {}
             }

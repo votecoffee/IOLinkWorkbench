@@ -154,6 +154,8 @@ The bundled **sensor-checksum.xml** and **sensor-checksum-de.xml** are original 
 
 **Cyclic time.** IODD `TimeT` and `TimeSpanT` fields display UTC timestamps or signed durations. Their typed CSV columns store exact 64-bit ticks for offline verification and re-decode. Device time is separate from acquisition timing. [Temporal mapping and profile compatibility](docs/OPERATIONS.md#cyclic-timet-and-timespant)
 
+**Acyclic process data readback.** Read the device’s last valid process input or output, inspect it with the selected mapping, and reopen saved evidence offline. [Process data readback](docs/OPERATIONS.md#acyclic-process-data-readback)
+
 **Device revisions.** Read optional sensor hardware and firmware revision strings and compare two saved snapshots, with separate wire and text results. [Device revisions](docs/OPERATIONS.md#device-revisions)
 
 **Device error count.** Read the optional application error count from the configured port, inspect recorded bytes, or reopen a saved reply. [Device error count](docs/OPERATIONS.md#device-error-count)

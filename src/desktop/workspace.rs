@@ -463,6 +463,7 @@ impl App {
                 self.saved_access_locks_panel(ui);
                 self.saved_error_count_panel(ui);
                 self.saved_device_revisions_panel(ui);
+                self.saved_process_readback_panel(ui);
             }
         }
     }

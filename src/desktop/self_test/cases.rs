@@ -1138,6 +1138,52 @@ mod tests {
     }
 
     #[test]
+    fn process_readback_panel_shows_direction_and_independent_time_basis() -> Result<()> {
+        use crate::desktop::acyclic::{Output, Query};
+        use iolink_workbench::diagnostics::{ProcessReadbackSnapshot, ReadbackDirection};
+
+        let mut app = App::new();
+        let profile = Profile::parse(include_str!("../../../samples/simulator.toml"))?;
+        assert_eq!(profile.connection.gateway, Gateway::Simulator);
+        app.profile = profile.clone();
+        let direction = ReadbackDirection::Input;
+        let snapshot = ProcessReadbackSnapshot::read(&profile, direction)?;
+        app.acyclic.store_result(
+            Query::ProcessReadback(direction),
+            Ok(Output::from(snapshot.review()?.text())),
+        );
+        let ctx = Context::default();
+        configure_context(&ctx);
+        ctx.memory_mut(|memory| memory.set_everything_is_visible(true));
+        let output = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(SIZE[0] as f32, SIZE[1] as f32),
+                )),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| app.process_readback_panel(ui));
+            },
+        );
+        let mut texts = Vec::new();
+        for shape in &output.shapes {
+            text_shapes(&shape.shape, &mut texts);
+        }
+        assert!(texts.contains(&"Input (40:0)") && texts.contains(&"Output (41:0)"));
+        assert!(
+            texts
+                .iter()
+                .any(|text| text.contains("sample time and current validity unavailable"))
+        );
+        assert!(texts.iter().any(|text| text.contains("Raw reply · 03E9")));
+        assert!(!app.acyclic.busy());
+        assert_eq!(app.profile, profile);
+        Ok(())
+    }
+
+    #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
         assert_eq!(cases.len(), 141);

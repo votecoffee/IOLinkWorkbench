@@ -4,6 +4,7 @@ use crate::{
     decode::{MAX_INPUT, hex, parse_hex_bounded},
     diagnostics::{
         DATA_STORAGE_INDEX, ERROR_COUNT_INDEX, FIRMWARE_REVISION_INDEX, HARDWARE_REVISION_INDEX,
+        INPUT_READBACK_INDEX, OUTPUT_READBACK_INDEX,
     },
     iodd::{
         Access, DecodedOutput, DecodedParameter, Parameter, ProcessDataLayout,
@@ -767,6 +768,10 @@ fn read_id(client: &mut Client, index: u16) -> Result<String> {
 }
 
 fn check_isdu_index(index: u16) -> Result<()> {
+    ensure!(
+        !matches!(index, INPUT_READBACK_INDEX | OUTPUT_READBACK_INDEX),
+        "Process readback indexes 40 and 41 are read-only"
+    );
     ensure!(
         !matches!(index, HARDWARE_REVISION_INDEX | FIRMWARE_REVISION_INDEX),
         "Device revision indexes 22 and 23 are read-only"

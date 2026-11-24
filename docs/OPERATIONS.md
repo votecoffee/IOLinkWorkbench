@@ -99,6 +99,19 @@ In **Diagnostics → Device profile → Device access locks (12:0)**, choose **R
 
 The standard reply has two bytes. Bits 0 and 1 are the legacy parameter-write and Data Storage lock flags. Bits 2 and 3 report local parameterization and local user interface locks. The view shows each observed flag and the saved IODD's support declaration when present. An unavailable read keeps its error and available connection context. The CLI returns 1 for read failures, invalid widths, set reserved bits, or a set flag the IODD marks unsupported. This is the device's recorded lock word. Master Data Storage status and write permission have their own controls and evidence.
 
+### Acyclic process data readback
+
+In **Diagnostics → Device profile → Acyclic process data readback**, select **Input (40:0)** or **Output (41:0)** and choose **Read process data**. These optional read-only objects return the device’s last valid process data for the selected direction. The displayed host time records when the read completed. The device sample time and current process-data validity remain unknown. [IO-Link Interface and System V1.1.5, B.2.23–24](https://io-link.com/fileadmin/user_upload/Downloads/Package_2025/IOL-Interface-Spec_10002_V1.1.5_Oct2025.zip)
+
+```powershell
+.\iolink-cli.exe read-process-readback device.toml 40 --snapshot process-input.json
+.\iolink-cli.exe read-process-readback device.toml 41 --snapshot process-output.json
+.\iolink-cli.exe review-process-readback process-input.json
+.\iolink-cli.exe decode-process-readback 40 "03 E9" --profile device.toml
+```
+
+Input uses the saved profile’s effective mapping and output uses the selected IODD output layout. Review preserves the raw reply when a mapping is missing, a layout condition needs confirmation, or the width or encoding needs review. A mismatch or failed request returns exit 1 with available evidence. A valid raw reply without a usable mapping remains available. Use **Offline → Diagnostic snapshots → Process readback snapshots** to reopen an explicitly saved read with its embedded profile. Cyclic sampling and CSV capture continue independently.
+
 ### Device revisions
 
 Open **Diagnostics → Connection & identity → Device revisions (22:0 / 23:0)** to read the connected sensor’s hardware and firmware strings. The master firmware appears separately in the connection details. Choose **Read and save device revisions snapshot** to keep each raw reply or read error, its observation time, and its master, port, and device identity. Reopen the file under **Offline → Diagnostic snapshots → Device revision snapshots**. [IO-Link Interface and System V1.1.5, Table B.8 and B.2.14–15](https://io-link.com/fileadmin/user_upload/Downloads/Package_2025/IOL-Interface-Spec_10002_V1.1.5_Oct2025.zip)

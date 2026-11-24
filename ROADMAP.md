@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Read optional ProcessDataInput and ProcessDataOutput at 40:0 and 41:0. Decode the stored payload through the existing input or output mapping and preserve the one-off reply separately from cyclic acquisition.
+
 - Compare two saved device revision snapshots. Check wire bytes per reply and compare decoded strings when the recorded connection and device context match. Keep both source reviews and any comparison limits visible.
 
 - Read device HardwareRevision and FirmwareRevision at 22:0 and 23:0. Preserve partial replies, detect changed device or master context, and decode recorded strings offline.

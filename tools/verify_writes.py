@@ -117,6 +117,10 @@ def verify(cli, profile, server):
         revision = [*count[:2], index, *count[3:]]
         assert "Device revision indexes 22 and 23 are read-only" in run(revision, status=1)
         assert "Device revision indexes 22 and 23 are read-only" in run(revision, confirm=plan["confirmation"], status=1)
+    for index in ("40", "41"):
+        readback = [*count[:2], index, *count[3:]]
+        assert "Process readback indexes 40 and 41 are read-only" in run(readback, status=1)
+        assert "Process readback indexes 40 and 41 are read-only" in run(readback, confirm=plan["confirmation"], status=1)
     assert not server.requests and not server.writes
     observed = run(["port-mode"], command="read-current")
     assert observed["point"] == {"kind": "port_mode"} and observed["value"] == 3

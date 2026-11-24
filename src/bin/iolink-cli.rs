@@ -166,6 +166,23 @@ enum Command {
     ReviewDiagnostics { snapshot: PathBuf },
     /// Compare two saved diagnostic snapshots by query and wire slot, entirely offline.
     CompareDiagnostics { left: PathBuf, right: PathBuf },
+    /// Read the device's optional last-valid process input (40:0) or output (41:0).
+    ReadProcessReadback {
+        profile: PathBuf,
+        index: u16,
+        /// Save the query and its reply or error to a new JSON file.
+        #[arg(long)]
+        snapshot: Option<PathBuf>,
+    },
+    /// Review a saved acyclic process readback using its embedded mapping.
+    ReviewProcessReadback { snapshot: PathBuf },
+    /// Decode a recorded acyclic process readback at index 40 or 41.
+    DecodeProcessReadback {
+        index: u16,
+        payload: String,
+        #[arg(long)]
+        profile: Option<PathBuf>,
+    },
     /// Decode a recorded hardware (22:0) or firmware (23:0) revision reply.
     DecodeDeviceRevision { index: u16, payload: String },
     /// Read the optional device hardware and firmware revisions from the configured port.
@@ -624,6 +641,54 @@ fn main() -> Result<()> {
             ensure!(
                 review.ok(),
                 "saved diagnostic snapshot needs review; retained results are printed above"
+            );
+        }
+        Command::ReadProcessReadback {
+            profile,
+            index,
+            snapshot,
+        } => {
+            let direction = index.try_into()?;
+            let profile = Profile::load(&profile)?;
+            if let Some(path) = &snapshot {
+                diagnostics::check_destination(path)?;
+            }
+            let evidence = diagnostics::ProcessReadbackSnapshot::read(&profile, direction)?;
+            let review = evidence.review()?;
+            print!("{}", toml::to_string_pretty(&review)?);
+            if let Some(path) = snapshot {
+                evidence.save(&path)?;
+                eprintln!("Saved process readback snapshot {}", path.display());
+            }
+            ensure!(
+                review.ok(),
+                "Process readback needs review. Retained results are printed above."
+            );
+        }
+        Command::ReviewProcessReadback { snapshot } => {
+            let evidence = diagnostics::ProcessReadbackSnapshot::load(&snapshot)?;
+            let review = evidence.review()?;
+            print!("{}", toml::to_string_pretty(&review)?);
+            ensure!(
+                review.ok(),
+                "Saved process readback needs review. Retained results are printed above."
+            );
+        }
+        Command::DecodeProcessReadback {
+            index,
+            payload,
+            profile,
+        } => {
+            let profile = profile.as_deref().map(Profile::load).transpose()?;
+            let report = diagnostics::decode_process_readback(
+                index.try_into()?,
+                profile.as_ref(),
+                &payload,
+            )?;
+            print!("{}", toml::to_string_pretty(&report)?);
+            ensure!(
+                report.ok(),
+                "Process readback reply needs review. Retained results are printed above."
             );
         }
         Command::DecodeDeviceRevision { index, payload } => {

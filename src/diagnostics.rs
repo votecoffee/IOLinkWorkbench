@@ -20,6 +20,7 @@ mod error_count;
 mod error_type;
 mod input_descriptor_mapping;
 mod process_descriptor;
+mod process_readback;
 mod profile_characteristic;
 mod snapshot;
 pub use crate::snapshot_file::check_destination;
@@ -52,6 +53,10 @@ pub use error_type::{ErrorTypeReport, decode_error_type};
 pub use input_descriptor_mapping::{InputDescriptorPlan, SkippedEntry, plan_input_descriptor};
 pub use process_descriptor::{
     DescriptorDirection, DescriptorStatus, ProcessDescriptor, decode_process_descriptor,
+};
+pub use process_readback::{
+    INPUT_READBACK_INDEX, OUTPUT_READBACK_INDEX, ProcessReadback, ProcessReadbackReview,
+    ProcessReadbackSnapshot, ReadbackDirection, ReadbackInputField, decode_process_readback,
 };
 pub use profile_characteristic::{
     ProfileCharacteristic, ProfileCharacteristicStatus, ProfileIdComparison,
