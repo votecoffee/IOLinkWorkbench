@@ -41,6 +41,8 @@ pub struct SnapshotSource {
     pub observation: Observation,
     pub left_identity_check: String,
     pub right_identity_check: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub baseline_uses_embedded_profile: bool,
 }
 
 #[derive(Serialize)]
@@ -192,7 +194,8 @@ impl<'a> ReplyComparison<'a> {
         left: &'a Profile,
         right: &'a Profile,
         path: &Path,
-        snapshot: Snapshot,
+        snapshot: &Snapshot,
+        baseline_uses_embedded_profile: bool,
     ) -> Result<Self> {
         let mut reply = Self::new(
             left,
@@ -212,14 +215,15 @@ impl<'a> ReplyComparison<'a> {
         };
         reply.snapshot_source = Some(SnapshotSource {
             file: path.to_owned(),
-            workbench_version: snapshot.workbench_version,
-            profile_name: snapshot.profile.name,
-            parameter_id: snapshot.parameter_id,
-            host_read_utc: snapshot.host_read_utc,
+            workbench_version: snapshot.workbench_version.clone(),
+            profile_name: snapshot.profile.name.clone(),
+            parameter_id: snapshot.parameter_id.clone(),
+            host_read_utc: snapshot.host_read_utc.clone(),
             read_duration_us: snapshot.read_duration_us,
             left_identity_check: check_identity(left),
             right_identity_check: check_identity(right),
-            observation: snapshot.observation,
+            observation: snapshot.observation.clone(),
+            baseline_uses_embedded_profile,
         });
         Ok(reply)
     }
@@ -235,6 +239,9 @@ impl<'a> ReplyComparison<'a> {
             self.index, self.subindex, self.raw_hex
         );
         if let Some(source) = &self.snapshot_source {
+            if source.baseline_uses_embedded_profile {
+                text.push_str("\nBaseline · profile embedded in the saved snapshot");
+            }
             let observed = &source.observation;
             let _ = write!(
                 text,

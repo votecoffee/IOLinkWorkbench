@@ -348,6 +348,14 @@ Choose **Saved snapshot** to use the address and bytes from a previously saved p
 .\iolink-cli.exe compare-parameter-catalogs before.toml after.toml --reply-snapshot .\.local\recorded-parameter.json
 ~~~
 
+#### Use the snapshot's embedded catalog as the baseline
+
+Open **Offline → Parameter snapshot**, enter the snapshot path, and expand **Compare with revised profile**. Select the revised TOML profile. The comparison uses the snapshot's embedded catalog as the baseline and decodes the same recorded reply with both catalogs. The result includes the full catalog differences and the source snapshot context.
+
+~~~powershell
+.\iolink-cli.exe compare-parameter-snapshot .\.local\recorded-parameter.json revised.toml
+~~~
+
 ### Save a diagnostic read
 
 ```powershell

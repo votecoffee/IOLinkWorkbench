@@ -2033,6 +2033,11 @@ def verify_parameter_snapshots(cli, profile, output, loopback=False):
         assert (replay["index"], replay["subindex"], replay["raw_hex"]) == (66, 1, "FFEC")
         assert replay["differences"]["properties"] == []
         assert Gateway.requests == before_requests and saved_member.read_bytes() == pinned_snapshot
+        baseline = tomllib.loads(run(cli, "compare-parameter-snapshot", saved_member, preferred))["reply"]
+        assert baseline["snapshot_source"]["baseline_uses_embedded_profile"] is True
+        assert baseline["snapshot_source"]["observation"]["route"] == "AL1350 loopback fixture"
+        assert baseline["left"]["decoded"]["raw_value"] == "-20"
+        assert Gateway.requests == before_requests and saved_member.read_bytes() == pinned_snapshot
         Gateway.threshold_payload = "FF"
         try:
             response = tomllib.loads(run(cli, "read-parameter", preferred, "V_SIM_Threshold", "--snapshot", output / "malformed-response.json"))
@@ -4424,6 +4429,14 @@ def verify_catalog_snapshot_replay(cli, record, rescaled, output):
         assert Gateway.requests == requests and path.read_bytes() == original
         return result["reply"]
 
+    def against_profile(snapshot, candidate, expected=0):
+        before = snapshot.read_bytes(), candidate.read_bytes()
+        result = tomllib.loads(run(cli, "compare-parameter-snapshot", snapshot, candidate, expected=expected))
+        assert before == (snapshot.read_bytes(), candidate.read_bytes())
+        assert Gateway.requests == requests and path.read_bytes() == original
+        assert result["reply"]["snapshot_source"]["baseline_uses_embedded_profile"] is True
+        return result
+
     compared = compare(record, rescaled, path)
     assert (compared["index"], compared["subindex"], compared["raw_hex"]) == (66, 1, "FFEC")
     source = compared["snapshot_source"]
@@ -4434,6 +4447,14 @@ def verify_catalog_snapshot_replay(cli, record, rescaled, output):
     assert source["observation"]["identity"]["device_id"] == recorded["observation"]["identity"]["device_id"]
     assert source["left_identity_check"] == source["right_identity_check"] == "matched all configured identity fields"
     assert compared["differences"]["properties"] == ["display values"]
+    assert "baseline_uses_embedded_profile" not in source
+    embedded = against_profile(path, rescaled)
+    assert embedded["left"]["profile_name"] == recorded["profile"]["name"]
+    assert embedded["reply"]["left"] == compared["left"] and embedded["reply"]["right"] == compared["right"]
+    assert embedded["reply"]["differences"] == compared["differences"]
+    assert embedded["definition_changes"][0]["record_members"] == [
+        {"subindex": 1, "change": "changed", "properties": ["display definitions"]},
+    ]
 
     different_device = output / "different-device.toml"
     run(cli, "set-identity", rescaled, different_device, "--device-id", 9999)
@@ -4447,6 +4468,18 @@ def verify_catalog_snapshot_replay(cli, record, rescaled, output):
         file = output / f"{name}.json"
         file.write_text(json.dumps(document), encoding="utf-8")
         return file
+
+    def embedded_only(document):
+        document["profile"]["name"] = "Catalog embedded in snapshot"
+        document["profile"]["iodd"]["source"] = "Z:/missing/original-iodd.zip"
+        document["profile"]["connection"]["endpoint"] = "http://127.0.0.1:1"
+
+    relocated = against_profile(variant("embedded-only", embedded_only), rescaled)
+    assert relocated["left"]["profile_name"] == "Catalog embedded in snapshot"
+    assert relocated["reply"]["left"]["decoded"]["raw_value"] == "-20"
+    missing = against_profile(path, ROOT / "samples/simulator.toml", expected=1)
+    assert "definition_changes" not in missing and missing["reply"]["left"]["decoded"]["raw_value"] == "-20"
+    assert missing["reply"]["right"]["resolution_error"]
 
     partial = variant("partial-identity", lambda document: document["observation"]["identity"].update(device_id=None))
     assert compare(record, rescaled, partial)["snapshot_source"]["left_identity_check"] == "partial identity match"
@@ -4465,6 +4498,7 @@ def verify_catalog_snapshot_replay(cli, record, rescaled, output):
         invalid = variant(key, lambda document: document.update({key: value}))
         stored = invalid.read_bytes()
         assert not run(cli, command, record, rescaled, "--reply-snapshot", invalid, expected=1)
+        assert not run(cli, "compare-parameter-snapshot", invalid, rescaled, expected=1)
         assert invalid.read_bytes() == stored
     for flag, value in (("--index", 66), ("--subindex", 1), ("--payload", "FFEC")):
         assert not run(cli, command, record, rescaled, "--reply-snapshot", path, flag, value, expected=2)
@@ -5130,7 +5164,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, offline access locks comparison, offline Data Storage metadata review, offline Direct Parameter Page 1, identity pins and IODD comparison, optional device error count and saved evidence, offline error count comparison, saved input mapping and recorded payload comparison, saved output mapping and image comparison, saved parameter catalog and recorded ISDU reply comparison, saved parameter snapshot replay, device revision reads and saved connection checks, offline device revision comparison, acyclic process data readback and saved evidence, offline process readback comparison, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, offline access locks comparison, offline Data Storage metadata review, offline Direct Parameter Page 1, identity pins and IODD comparison, optional device error count and saved evidence, offline error count comparison, saved input mapping and recorded payload comparison, saved output mapping and image comparison, saved parameter catalog and recorded ISDU reply comparison, saved parameter snapshot replay and embedded baseline comparison, device revision reads and saved connection checks, offline device revision comparison, acyclic process data readback and saved evidence, offline process readback comparison, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1351, AL1352 and AL1353 status, ISDU and capture across all ports, one-shot ifm master inspection with supply diagnostics, read-only port configuration and offline snapshot review and comparison, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")

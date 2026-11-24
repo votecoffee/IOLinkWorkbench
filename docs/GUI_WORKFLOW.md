@@ -77,6 +77,8 @@ The latest recording stays available after switching profiles or running a monit
 
 Use **Offline → Parameter snapshot** to reopen one saved parameter read. Expand **Compare two snapshots** to select a second file and compare it with the first. Both files must describe the same index and subindex. The results retain the raw value, decoded values, observed identity and connection diagnostics for each read.
 
+In the same view, use **Compare with revised profile** to compare the declarations and replay the recorded reply. The baseline comes from the first snapshot's embedded catalog. Select just the revised TOML profile and expand either set of details to review the result.
+
 In **Parameters → IODD reads**, search by name, IODD ID, or exact index. Indexes accept decimal or hexadecimal with an **0x** prefix. Select a match, then select a subindex for a record or array. **Read named parameter** issues the explicit read. Expand **Read and save a snapshot** to save the response and its profile to a new JSON file. **IODD details and display preference** holds the declaration, choices, ranges, default, and saved host display selection.
 
 **Offline → Parameter bytes** has its own search and selection for decoding recorded bytes. Filtering narrows the picker and keeps the current parameter selected until you choose another one.

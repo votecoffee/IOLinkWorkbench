@@ -334,6 +334,8 @@ enum Command {
     },
     /// Reopen a saved parameter snapshot offline, using its embedded profile.
     ReviewParameter { snapshot: PathBuf },
+    /// Compare a snapshot's embedded catalog and recorded reply with a revised saved profile.
+    CompareParameterSnapshot { snapshot: PathBuf, profile: PathBuf },
     /// Compare exact bytes, saved definitions, diagnostics and decoded values from two snapshots.
     CompareParameters { left: PathBuf, right: PathBuf },
     /// Decode a recorded ISDU payload offline, using the saved IODD catalog.
@@ -1133,6 +1135,16 @@ fn main() -> Result<()> {
             ensure!(
                 !review.decoded.needs_review(),
                 "parameter payload needs decoding review; raw bytes retained above"
+            );
+        }
+        Command::CompareParameterSnapshot { snapshot, profile } => {
+            let saved = iolink_workbench::profile::parameter_catalog::SavedReply::load(&snapshot)?;
+            let candidate = Profile::load(&profile)?;
+            let comparison = saved.compare_to_profile(&candidate)?;
+            print!("{}", toml::to_string_pretty(&comparison)?);
+            ensure!(
+                comparison.ok(),
+                "Snapshot comparison needs review. Available results are printed above."
             );
         }
         Command::CompareParameters { left, right } => {

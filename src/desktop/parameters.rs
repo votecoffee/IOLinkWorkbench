@@ -6,6 +6,7 @@ use iolink_workbench::{
     profile::Profile,
     transport::write::isdu_write_target,
 };
+use std::path::PathBuf;
 
 #[derive(Default)]
 pub(super) struct Picker {
@@ -718,9 +719,30 @@ impl Offline {
 pub struct Saved {
     path: String,
     compare_path: String,
-    worker: Option<super::Worker<String>>,
-    result: Option<String>,
+    candidate_path: String,
+    worker: Option<super::Worker<SavedResult>>,
+    result: Option<SavedResult>,
     error: String,
+}
+
+enum SnapshotReview {
+    Open,
+    WithSnapshot(PathBuf),
+    WithProfile(PathBuf),
+}
+
+struct SavedResult {
+    text: String,
+    profiles: Option<[String; 2]>,
+}
+
+impl SavedResult {
+    fn plain(text: String) -> Self {
+        Self {
+            text,
+            profiles: None,
+        }
+    }
 }
 
 impl Default for Saved {
@@ -728,6 +750,7 @@ impl Default for Saved {
         Self {
             path: ".local/parameter.json".into(),
             compare_path: String::new(),
+            candidate_path: String::new(),
             worker: None,
             result: None,
             error: String::new(),
@@ -758,7 +781,7 @@ impl Saved {
                 }
                 Err(error) => {
                     self.result = None;
-                    self.error = error.to_string();
+                    self.error = format!("{error:#}");
                 }
             }
         }
@@ -784,7 +807,7 @@ impl Saved {
             )
             .clicked()
         {
-            self.open(false);
+            self.open(SnapshotReview::Open);
         }
         ui.collapsing("Compare two snapshots", |ui| {
             ui.small("Compare two separate reads at the same index and subindex. Each snapshot keeps its own identity and connection diagnostics.");
@@ -799,7 +822,23 @@ impl Saved {
                 self.worker.is_none() && !self.path.trim().is_empty() && !self.compare_path.trim().is_empty(),
                 egui::Button::new("Compare snapshots offline"),
             ).clicked() {
-                self.open(true);
+                self.open(SnapshotReview::WithSnapshot(PathBuf::from(self.compare_path.trim())));
+            }
+        });
+        ui.collapsing("Compare with revised profile", |ui| {
+            ui.small("Use the snapshot above as the baseline, including its embedded IODD catalog and recorded bytes.");
+            if ui.add_enabled(
+                self.worker.is_none(),
+                egui::TextEdit::singleline(&mut self.candidate_path).hint_text("Revised profile TOML path"),
+            ).changed() {
+                self.result = None;
+                self.error.clear();
+            }
+            if ui.add_enabled(
+                self.worker.is_none() && !self.path.trim().is_empty() && !self.candidate_path.trim().is_empty(),
+                egui::Button::new("Compare snapshot and profile"),
+            ).clicked() {
+                self.open(SnapshotReview::WithProfile(PathBuf::from(self.candidate_path.trim())));
             }
         });
         if self.worker.is_some() {
@@ -811,22 +850,36 @@ impl Saved {
             ui.colored_label(WARNING, &self.error);
         }
         if let Some(review) = &self.result {
-            ui.monospace(review);
+            ui.monospace(&review.text);
+            if let Some([baseline, revised]) = &review.profiles {
+                ui.collapsing("Snapshot profile details", |ui| ui.monospace(baseline));
+                ui.collapsing("Revised profile details", |ui| ui.monospace(revised));
+            }
         }
     }
 
-    fn open(&mut self, compare: bool) {
-        use iolink_workbench::parameter_snapshot::{self, Snapshot};
-        let path = std::path::PathBuf::from(&self.path);
-        let other = compare.then(|| std::path::PathBuf::from(&self.compare_path));
-        match super::background("offline-parameter-snapshot", move || {
-            let snapshot = Snapshot::load(&path)?;
-            if let Some(other) = other {
-                return Ok(
-                    parameter_snapshot::compare(&snapshot, &Snapshot::load(&other)?)?.text(),
-                );
+    fn open(&mut self, review: SnapshotReview) {
+        use iolink_workbench::{
+            parameter_snapshot::{self, Snapshot},
+            profile::parameter_catalog::SavedReply,
+        };
+
+        let path = PathBuf::from(self.path.trim());
+        match super::background("offline-parameter-snapshot", move || match review {
+            SnapshotReview::Open => Ok(SavedResult::plain(Snapshot::load(&path)?.review()?.text())),
+            SnapshotReview::WithSnapshot(other) => Ok(SavedResult::plain(
+                parameter_snapshot::compare(&Snapshot::load(&path)?, &Snapshot::load(&other)?)?
+                    .text(),
+            )),
+            SnapshotReview::WithProfile(candidate) => {
+                let snapshot = SavedReply::load(&path)?;
+                let candidate = Profile::load(&candidate)?;
+                let comparison = snapshot.compare_to_profile(&candidate)?;
+                Ok(SavedResult {
+                    text: comparison.summary_text(),
+                    profiles: Some(comparison.source_texts()?),
+                })
             }
-            Ok(snapshot.review()?.text())
         }) {
             Ok(worker) => {
                 self.worker = Some(worker);
@@ -835,5 +888,78 @@ impl Saved {
             }
             Err(error) => self.error = error.to_string(),
         }
+    }
+}
+
+#[cfg(test)]
+mod saved_tests {
+    use super::*;
+    use anyhow::{Context, Result};
+    use iolink_workbench::{iodd, parameter_snapshot, profile::Gateway};
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn snapshot_worker_uses_the_embedded_catalog_as_baseline() -> Result<()> {
+        let catalog = iodd::parse(
+            include_str!("../../samples/sensor-record.xml"),
+            "synthetic snapshot baseline".into(),
+        )?;
+        let (identity, imported) = catalog.select(None, None)?;
+        let mut profile = Profile::default();
+        profile.apply_iodd(identity, imported);
+        assert_eq!(profile.connection.gateway, Gateway::Simulator);
+        profile.name = "Embedded record catalog".into();
+
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("recorded.json");
+        let revised = directory.path().join("revised.toml");
+        let (snapshot, _) = parameter_snapshot::read(&profile, "V_SIM_Record", 1)?;
+        snapshot.save(&path)?;
+        profile.name = "Revised record catalog".into();
+        profile.iodd.as_mut().unwrap().parameters[0]
+            .record
+            .as_mut()
+            .unwrap()
+            .items[0]
+            .parameter
+            .displays[0]
+            .field
+            .scale = 0.2;
+        profile.save_new(&revised)?;
+        let originals = [std::fs::read(&path)?, std::fs::read(&revised)?];
+
+        let mut saved = Saved {
+            path: path.display().to_string(),
+            ..Default::default()
+        };
+        let serial = crate::desktop::WORKER_TEST_LOCK.lock().unwrap();
+        saved.open(SnapshotReview::WithProfile(revised.clone()));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while saved.busy() && Instant::now() < deadline {
+            saved.update();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        drop(serial);
+        let result = saved.result.as_ref().with_context(|| saved.error.clone())?;
+        assert!(
+            result
+                .text
+                .contains("Embedded record catalog → Revised record catalog")
+        );
+        assert!(
+            result
+                .text
+                .contains("Baseline · profile embedded in the saved snapshot")
+        );
+        assert!(result.text.contains("Recorded reply · 66:1 · FFEC"));
+        assert!(
+            result
+                .text
+                .contains("Changed interpretation · display values")
+        );
+        let [before, after] = result.profiles.as_ref().context("profile details")?;
+        assert!(before.contains("value = \"0.0\"") && after.contains("value = \"-2.0\""));
+        assert_eq!([std::fs::read(&path)?, std::fs::read(&revised)?], originals);
+        Ok(())
     }
 }

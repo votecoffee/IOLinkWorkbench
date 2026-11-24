@@ -7,7 +7,7 @@ use serde::Serialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Write,
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 mod reply;
@@ -115,11 +115,48 @@ pub fn compare_with_snapshot<'a>(
     right: &'a Profile,
     path: &Path,
 ) -> anyhow::Result<Comparison<'a>> {
-    let snapshot =
-        Snapshot::load(path).with_context(|| format!("Open saved reply {}", path.display()))?;
-    let mut comparison = compare(left, right);
-    comparison.reply = Some(ReplyComparison::from_snapshot(left, right, path, snapshot)?);
-    Ok(comparison)
+    SavedReply::load(path)?.compare(left, right, false)
+}
+
+/// A validated snapshot that can supply both the recorded reply and its original catalog.
+pub struct SavedReply {
+    path: PathBuf,
+    snapshot: Snapshot,
+}
+
+impl SavedReply {
+    pub fn load(path: &Path) -> anyhow::Result<Self> {
+        let snapshot =
+            Snapshot::load(path).with_context(|| format!("Open saved reply {}", path.display()))?;
+        Ok(Self {
+            path: path.to_owned(),
+            snapshot,
+        })
+    }
+
+    pub fn compare_to_profile<'a>(
+        &'a self,
+        candidate: &'a Profile,
+    ) -> anyhow::Result<Comparison<'a>> {
+        self.compare(&self.snapshot.profile, candidate, true)
+    }
+
+    fn compare<'a>(
+        &self,
+        left: &'a Profile,
+        right: &'a Profile,
+        baseline_uses_embedded_profile: bool,
+    ) -> anyhow::Result<Comparison<'a>> {
+        let mut comparison = compare(left, right);
+        comparison.reply = Some(ReplyComparison::from_snapshot(
+            left,
+            right,
+            &self.path,
+            &self.snapshot,
+            baseline_uses_embedded_profile,
+        )?);
+        Ok(comparison)
+    }
 }
 
 fn pair_by<'a, K: Ord, T>(

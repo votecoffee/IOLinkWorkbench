@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Compare a parameter snapshot directly with a revised profile. The snapshot supplies the original catalog and recorded reply for the offline comparison.
+
 - Use a saved parameter snapshot as the reply source for catalog comparison. Preserve the recorded address, bytes, host time, and connection identity checks.
 
 - Decode one recorded ISDU reply with two saved parameter catalogs. Compare changed value interpretations and retain usable record or array members alongside any decode errors.
