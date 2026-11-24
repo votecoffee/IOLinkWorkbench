@@ -52,6 +52,14 @@ After saving both profiles, open **Offline → Process bytes → Compare saved i
 
 The comparison checks input byte width and encoding, the saved IODD variant and layout condition, and effective fields by exact name. It lists added and removed fields, changed properties and origins, and a change in the relative order of fields common to both profiles. A renamed field appears as a removal and an addition. Each definition shows whether it comes from the IODD, an override, or a manual field. Both profiles are read offline. The comparison covers saved input definitions and requires a separate connected-device check to establish the actual active layout.
 
+Enter **Recorded payload hex (optional)** to decode the same recorded input with both profiles.
+
+~~~powershell
+.\iolink-cli.exe compare-input-mappings before.toml after.toml --payload "03 E9"
+~~~
+
+The preview compares decoded fields by exact name and shows changes in values, units, display text, or raw bits. Each profile's result includes its wire encoding warnings and field errors. If one profile expects a different byte width, the other profile's result remains available. Malformed text in one field still allows comparison of other usable fields. The CLI prints the available results and returns 1 when a profile or field cannot decode the payload. Wire encoding warnings by themselves keep exit 0.
+
 ### Check a conditional layout
 
 Select the IODD layout in the profile. In **Mappings → Layout condition**, review the selector's ISDU index, subindex, and declared value. Use **Read layout selector** for one acyclic observation.

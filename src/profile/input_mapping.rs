@@ -7,6 +7,9 @@ use std::{
     fmt::Write,
 };
 
+mod payload;
+pub use payload::{DecodedField, PayloadComparison, PayloadDifferences, PayloadSide};
+
 #[derive(Serialize)]
 pub struct Comparison<'a> {
     pub left: Mapping<'a>,
@@ -16,6 +19,8 @@ pub struct Comparison<'a> {
     pub selection_changed: bool,
     pub common_field_order_changed: bool,
     pub changes: Vec<FieldChange<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payload: Option<PayloadComparison<'a>>,
 }
 
 #[derive(Serialize)]
@@ -148,7 +153,21 @@ pub fn compare<'a>(left: &'a Profile, right: &'a Profile) -> Comparison<'a> {
         left,
         right,
         changes,
+        payload: None,
     }
+}
+
+pub fn compare_with_payload<'a>(
+    left: &'a Profile,
+    right: &'a Profile,
+    payload: Option<&str>,
+) -> anyhow::Result<Comparison<'a>> {
+    let mut report = compare(left, right);
+    if let Some(payload) = payload {
+        let bytes = crate::decode::parse_hex(payload)?;
+        report.payload = Some(PayloadComparison::new(left, right, &bytes));
+    }
+    Ok(report)
 }
 
 fn fields_by_name<'a, 'b>(mapping: &'b Mapping<'a>) -> BTreeMap<&'a str, &'b MappedField<'a>> {
@@ -184,6 +203,22 @@ fn changed_properties(left: &MappedField<'_>, right: &MappedField<'_>) -> Vec<&'
 }
 
 impl Comparison<'_> {
+    pub fn ok(&self) -> bool {
+        self.payload.as_ref().is_none_or(PayloadComparison::ok)
+    }
+
+    pub fn source_texts(&self) -> anyhow::Result<[String; 2]> {
+        let mut left = toml::to_string_pretty(&self.left)?;
+        let mut right = toml::to_string_pretty(&self.right)?;
+        if let Some(payload) = &self.payload {
+            left.push_str("\nPayload result\n");
+            left.push_str(&toml::to_string_pretty(&payload.left)?);
+            right.push_str("\nPayload result\n");
+            right.push_str(&toml::to_string_pretty(&payload.right)?);
+        }
+        Ok([left, right])
+    }
+
     pub fn summary_text(&self) -> String {
         let mut text = format!("{} → {}", self.left.profile_name, self.right.profile_name);
         if self.input_width_changed {
@@ -225,6 +260,9 @@ impl Comparison<'_> {
             && self.changes.is_empty()
         {
             text.push_str("\nSaved input mappings match");
+        }
+        if let Some(payload) = &self.payload {
+            payload.write_summary(&mut text);
         }
         text
     }

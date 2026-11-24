@@ -43,6 +43,8 @@ In **Inputs**, choose **Inspect bytes offline** beside the raw input. **Offline 
 
 Use **Offline → Process bytes → Compare saved input mappings** to review two TOML profiles before adopting an IODD revision or mapping edit. The comparison opens in place and retains both effective definitions. The active profile used for the bytes shown above stays separate from the two files selected for comparison.
 
+Paste an example in **Recorded payload hex (optional)** to see how each saved profile decodes those bytes. The summary shows changed values and any profile-specific issues. Expand either profile for its full decoded result.
+
 Switch to **Input bytes** to keep working with your existing entry under the current mapping. A new copy replaces only the **From Inputs** sample. The copied sample stays in memory for this app session. **Output bytes** keeps its own hex entry and uses the applied profile’s output layout. Output-only profiles open on **Output bytes** and keep any copied Inputs sample available. Monitoring or CSV recording continues while you inspect it.
 
 ## Review the route before starting

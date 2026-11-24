@@ -1337,6 +1337,7 @@ mod tests {
 
     #[test]
     fn saved_input_mapping_worker_preserves_profiles_and_shows_the_changes() -> Result<()> {
+        let serial = crate::desktop::WORKER_TEST_LOCK.lock().unwrap();
         let mut app = App::new();
         let active = app.profile.clone();
         let directory = tempfile::tempdir()?;
@@ -1349,23 +1350,29 @@ mod tests {
         let left_bytes = std::fs::read(&left_path)?;
         let right_bytes = std::fs::read(&right_path)?;
 
-        app.start_input_mapping_comparison(left_path.clone(), right_path.clone());
+        app.start_input_mapping_comparison(
+            left_path.clone(),
+            right_path.clone(),
+            Some("03 E9".into()),
+        );
         assert!(app.acyclic.busy());
         let deadline = Instant::now() + Duration::from_secs(5);
         while app.acyclic.busy() && Instant::now() < deadline {
             app.acyclic.update();
             std::thread::sleep(Duration::from_millis(5));
         }
+        drop(serial);
         assert!(!app.acyclic.busy());
         app.acyclic.clear_results();
         let ctx = Context::default();
         configure_context(&ctx);
+        // Leave room for the test to paint both expanded source reviews.
         ctx.memory_mut(|memory| memory.set_everything_is_visible(true));
         let output = ctx.run(
             egui::RawInput {
                 screen_rect: Some(egui::Rect::from_min_size(
                     egui::Pos2::ZERO,
-                    egui::vec2(SIZE[0] as f32, SIZE[1] as f32),
+                    egui::vec2(SIZE[0] as f32, 2400.0),
                 )),
                 ..Default::default()
             },
@@ -1384,6 +1391,18 @@ mod tests {
             texts
                 .iter()
                 .any(|text| text.contains("level · Changed scale"))
+        );
+        assert!(
+            texts
+                .iter()
+                .any(|text| text.contains("Recorded payload · 03E9"))
+        );
+        assert!(
+            texts
+                .iter()
+                .any(|text| text.contains("Changed decoded values · 1")
+                    && text.contains("50.0 mm (raw 500, bits 0x1F4)")
+                    && text.contains("100.0 mm (raw 500, bits 0x1F4)"))
         );
         assert_eq!(app.profile, active);
         assert_eq!(std::fs::read(&left_path)?, left_bytes);

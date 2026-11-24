@@ -4045,15 +4045,17 @@ def verify_input_mapping_comparison(cli, imported, padded, boolean, output):
     manual = ROOT / "samples/simulator.toml"
     requests = Gateway.requests
 
-    def compare(left, right):
+    def compare(left, right, payload=None, expected=0):
         before = (left.read_bytes(), right.read_bytes())
-        result = tomllib.loads(run(cli, command, left, right))
+        args = () if payload is None else ("--payload", payload)
+        result = tomllib.loads(run(cli, command, left, right, *args, expected=expected))
         assert (left.read_bytes(), right.read_bytes()) == before
         assert Gateway.requests == requests
         return result
 
     same = compare(imported, imported)
     assert same["left"] == same["right"] and same["changes"] == []
+    assert "payload" not in same
     assert not any(same[key] for key in (
         "input_width_changed", "input_encoding_changed", "selection_changed", "common_field_order_changed",
     ))
@@ -4098,6 +4100,68 @@ def verify_input_mapping_comparison(cli, imported, padded, boolean, output):
     assert modes["right"]["encoding"] == {"kind": "standalone_boolean"}
     assert not modes["selection_changed"]
     assert compare(manual, imported)["selection_changed"]
+
+    decoded = compare(manual, reordered, "03 E9")["payload"]
+    assert decoded["raw_hex"] == "03E9"
+    assert decoded["differences"] == {"compared_fields": 2, "changed_fields": []}
+    assert [entry["name"] for entry in decoded["right"]["fields"]] == ["switch", "level"]
+
+    scaled = output / "scaled.toml"
+    run(cli, "set-field", manual, scaled, "level", "--scale", "0.2")
+    decoded = compare(manual, scaled, "0x03_E9")["payload"]
+    assert decoded["differences"] == {"compared_fields": 2, "changed_fields": ["level"]}
+    left = decoded["left"]["fields"][0]
+    right = decoded["right"]["fields"][0]
+    assert left["unit"] == right["unit"] == "mm"
+    assert left["value"] == {"bits_hex": "1F4", "raw": "500", "value": "50.0"}
+    assert right["value"] == {"bits_hex": "1F4", "raw": "500", "value": "100.0"}
+
+    different_unit = output / "different-unit.toml"
+    run(cli, "set-field", manual, different_unit, "level", "--unit", "cm")
+    decoded = compare(manual, different_unit, "03E9")["payload"]
+    assert decoded["differences"]["changed_fields"] == ["level"]
+    assert decoded["left"]["fields"][0]["value"] == decoded["right"]["fields"][0]["value"]
+    assert decoded["right"]["fields"][0]["unit"] == "cm"
+
+    partial = compare(manual, renamed, "03E9", expected=1)["payload"]
+    assert partial["raw_hex"] == "03E9" and "differences" not in partial
+    assert partial["left"]["fields"][0] == left
+    assert partial["right"] == {"decode_error": "expected 4 bytes, received 2"}
+    assert compare(renamed, manual, "03E9", expected=1)["payload"]["right"]["fields"][0] == left
+    assert compare(manual, manual, "03", expected=1)["payload"]["left"]["decode_error"] == (
+        "expected 2 bytes, received 1"
+    )
+
+    warning = compare(boolean, boolean, "01")["payload"]
+    assert all("noncanonical" in warning[side]["wire_warning"] for side in ("left", "right"))
+    assert warning["differences"] == {"compared_fields": 1, "changed_fields": []}
+
+    octets = output / "octets.toml"
+    ascii_text = output / "ascii.toml"
+    text_mapping = main.replace('fields = ["level", "switch"]', "fields = []").rstrip() + """
+
+[[fields]]
+name = "label"
+bit_offset = 0
+bits = 8
+kind = "octet_string"
+
+[[fields]]
+name = "counter"
+bit_offset = 8
+bits = 8
+kind = "unsigned"
+"""
+    octets.write_text(text_mapping, encoding="utf-8")
+    ascii_text.write_text(text_mapping.replace('"octet_string"', '"ascii_string"'), encoding="utf-8")
+    bad_text = compare(octets, ascii_text, "07FF", expected=1)["payload"]
+    assert bad_text["differences"] == {"compared_fields": 1, "changed_fields": []}
+    assert bad_text["right"]["fields"][0]["value"]["encoding_error"]
+    assert bad_text["right"]["fields"][0]["value"]["bits_hex"] == "FF"
+    assert bad_text["right"]["fields"][1]["value"]["raw"] == "7"
+
+    for malformed in ("0", "GG", "00" * 33):
+        assert not run(cli, command, manual, manual, "--payload", malformed, expected=1)
 
     invalid = output / "invalid.toml"
     invalid.write_text("input_bytes = 999\n", encoding="utf-8")
@@ -4761,7 +4825,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, offline access locks comparison, offline Data Storage metadata review, offline Direct Parameter Page 1, identity pins and IODD comparison, optional device error count and saved evidence, offline error count comparison, saved input mapping comparison, device revision reads and saved connection checks, offline device revision comparison, acyclic process data readback and saved evidence, offline process readback comparison, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, offline access locks comparison, offline Data Storage metadata review, offline Direct Parameter Page 1, identity pins and IODD comparison, optional device error count and saved evidence, offline error count comparison, saved input mapping and recorded payload comparison, device revision reads and saved connection checks, offline device revision comparison, acyclic process data readback and saved evidence, offline process readback comparison, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1351, AL1352 and AL1353 status, ISDU and capture across all ports, one-shot ifm master inspection with supply diagnostics, read-only port configuration and offline snapshot review and comparison, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")

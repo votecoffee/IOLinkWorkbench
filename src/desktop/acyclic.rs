@@ -323,6 +323,7 @@ pub(super) struct Reads {
     latest: [Option<Reading>; Kind::CompareInputMappings as usize + 1],
     input_mapping_left: String,
     input_mapping_right: String,
+    input_mapping_payload: String,
     readback_direction: diagnostics::ReadbackDirection,
     readback_save: String,
     readback_open: String,
@@ -433,6 +434,11 @@ impl App {
                     &mut self.acyclic.input_mapping_right,
                     "Second profile TOML path",
                 );
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.acyclic.input_mapping_payload)
+                        .hint_text("Recorded payload hex (optional)")
+                        .desired_width(350.0),
+                );
             });
             let left = self.acyclic.input_mapping_left.trim();
             let right = self.acyclic.input_mapping_right.trim();
@@ -443,25 +449,33 @@ impl App {
                 )
                 .clicked()
             {
-                self.start_input_mapping_comparison(PathBuf::from(left), PathBuf::from(right));
+                let payload = self.acyclic.input_mapping_payload.trim();
+                self.start_input_mapping_comparison(
+                    PathBuf::from(left),
+                    PathBuf::from(right),
+                    (!payload.is_empty()).then(|| payload.to_owned()),
+                );
             }
             self.acyclic_result(ui, Kind::CompareInputMappings);
         });
     }
 
-    pub(super) fn start_input_mapping_comparison(&mut self, left: PathBuf, right: PathBuf) {
+    pub(super) fn start_input_mapping_comparison(
+        &mut self,
+        left: PathBuf,
+        right: PathBuf,
+        payload: Option<String>,
+    ) {
         self.start_acyclic_output(
             Query::CompareInputMappings(left.clone(), right.clone()),
             move || {
                 let left = Profile::load(&left)?;
                 let right = Profile::load(&right)?;
-                let report = input_mapping::compare(&left, &right);
+                let report =
+                    input_mapping::compare_with_payload(&left, &right, payload.as_deref())?;
                 Ok(Output {
                     text: report.summary_text(),
-                    comparison_sources: Some([
-                        toml::to_string_pretty(&report.left)?,
-                        toml::to_string_pretty(&report.right)?,
-                    ]),
+                    comparison_sources: Some(report.source_texts()?),
                     port_configuration: None,
                 })
             },

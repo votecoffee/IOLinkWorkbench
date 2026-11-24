@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Decode the same recorded payload through two saved input mappings. Review value differences, wire warnings, and per-profile errors alongside the mapping comparison.
+
 - Compare saved input mappings before applying an IODD re-import or host edit. Review effective field definitions and origins, field order, the IODD selection, and input geometry offline.
 
 - Compare saved Device ErrorCount replies by wire equality and signed numeric difference when recorded context matches. Keep both source reviews and the unknown interval error total visible.
