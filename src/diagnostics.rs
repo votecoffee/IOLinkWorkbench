@@ -9,6 +9,7 @@ use serde::Serialize;
 use std::time::Instant;
 
 mod comparison;
+mod device_profile;
 mod error_type;
 mod input_descriptor_mapping;
 mod process_descriptor;
@@ -19,6 +20,7 @@ pub use comparison::{
     Comparison, PendingEventComparison, PendingEventCount, ReplyComparison, SlotChange,
     StatusValues, compare,
 };
+pub use device_profile::{DeviceProfileReview, DeviceProfileSnapshot};
 pub use error_type::{ErrorTypeReport, decode_error_type};
 pub use input_descriptor_mapping::{InputDescriptorPlan, SkippedEntry, plan_input_descriptor};
 pub use process_descriptor::{

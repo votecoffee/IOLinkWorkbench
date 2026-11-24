@@ -166,6 +166,15 @@ enum Command {
     ReviewDiagnostics { snapshot: PathBuf },
     /// Compare two saved diagnostic snapshots by query and wire slot, entirely offline.
     CompareDiagnostics { left: PathBuf, right: PathBuf },
+    /// Read profile IDs and both process descriptors from one configured port.
+    ReadDeviceProfile {
+        profile: PathBuf,
+        /// Save the three replies and their context to a new JSON file.
+        #[arg(long)]
+        snapshot: Option<PathBuf>,
+    },
+    /// Review saved profile IDs and process descriptors offline.
+    ReviewDeviceProfile { snapshot: PathBuf },
     /// Decode a recorded Detailed Device Status payload without opening a transport.
     DecodeDiagnostics {
         profile: PathBuf,
@@ -566,6 +575,31 @@ fn main() -> Result<()> {
             ensure!(
                 review.ok(),
                 "saved diagnostic snapshot needs review; retained results are printed above"
+            );
+        }
+        Command::ReadDeviceProfile { profile, snapshot } => {
+            let profile = Profile::load(&profile)?;
+            if let Some(path) = &snapshot {
+                diagnostics::check_destination(path)?;
+            }
+            let evidence = diagnostics::DeviceProfileSnapshot::read(&profile)?;
+            let review = evidence.review()?;
+            print!("{}", toml::to_string_pretty(&review)?);
+            if let Some(path) = snapshot {
+                evidence.save(&path)?;
+                eprintln!("Saved device profile snapshot {}", path.display());
+            }
+            ensure!(
+                review.ok(),
+                "Device profile needs review. Retained results are printed above."
+            );
+        }
+        Command::ReviewDeviceProfile { snapshot } => {
+            let review = diagnostics::DeviceProfileSnapshot::load(&snapshot)?.review()?;
+            print!("{}", toml::to_string_pretty(&review)?);
+            ensure!(
+                review.ok(),
+                "Device profile needs review. Retained results are printed above."
             );
         }
         Command::CompareDiagnostics { left, right } => {

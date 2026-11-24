@@ -26,7 +26,7 @@ pub struct SavedRead {
 }
 
 impl SavedRead {
-    fn new(gateway: Gateway, read: &Observation) -> Self {
+    pub(super) fn new(gateway: Gateway, read: &Observation) -> Self {
         Self {
             index: read.index,
             subindex: read.subindex,
@@ -41,7 +41,7 @@ impl SavedRead {
         }
     }
 
-    fn checked_bytes(&self, profile: &Profile, index: u16) -> Result<Option<Vec<u8>>> {
+    pub(super) fn checked_bytes(&self, profile: &Profile, index: u16) -> Result<Option<Vec<u8>>> {
         ensure!(
             (self.index, self.subindex) == (index, 0),
             "expected diagnostic query {index}:0"

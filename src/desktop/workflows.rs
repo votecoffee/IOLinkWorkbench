@@ -626,7 +626,7 @@ impl App {
         self.acyclic_result(ui, acyclic::Kind::ProductId);
     }
 
-    fn acyclic_controls(&self, ui: &mut Ui) -> bool {
+    pub(super) fn acyclic_controls(&self, ui: &mut Ui) -> bool {
         if let Some(reason) = self.acyclic_block_reason() {
             ui.colored_label(WARNING, reason);
             false

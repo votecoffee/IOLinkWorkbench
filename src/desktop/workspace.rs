@@ -44,6 +44,7 @@ pub(super) enum DiagnosticsPage {
     Connection,
     Timing,
     Events,
+    DeviceProfile,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub(super) enum IntegrationPage {
@@ -308,6 +309,7 @@ impl App {
                         (DiagnosticsPage::Connection, "Connection & identity"),
                         (DiagnosticsPage::Timing, "Run timing"),
                         (DiagnosticsPage::Events, "Device events"),
+                        (DiagnosticsPage::DeviceProfile, "Device profile"),
                     ],
                 );
             }
@@ -402,6 +404,7 @@ impl App {
             }
             DiagnosticsPage::Timing => self.run_timing(ui),
             DiagnosticsPage::Events => self.device_diagnostics(ui),
+            DiagnosticsPage::DeviceProfile => self.device_profile_panel(ui),
         }
     }
 
@@ -455,6 +458,7 @@ impl App {
             OfflinePage::Events => self.offline_diagnostics.show(ui, &self.profile),
             OfflinePage::DiagnosticSnapshots => {
                 self.saved_master_panel(ui);
+                self.saved_device_profile_panel(ui);
                 self.saved_diagnostics.show(ui);
             }
         }

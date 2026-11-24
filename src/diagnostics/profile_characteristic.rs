@@ -83,7 +83,11 @@ pub fn decode_profile_characteristic(
     profile: Option<&Profile>,
     hex: &str,
 ) -> Result<ProfileCharacteristic> {
-    let bytes = decode::parse_hex_bounded(hex, MAX_ISDU_BYTES)?;
+    let bytes = if hex.trim().is_empty() {
+        Vec::new()
+    } else {
+        decode::parse_hex_bounded(hex, MAX_ISDU_BYTES)?
+    };
     let (words, tail) = bytes.as_chunks::<2>();
     let declared_ids = profile
         .and_then(|profile| profile.iodd.as_ref())
@@ -99,9 +103,9 @@ pub fn decode_profile_characteristic(
         comparison: None,
         decode_error: None,
     };
-    if !tail.is_empty() {
+    if words.is_empty() || !tail.is_empty() {
         report.decode_error =
-            Some("ProfileCharacteristic (13:0) requires complete 16-bit identifiers");
+            Some("ProfileCharacteristic (13:0) requires one or more complete 16-bit identifiers");
         return Ok(report);
     }
     report.reply_ids = words.iter().copied().map(u16::from_be_bytes).collect();

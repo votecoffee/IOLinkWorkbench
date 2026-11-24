@@ -1,6 +1,7 @@
 //! One explicit acyclic operation at a time, with results routed by request.
 use super::{App, WARNING, Worker, background, poll_worker};
 use eframe::egui::{self, Ui};
+use iolink_workbench::diagnostics;
 use iolink_workbench::transport::{
     MasterInspection, MasterInspectionComparison, MasterInspectionSnapshot, inspect_master,
     layout_condition,
@@ -16,6 +17,8 @@ pub(super) enum Kind {
     LayoutCondition,
     MasterInspection,
     SavedMasterInspection,
+    DeviceProfile,
+    SavedDeviceProfile,
 }
 
 pub(super) enum Query {
@@ -31,6 +34,8 @@ pub(super) enum Query {
     MasterInspection,
     SavedMasterInspection(PathBuf),
     CompareMasterSnapshots(PathBuf, PathBuf),
+    DeviceProfile,
+    SavedDeviceProfile(PathBuf),
 }
 
 impl Query {
@@ -42,6 +47,8 @@ impl Query {
             Self::Events => Kind::Events,
             Self::LayoutCondition(_) => Kind::LayoutCondition,
             Self::MasterInspection => Kind::MasterInspection,
+            Self::DeviceProfile => Kind::DeviceProfile,
+            Self::SavedDeviceProfile(_) => Kind::SavedDeviceProfile,
             Self::SavedMasterInspection(_) | Self::CompareMasterSnapshots(..) => {
                 Kind::SavedMasterInspection
             }
@@ -65,6 +72,10 @@ impl Query {
                 plan.layout, plan.parameter_id, plan.index, plan.read_subindex
             ),
             Self::MasterInspection => "Master and port inspection".into(),
+            Self::DeviceProfile => {
+                "Device profile and layouts · indexes 13:0, 14:0 and 15:0".into()
+            }
+            Self::SavedDeviceProfile(path) => format!("Saved device profile · {}", path.display()),
             Self::SavedMasterInspection(path) => {
                 format!("Saved master inspection · {}", path.display())
             }
@@ -120,7 +131,9 @@ pub(super) struct Reading {
 #[derive(Default)]
 pub(super) struct Reads {
     pending: Option<(Query, Worker<Output>)>,
-    latest: [Option<Reading>; 7],
+    latest: [Option<Reading>; 9],
+    device_profile_save: String,
+    device_profile_open: String,
     master_save_path: String,
     master_review_path: String,
     master_compare_path: String,
@@ -151,8 +164,10 @@ impl Reads {
 
     pub fn clear_results(&mut self) {
         let saved_master = self.latest[Kind::SavedMasterInspection as usize].take();
+        let saved_profile = self.latest[Kind::SavedDeviceProfile as usize].take();
         self.latest = Default::default();
         self.latest[Kind::SavedMasterInspection as usize] = saved_master;
+        self.latest[Kind::SavedDeviceProfile as usize] = saved_profile;
     }
 
     pub fn clear_named(&mut self, id: &str) {
@@ -312,6 +327,91 @@ impl App {
             });
     }
 
+    pub(super) fn device_profile_panel(&mut self, ui: &mut Ui) {
+        ui.heading("Device profile and layouts");
+        ui.small("Read profile IDs and process data descriptors from the configured port.");
+        let available = self.acyclic_controls(ui);
+        let read = ui
+            .add_enabled(available, egui::Button::new("Read device profile"))
+            .clicked();
+        let save = ui
+            .collapsing("Read and save device profile snapshot", |ui| {
+                ui.add_enabled_ui(available, |ui| {
+                    super::path_entry(
+                        ui,
+                        &mut self.acyclic.device_profile_save,
+                        "New device profile snapshot JSON path",
+                    );
+                });
+                ui.add_enabled(
+                    available && !self.acyclic.device_profile_save.trim().is_empty(),
+                    egui::Button::new("Read and save device profile"),
+                )
+                .clicked()
+            })
+            .body_returned
+            .unwrap_or(false);
+        if read || save {
+            let destination = save.then(|| PathBuf::from(self.acyclic.device_profile_save.trim()));
+            let profile = self.profile.clone();
+            self.start_acyclic(Query::DeviceProfile, move || {
+                if let Some(path) = &destination {
+                    diagnostics::check_destination(path)?;
+                }
+                let snapshot = diagnostics::DeviceProfileSnapshot::read(&profile)?;
+                let mut text = snapshot.review()?.text();
+                if let Some(path) = destination {
+                    match snapshot.save(&path) {
+                        Ok(()) => text.push_str(&format!(
+                            "\n\nSaved device profile snapshot {}",
+                            path.display()
+                        )),
+                        Err(error) => {
+                            text.push_str(&format!("\n\nSnapshot save failed · {error:#}"))
+                        }
+                    }
+                }
+                Ok(text)
+            });
+        }
+        if ui.button("Review saved device profile…").clicked() {
+            self.acyclic.device_profile_open = self.acyclic.device_profile_save.clone();
+            self.workspace.offline = super::workspace::OfflinePage::DiagnosticSnapshots;
+            self.tab = super::Tab::Offline;
+        }
+        self.acyclic_result(ui, Kind::DeviceProfile);
+    }
+
+    pub(super) fn saved_device_profile_panel(&mut self, ui: &mut Ui) {
+        egui::CollapsingHeader::new("Device profile snapshots")
+            .default_open(!self.acyclic.device_profile_open.is_empty())
+            .show(ui, |ui| {
+                let available = self.acyclic_job_block_reason().is_none();
+                ui.add_enabled_ui(available, |ui| {
+                    super::path_entry(
+                        ui,
+                        &mut self.acyclic.device_profile_open,
+                        "Saved device profile snapshot JSON path",
+                    );
+                });
+                let path = self.acyclic.device_profile_open.trim();
+                if ui
+                    .add_enabled(
+                        available && !path.is_empty(),
+                        egui::Button::new("Open device profile snapshot"),
+                    )
+                    .clicked()
+                {
+                    let path = PathBuf::from(path);
+                    self.start_acyclic_output(Query::SavedDeviceProfile(path.clone()), move || {
+                        let report = diagnostics::DeviceProfileSnapshot::load(&path)?.review()?;
+                        Ok(Output::from(report.text()))
+                    });
+                }
+                self.acyclic_result(ui, Kind::SavedDeviceProfile);
+            });
+    }
+
     pub(super) fn layout_condition_page(&mut self, ui: &mut Ui) {
         if self
             .profile
@@ -399,9 +499,9 @@ impl App {
         work: impl FnOnce() -> anyhow::Result<Output> + Send + 'static,
     ) {
         let blocked = match &query {
-            Query::SavedMasterInspection(_) | Query::CompareMasterSnapshots(..) => {
-                self.acyclic_job_block_reason()
-            }
+            Query::SavedMasterInspection(_)
+            | Query::CompareMasterSnapshots(..)
+            | Query::SavedDeviceProfile(_) => self.acyclic_job_block_reason(),
             _ => self.acyclic_block_reason(),
         };
         if let Some(reason) = blocked {

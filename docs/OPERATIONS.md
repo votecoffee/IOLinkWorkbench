@@ -87,6 +87,17 @@ For a recorded whole **ProfileCharacteristic** reply at index 13, subindex 0, op
 
 Omit `--profile` to decode the reply by itself. The CLI returns 1 for a malformed list or a difference against the declared IDs and prints the available evidence. Both views use the supplied bytes offline.
 
+### Device profile snapshots
+
+Open **Diagnostics → Device profile** to explicitly read **ProfileCharacteristic (13:0)**, **PDInputDescriptor (14:0)**, and **PDOutputDescriptor (15:0)** from the configured port. Choose **Read and save device profile snapshot** to retain all three query outcomes. Use **Offline → Diagnostic snapshots → Device profile snapshots** to reopen the JSON. [IO-Link Common Profile V1.2.1, Annex B](https://io-link.com/fileadmin/user_upload/Downloads/Package_2025/IO-Link_Common_Profile_Specification_10.072_V1.2.1_Oct2025.zip)
+
+```powershell
+.\iolink-cli.exe read-device-profile device.toml --snapshot device-profile.json
+.\iolink-cli.exe review-device-profile device-profile.json
+```
+
+Each query captures its own connection observation, raw reply or read error, host UTC, and elapsed time. The three requests run sequentially through the independent acyclic path while cyclic sampling can continue. The report retains partial successes. Conflicting recorded master, port, or device context withholds comparison against the IODD while preserving each decoded reply. A successful zero-byte descriptor represents an empty layout. An unavailable service appears as a read error. CLI exit 1 signals an incomplete, conflicting, malformed, or differing result with the available evidence on stdout. Saved evidence uses a new path.
+
 ### Process data descriptors
 
 In **Offline → Parameter bytes → Process data descriptors**, choose **Input (14:0)** or **Output (15:0)** and paste the complete recorded reply. Select **Empty reply** for a successful zero-byte reply. Each three-byte descriptor contains a datatype code, bit length and offset. A zero length byte represents 256 bits. The decoder retains the raw reply and flags incomplete, overlapping, out-of-order or out-of-range entries. [IO-Link Common Profile V1.2.1, Annex B.5](https://io-link.com/fileadmin/user_upload/Downloads/Package_2025/IO-Link_Common_Profile_Specification_10.072_V1.2.1_Oct2025.zip)

@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Read ProfileCharacteristic and both process descriptors from one configured port, with independent acyclic access and saved per-query replies. Reopen the snapshot offline and review partial results and target changes.
+
 - Preview and add host-only manual input fields from unoccupied, supported ranges of a recorded PDInputDescriptor reply. The CLI can save a new profile, and the GUI applies reviewed fields to the active profile.
 
 - Review recorded input and output process data descriptors at 14:0 and 15:0. Compare each descriptor's geometry with imported IODD fields, preserving malformed replies, partially mapped ranges, and profile-specific codes.
