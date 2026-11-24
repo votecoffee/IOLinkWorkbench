@@ -129,11 +129,11 @@ impl PendingEventComparison {
 }
 
 impl ReplyComparison {
-    fn new(
+    pub(super) fn new(
         left: &SavedRead,
         right: &SavedRead,
-        inconsistent_snapshot: bool,
-        decoded: bool,
+        context_issue: Option<&'static str>,
+        decode_issue: Option<&'static str>,
     ) -> Self {
         let same_wire_bytes = left
             .raw_hex
@@ -142,12 +142,10 @@ impl ReplyComparison {
             .map(|(a, b)| a == b);
         let interpretation_issue = if same_wire_bytes.is_none() {
             Some("One or both saved replies are unavailable")
-        } else if !decoded {
-            Some("One or both saved replies need length review")
-        } else if inconsistent_snapshot {
-            Some("Recorded identity or master context differs within a snapshot")
         } else {
-            match_context(left, right).err()
+            decode_issue
+                .or(context_issue)
+                .or_else(|| match_context(left, right).err())
         };
         Self {
             same_wire_bytes,
@@ -155,7 +153,7 @@ impl ReplyComparison {
         }
     }
 
-    fn write_summary(&self, text: &mut String, index: u16) {
+    pub(super) fn write_summary(&self, text: &mut String, index: u16) {
         let wire = match self.same_wire_bytes {
             Some(true) => "match",
             Some(false) => "differ",
@@ -172,9 +170,12 @@ impl ReplyComparison {
 pub fn compare(left: &Snapshot, right: &Snapshot) -> Result<Comparison> {
     let left = left.review()?;
     let right = right.review()?;
-    let inconsistent_snapshot = [&left, &right].iter().any(|review| {
-        review.observed_master_conflict || review.observed_identities_equal == Some(false)
-    });
+    let context_issue = [&left, &right]
+        .iter()
+        .any(|review| {
+            review.observed_master_conflict || review.observed_identities_equal == Some(false)
+        })
+        .then_some("Recorded identity or master context differs within a snapshot");
     let status_values = left
         .device_status
         .as_ref()
@@ -188,14 +189,18 @@ pub fn compare(left: &Snapshot, right: &Snapshot) -> Result<Comparison> {
     let device_status_reply = ReplyComparison::new(
         &left.reads[0],
         &right.reads[0],
-        inconsistent_snapshot,
-        status_values.is_some(),
+        context_issue,
+        status_values
+            .is_none()
+            .then_some("One or both saved replies need length review"),
     );
     let detailed_status_reply = ReplyComparison::new(
         &left.reads[1],
         &right.reads[1],
-        inconsistent_snapshot,
-        detailed.is_some(),
+        context_issue,
+        detailed
+            .is_none()
+            .then_some("One or both saved replies need length review"),
     );
     let device_status_values = status_values
         .filter(|_| device_status_reply.interpretation_issue.is_none())

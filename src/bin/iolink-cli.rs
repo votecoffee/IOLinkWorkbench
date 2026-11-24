@@ -175,6 +175,8 @@ enum Command {
     },
     /// Review saved profile IDs and process descriptors offline.
     ReviewDeviceProfile { snapshot: PathBuf },
+    /// Compare two saved device profile snapshots offline.
+    CompareDeviceProfiles { left: PathBuf, right: PathBuf },
     /// Decode a recorded Detailed Device Status payload without opening a transport.
     DecodeDiagnostics {
         profile: PathBuf,
@@ -600,6 +602,14 @@ fn main() -> Result<()> {
             ensure!(
                 review.ok(),
                 "Device profile needs review. Retained results are printed above."
+            );
+        }
+        Command::CompareDeviceProfiles { left, right } => {
+            let comparison = diagnostics::DeviceProfileComparison::load(&left, &right)?;
+            print!("{}", toml::to_string_pretty(&comparison)?);
+            ensure!(
+                comparison.ok(),
+                "Device profile comparison needs review. Retained results are printed above."
             );
         }
         Command::CompareDiagnostics { left, right } => {

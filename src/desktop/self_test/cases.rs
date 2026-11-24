@@ -229,6 +229,7 @@ pub(super) fn render(
                 "master-inspection",
                 "diagnostics-events",
                 "diagnostics-device-profile",
+                "offline-device-profile-comparison",
                 "offline-compare",
                 "offline-signal",
                 "offline-raw-signal",
@@ -575,6 +576,31 @@ pub(super) fn render(
                         app.setup.sync(&app.profile);
                         app.tab = Tab::Mappings;
                     }
+                    "offline-device-profile-comparison" => {
+                        let snapshot = iolink_workbench::diagnostics::DeviceProfileSnapshot::read(
+                            &Profile::default(),
+                        )?;
+                        let report = iolink_workbench::diagnostics::compare_device_profiles(
+                            &snapshot, &snapshot,
+                        )?;
+                        ensure!(
+                            report.ok(),
+                            "synthetic saved profile comparison must decode"
+                        );
+                        app.acyclic.store_result(
+                            Query::CompareDeviceProfiles(
+                                ".local/left.json".into(),
+                                ".local/right.json".into(),
+                            ),
+                            Ok(Output {
+                                text: report.summary_text(),
+                                comparison_sources: Some([report.left.text(), report.right.text()]),
+                                port_configuration: None,
+                            }),
+                        );
+                        app.tab = Tab::Offline;
+                        app.workspace.offline = OfflinePage::DiagnosticSnapshots;
+                    }
                     "diagnostics-device-profile" => {
                         let snapshot = iolink_workbench::diagnostics::DeviceProfileSnapshot::read(
                             &Profile::default(),
@@ -827,6 +853,7 @@ pub(super) fn render(
                     "Standalone Boolean input has a noncanonical byte. The IODD interprets any nonzero byte as true.",
                 ),
                 "diagnostics-device-profile" => Some("Read device profile"),
+                "offline-device-profile-comparison" => Some("Compare device profile snapshots"),
                 "offline-descriptor-plan" => Some(
                     "Suggested manual fields · 3\nInput width · 2 bytes\nInput bit 0 · Bool · width 1 · offset 0\nInput bit 1 · Bool · width 1 · offset 1\nInput bit 2 · Signed · width 14 · offset 2",
                 ),
@@ -986,7 +1013,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 132);
+        assert_eq!(cases.len(), 133);
         assert!(
             cases
                 .iter()

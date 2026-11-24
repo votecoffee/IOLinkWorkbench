@@ -49,7 +49,7 @@ pub struct ProcessDescriptor {
     pub review: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct DescriptorEntry {
     pub datatype_code: u8,
     pub datatype: &'static str,

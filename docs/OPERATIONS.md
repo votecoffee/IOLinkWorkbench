@@ -98,6 +98,16 @@ Open **Diagnostics → Device profile** to explicitly read **ProfileCharacterist
 
 Each query captures its own connection observation, raw reply or read error, host UTC, and elapsed time. The three requests run sequentially through the independent acyclic path while cyclic sampling can continue. The report retains partial successes. Conflicting recorded master, port, or device context withholds comparison against the IODD while preserving each decoded reply. A successful zero-byte descriptor represents an empty layout. An unavailable service appears as a read error. CLI exit 1 signals an incomplete, conflicting, malformed, or differing result with the available evidence on stdout. Saved evidence uses a new path.
 
+#### Compare two saved device profiles
+
+Open **Offline → Diagnostic snapshots → Device profile snapshots → Compare two device profile snapshots** and select the first and second files. The report shows byte equality for each available reply and keeps both full reviews. When the replies decode and their saved endpoint, gateway, port, mode, master and device evidence match, it lists added or removed profile IDs and changes to descriptor datatypes and widths by starting bit offset. A zero-byte descriptor is an observed empty layout. If a reply is missing, malformed, or has conflicting or incomplete identity context, the affected comparison reports the reason alongside the available wire evidence.
+
+```powershell
+.\iolink-cli.exe compare-device-profiles earlier.json later.json
+```
+
+Exit 0 means all three comparisons were available, including cases with differences. Exit 1 means at least one comparison needs review. The command uses the saved files offline.
+
 ### Process data descriptors
 
 In **Offline → Parameter bytes → Process data descriptors**, choose **Input (14:0)** or **Output (15:0)** and paste the complete recorded reply. Select **Empty reply** for a successful zero-byte reply. Each three-byte descriptor contains a datatype code, bit length and offset. A zero length byte represents 256 bits. The decoder retains the raw reply and flags incomplete, overlapping, out-of-order or out-of-range entries. [IO-Link Common Profile V1.2.1, Annex B.5](https://io-link.com/fileadmin/user_upload/Downloads/Package_2025/IO-Link_Common_Profile_Specification_10.072_V1.2.1_Oct2025.zip)

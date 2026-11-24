@@ -36,6 +36,7 @@ pub(super) enum Query {
     CompareMasterSnapshots(PathBuf, PathBuf),
     DeviceProfile,
     SavedDeviceProfile(PathBuf),
+    CompareDeviceProfiles(PathBuf, PathBuf),
 }
 
 impl Query {
@@ -48,7 +49,9 @@ impl Query {
             Self::LayoutCondition(_) => Kind::LayoutCondition,
             Self::MasterInspection => Kind::MasterInspection,
             Self::DeviceProfile => Kind::DeviceProfile,
-            Self::SavedDeviceProfile(_) => Kind::SavedDeviceProfile,
+            Self::SavedDeviceProfile(_) | Self::CompareDeviceProfiles(..) => {
+                Kind::SavedDeviceProfile
+            }
             Self::SavedMasterInspection(_) | Self::CompareMasterSnapshots(..) => {
                 Kind::SavedMasterInspection
             }
@@ -76,6 +79,11 @@ impl Query {
                 "Device profile and layouts · indexes 13:0, 14:0 and 15:0".into()
             }
             Self::SavedDeviceProfile(path) => format!("Saved device profile · {}", path.display()),
+            Self::CompareDeviceProfiles(left, right) => format!(
+                "Device profile snapshots · {} → {}",
+                left.display(),
+                right.display()
+            ),
             Self::SavedMasterInspection(path) => {
                 format!("Saved master inspection · {}", path.display())
             }
@@ -134,6 +142,7 @@ pub(super) struct Reads {
     latest: [Option<Reading>; 9],
     device_profile_save: String,
     device_profile_open: String,
+    device_profile_compare: String,
     master_save_path: String,
     master_review_path: String,
     master_compare_path: String,
@@ -408,6 +417,41 @@ impl App {
                         Ok(Output::from(report.text()))
                     });
                 }
+                ui.collapsing("Compare two device profile snapshots", |ui| {
+                    ui.add_enabled_ui(available, |ui| {
+                        super::path_entry(
+                            ui,
+                            &mut self.acyclic.device_profile_compare,
+                            "Second device profile snapshot JSON path",
+                        );
+                    });
+                    let left = self.acyclic.device_profile_open.trim();
+                    let right = self.acyclic.device_profile_compare.trim();
+                    if ui
+                        .add_enabled(
+                            available && !left.is_empty() && !right.is_empty(),
+                            egui::Button::new("Compare device profile snapshots"),
+                        )
+                        .clicked()
+                    {
+                        let (left, right) = (PathBuf::from(left), PathBuf::from(right));
+                        self.start_acyclic_output(
+                            Query::CompareDeviceProfiles(left.clone(), right.clone()),
+                            move || {
+                                let report =
+                                    diagnostics::DeviceProfileComparison::load(&left, &right)?;
+                                Ok(Output {
+                                    text: report.summary_text(),
+                                    comparison_sources: Some([
+                                        report.left.text(),
+                                        report.right.text(),
+                                    ]),
+                                    port_configuration: None,
+                                })
+                            },
+                        );
+                    }
+                });
                 self.acyclic_result(ui, Kind::SavedDeviceProfile);
             });
     }
@@ -501,7 +545,8 @@ impl App {
         let blocked = match &query {
             Query::SavedMasterInspection(_)
             | Query::CompareMasterSnapshots(..)
-            | Query::SavedDeviceProfile(_) => self.acyclic_job_block_reason(),
+            | Query::SavedDeviceProfile(_)
+            | Query::CompareDeviceProfiles(..) => self.acyclic_job_block_reason(),
             _ => self.acyclic_block_reason(),
         };
         if let Some(reason) = blocked {
@@ -546,8 +591,17 @@ impl App {
                     }
                     ui.monospace(&output.text);
                     if let Some([left, right]) = &output.comparison_sources {
-                        ui.collapsing("Left master snapshot", |ui| ui.monospace(left));
-                        ui.collapsing("Right master snapshot", |ui| ui.monospace(right));
+                        let (left_title, right_title) =
+                            if matches!(reading.query, Query::CompareDeviceProfiles(..)) {
+                                (
+                                    "Left device profile snapshot",
+                                    "Right device profile snapshot",
+                                )
+                            } else {
+                                ("Left master snapshot", "Right master snapshot")
+                            };
+                        ui.collapsing(left_title, |ui| ui.monospace(left));
+                        ui.collapsing(right_title, |ui| ui.monospace(right));
                     }
                 }
                 Err(error) => {

@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Compare saved device profile snapshots by exact reply bytes, added and removed profile IDs, and descriptor changes by starting offset. Review both source snapshots with any restrictions from missing replies or changed target context.
+
 - Read ProfileCharacteristic and both process descriptors from one configured port, with independent acyclic access and saved per-query replies. Reopen the snapshot offline and review partial results and target changes.
 
 - Preview and add host-only manual input fields from unoccupied, supported ranges of a recorded PDInputDescriptor reply. The CLI can save a new profile, and the GUI applies reviewed fields to the active profile.

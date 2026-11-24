@@ -2983,6 +2983,92 @@ def verify_device_profile_snapshot(cli, profile, output, endpoint=None):
         Gateway.polls, Gateway.inject_faults, Gateway.device_id = previous
 
 
+def verify_device_profile_comparison(cli, snapshot, output, loopback=False):
+    output.mkdir()
+    original = snapshot.read_bytes()
+    before = Gateway.requests
+    command = "compare-device-profiles"
+    same = tomllib.loads(run(cli, command, snapshot, snapshot))
+    for key in ("profile_characteristic_reply", "input_descriptor_reply", "output_descriptor_reply"):
+        assert same[key] == {"same_wire_bytes": True}
+    assert same["profile_ids"] == {"added_ids": [], "removed_ids": []}
+    assert same["input_changes"] == same["output_changes"] == []
+    assert same["left"] == same["right"]
+
+    if loopback:
+        changed = snapshot.with_name("changed-target.json")
+        blocked = tomllib.loads(run(cli, command, snapshot, changed, expected=1))
+        assert blocked["profile_characteristic_reply"]["same_wire_bytes"] is True
+        assert "within a snapshot" in blocked["profile_characteristic_reply"]["interpretation_issue"]
+        assert "profile_ids" not in blocked and "input_changes" not in blocked
+        other_endpoint = output / "other-endpoint.json"
+        endpoint = json.loads(original)
+        endpoint["profile"]["connection"]["endpoint"] = "http://127.0.0.1:9"
+        other_endpoint.write_text(json.dumps(endpoint), encoding="utf-8")
+        blocked = tomllib.loads(run(cli, command, snapshot, other_endpoint, expected=1))
+        assert blocked["input_descriptor_reply"] == {
+            "same_wire_bytes": True, "interpretation_issue": "Saved gateway endpoints differ",
+        }
+        assert "input_changes" not in blocked and Gateway.requests == before
+        return
+
+    changed = output / "changed.json"
+    new = json.loads(original)
+    new["reads"][0]["raw_hex"] = "000540038101"
+    new["reads"][1]["raw_hex"] = "010100020701010108"
+    new["reads"][2]["raw_hex"] = "020800"
+    changed.write_text(json.dumps(new), encoding="utf-8")
+    diff = tomllib.loads(run(cli, command, snapshot, changed))
+    assert diff["profile_ids"] == {"added_ids": [5, 0x4003, 0x8101], "removed_ids": [0x4000]}
+    a, b = diff["input_changes"]
+    assert a["bit_offset"] == 1 and (a["left"]["datatype_code"], a["left"]["bits"]) == (3, 15)
+    assert (a["right"]["datatype_code"], a["right"]["bits"]) == (2, 7)
+    assert b["bit_offset"] == 8 and "left" not in b and b["right"]["bits"] == 1
+    assert diff["output_changes"][0]["right"]["bits"] == 8
+    assert not diff["output_descriptor_reply"]["same_wire_bytes"]
+    reverse = tomllib.loads(run(cli, command, changed, snapshot))
+    assert reverse["output_changes"][0]["left"]["bits"] == 8 and "right" not in reverse["output_changes"][0]
+    assert reverse["profile_ids"]["removed_ids"] == diff["profile_ids"]["added_ids"]
+
+    partial = output / "partial.json"
+    new["reads"][1]["raw_hex"] = None
+    new["reads"][1]["read_error"] = "Synthetic descriptor read failure"
+    partial.write_text(json.dumps(new), encoding="utf-8")
+    diff = tomllib.loads(run(cli, command, snapshot, partial, expected=1))
+    assert "same_wire_bytes" not in diff["input_descriptor_reply"]
+    assert "input_changes" not in diff and diff["output_changes"][0]["right"]["bits"] == 8
+
+    malformed = output / "malformed.json"
+    new["reads"][1]["raw_hex"] = "0100"
+    new["reads"][1]["read_error"] = None
+    malformed.write_text(json.dumps(new), encoding="utf-8")
+    diff = tomllib.loads(run(cli, command, snapshot, malformed, expected=1))
+    assert not diff["input_descriptor_reply"]["same_wire_bytes"]
+    assert "decoding review" in diff["input_descriptor_reply"]["interpretation_issue"]
+    assert "input_changes" not in diff and "profile_ids" in diff
+
+    other = output / "other-sensor.json"
+    new = json.loads(original)
+    for read in new["reads"]:
+        read["observation"]["identity"]["serial"] = "SIM-OTHER"
+    other.write_text(json.dumps(new), encoding="utf-8")
+    diff = tomllib.loads(run(cli, command, snapshot, other, expected=1))
+    assert diff["profile_characteristic_reply"] == {
+        "same_wire_bytes": True, "interpretation_issue": "Recorded device identity differs",
+    }
+    assert "profile_ids" not in diff and "output_changes" not in diff
+    missing_identity = output / "missing-serial.json"
+    new = json.loads(original)
+    for read in new["reads"]:
+        read["observation"]["identity"]["serial"] = None
+    missing_identity.write_text(json.dumps(new), encoding="utf-8")
+    diff = tomllib.loads(run(cli, command, snapshot, missing_identity, expected=1))
+    assert diff["input_descriptor_reply"]["same_wire_bytes"] is True
+    assert "serial is unavailable" in diff["input_descriptor_reply"]["interpretation_issue"]
+    assert "input_changes" not in diff
+    assert Gateway.requests == before and snapshot.read_bytes() == original
+
+
 def verify_communication(cli, output):
     output.mkdir()
     xml = ROOT / "samples/sensor-communication.xml"
@@ -3215,6 +3301,8 @@ def main():
     verify_input_descriptor_plan(cli, scratch / "input-descriptor-plan")
     no_output = scratch / "process-descriptors/no-output.toml"
     verify_device_profile_snapshot(cli, no_output, scratch / "sim-device-profile")
+    verify_device_profile_comparison(cli, scratch / "sim-device-profile/device-profile.json",
+                                     scratch / "sim-device-profile-comparison")
     standard_range_profile = verify_standard_ranges(cli, scratch / "standard-ranges")
     verify_error_types(cli, scratch / "error-types")
     verify_defaults(cli, scratch / "defaults")
@@ -3541,6 +3629,8 @@ kind = "bool"
             verify_profile_characteristic_loopback(cli, features_profile, endpoint, scratch / "ifm-profile-characteristic")
             verify_process_descriptor_loopback(cli, descriptor_profile, endpoint, scratch / "ifm-process-descriptors")
             verify_device_profile_snapshot(cli, descriptor_profile, scratch / "ifm-device-profile", endpoint)
+            verify_device_profile_comparison(cli, scratch / "ifm-device-profile/device-profile.json",
+                                             scratch / "ifm-device-profile-comparison", loopback=True)
             verify_standalone_input_capture(
                 cli, padded_input_profile, endpoint, scratch / "ifm-padded-input", "integer",
                 "noncanonical_input_padding_rows",
@@ -3665,7 +3755,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline review, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1351, AL1352 and AL1353 status, ISDU and capture across all ports, one-shot ifm master inspection with supply diagnostics, read-only port configuration and offline snapshot review and comparison, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")
