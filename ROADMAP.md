@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Read device HardwareRevision and FirmwareRevision at 22:0 and 23:0. Preserve partial replies, detect changed device or master context, and decode recorded strings offline.
+
 - Read the optional device ErrorCount at 32:0, with saved raw replies, read errors and offline decoding. Keep the vendor count separate from pending events and source-loss accounting.
 
 - Compare recorded Page 1 minimum cycle, SIO, M-sequence capability and payload byte widths with the saved IODD. Keep geometry comparisons conditional on the selected layout and show unavailable evidence explicitly.

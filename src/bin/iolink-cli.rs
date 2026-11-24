@@ -166,6 +166,17 @@ enum Command {
     ReviewDiagnostics { snapshot: PathBuf },
     /// Compare two saved diagnostic snapshots by query and wire slot, entirely offline.
     CompareDiagnostics { left: PathBuf, right: PathBuf },
+    /// Decode a recorded hardware (22:0) or firmware (23:0) revision reply.
+    DecodeDeviceRevision { index: u16, payload: String },
+    /// Read the optional device hardware and firmware revisions from the configured port.
+    ReadDeviceRevisions {
+        profile: PathBuf,
+        /// Save both queries and their connection context to a new JSON file.
+        #[arg(long)]
+        snapshot: Option<PathBuf>,
+    },
+    /// Review saved device revision replies offline.
+    ReviewDeviceRevisions { snapshot: PathBuf },
     /// Decode a recorded Device ErrorCount reply (32:0).
     DecodeErrorCount { payload: String },
     /// Read the optional Device ErrorCount once from the configured port.
@@ -611,6 +622,40 @@ fn main() -> Result<()> {
             ensure!(
                 review.ok(),
                 "saved diagnostic snapshot needs review; retained results are printed above"
+            );
+        }
+        Command::DecodeDeviceRevision { index, payload } => {
+            let report = diagnostics::decode_device_revision(index.try_into()?, &payload)?;
+            print!("{}", toml::to_string_pretty(&report)?);
+            ensure!(
+                report.ok(),
+                "Device revision reply needs review. Retained results are printed above."
+            );
+        }
+        Command::ReadDeviceRevisions { profile, snapshot } => {
+            let profile = Profile::load(&profile)?;
+            if let Some(path) = &snapshot {
+                diagnostics::check_destination(path)?;
+            }
+            let evidence = diagnostics::DeviceRevisionsSnapshot::read(&profile)?;
+            let review = evidence.review()?;
+            print!("{}", toml::to_string_pretty(&review)?);
+            if let Some(path) = snapshot {
+                evidence.save(&path)?;
+                eprintln!("Saved device revisions snapshot {}", path.display());
+            }
+            ensure!(
+                review.ok(),
+                "Device revisions need review. Retained results are printed above."
+            );
+        }
+        Command::ReviewDeviceRevisions { snapshot } => {
+            let evidence = diagnostics::DeviceRevisionsSnapshot::load(&snapshot)?;
+            let review = evidence.review()?;
+            print!("{}", toml::to_string_pretty(&review)?);
+            ensure!(
+                review.ok(),
+                "Saved device revisions need review. Retained results are printed above."
             );
         }
         Command::DecodeErrorCount { payload } => {

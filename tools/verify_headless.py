@@ -39,6 +39,8 @@ class Gateway(BaseHTTPRequestHandler):
     change_profile_target = False
     detailed_payload = "E48DFE000000"
     error_count_reply = "A001"
+    firmware_revision_reply = "46572DC2B52E39"
+    change_serial_after_hardware = False
     change_serial_after_status = False
     change_master_after_status = False
     payload = "03C9"
@@ -96,7 +98,7 @@ class Gateway(BaseHTTPRequestHandler):
                 # Documented examples use both styles of path key.
                 response["data"][path if self.polls % 2 else path.lstrip("/")] = result
         elif address == self.device + "/iolreadacyclic" and request["data"] in (
-                *({"index": index, "subindex": 0} for index in (12, 13, 14, 15, 32)),
+                *({"index": index, "subindex": 0} for index in (12, 13, 14, 15, 22, 23, 32)),
                 {"index": 19, "subindex": 0}, {"index": 36, "subindex": 0}, {"index": 37, "subindex": 0}, {"index": 48, "subindex": 0}, {"index": 64, "subindex": 0}, {"index": 65, "subindex": 0},
                 *({"index": 66, "subindex": subindex} for subindex in range(5)),
                 *({"index": 67, "subindex": subindex} for subindex in range(8)),
@@ -116,6 +118,7 @@ class Gateway(BaseHTTPRequestHandler):
             response["data"] = {"value": {
                 (12, 0): "000C", (13, 0): "40008000FFFF", (14, 0): "010100030F01", (15, 0): "010200020302",
                 (19, 0): "53494D2D53454E534F52", (48, 0): "2A", (64, 0): self.threshold_payload, (65, 0): "666978747572652073656E736F72",
+                (22, 0): "48572D322E310000", (23, 0): self.firmware_revision_reply,
                 (32, 0): self.error_count_reply, (36, 0): "02", (37, 0): self.detailed_payload,
                 (66, 0): self.record_payload, (66, 1): "FFEC", (66, 2): "01", (66, 3): "0A", (66, 4): "54455354",
                 (67, 0): self.array_payload, (67, 1): "02", (67, 2): "FC", (67, 3): "04", (67, 4): "F9", (67, 5): "05", (67, 6): "FF", (67, 7): "00",
@@ -137,8 +140,10 @@ class Gateway(BaseHTTPRequestHandler):
                 or (index == 12 and self.fail_access_locks)
             ):
                 response["code"] = 500
-            if index == 32 and self.error_count_reply is None:
+            if (index == 32 and self.error_count_reply is None) or (index == 23 and self.firmware_revision_reply is None):
                 response["code"] = 404
+            if index == 22 and self.change_serial_after_hardware:
+                self.data[self.device + "/serial"] = "CHANGED-SENSOR"
             if index == 13 and self.change_profile_target:
                 self.data[self.device + "/serial"] = "CHANGED-SENSOR"
                 self.data["/deviceinfo/serialnumber"] = "CHANGED-MASTER"
@@ -350,7 +355,8 @@ def capture(cli, profile, path, *args):
 
 
 def parallel_parameter_read(cli, fixture, output, diagnostics=False, layout_fixture=None,
-                            device_profile=False, access_locks=False, error_count=False):
+                            device_profile=False, access_locks=False, error_count=False,
+                            device_revisions=False):
     Gateway.device_id = 1
     Gateway.polls = 0
     Gateway.inject_faults = False
@@ -366,6 +372,8 @@ def parallel_parameter_read(cli, fixture, output, diagnostics=False, layout_fixt
         index, command = 12, [cli, "read-device-access-locks", fixture, "--snapshot", snapshot_path]
     elif error_count:
         index, command = 32, [cli, "read-error-count", fixture, "--snapshot", snapshot_path]
+    elif device_revisions:
+        index, command = 23, [cli, "read-device-revisions", fixture, "--snapshot", snapshot_path]
     else:
         index, command = 64, [cli, "read-parameter", fixture, "V_SIM_Threshold", "--snapshot", snapshot_path]
     Gateway.block_index = index
@@ -409,6 +417,9 @@ def parallel_parameter_read(cli, fixture, output, diagnostics=False, layout_fixt
         elif error_count:
             assert tomllib.loads(stdout)["decoded"]["value"] == 0xA001
             assert json.loads(snapshot_path.read_bytes())["read"]["index"] == 32
+        elif device_revisions:
+            assert tomllib.loads(stdout)["firmware"]["value"] == "FW-µ.9"
+            assert [read["index"] for read in json.loads(snapshot_path.read_bytes())["reads"]] == [22, 23]
         else:
             assert tomllib.loads(stdout)["raw_value"] == "500"
             assert json.loads(snapshot_path.read_text(encoding="utf-8"))["raw_hex"] == "01F4"
@@ -3088,6 +3099,100 @@ def verify_device_profile_comparison(cli, snapshot, output, loopback=False):
     assert Gateway.requests == before and snapshot.read_bytes() == original
 
 
+def verify_device_revisions(cli, profile, output, loopback=False):
+    output.mkdir()
+    original_profile = profile.read_bytes()
+    before = Gateway.requests
+
+    def decode_reply(index, raw, status=0):
+        return tomllib.loads(run(cli, "decode-device-revision", index, raw, expected=status))
+
+    document = decode_reply(22, "0x48 57 20 C2 B5 00")
+    assert document == {"index": 22, "raw_hex": "485720C2B500", "value": "HW µ"}
+    assert decode_reply(23, "2046572020")["value"] == " FW  "
+    assert decode_reply(23, "41" * 64)["value"] == "A" * 64
+    for raw, issue in (("", "blank"), ("0000", "blank"), ("2000", "blank"),
+                       ("41" * 65, "exceeds 64 bytes"), ("C228", "invalid UTF-8"),
+                       ("410042", "nonzero string padding")):
+        result = decode_reply(22, raw, 1)
+        assert result["raw_hex"] == raw and issue in result["decode_error"]
+    assert not run(cli, "decode-device-revision", 21, "41", expected=1)
+    assert not run(cli, "decode-device-revision", 23, "GG", expected=1)
+    assert Gateway.requests == before
+
+    path = output / "device-revisions.json"
+    command = "read-device-revisions"
+    reopen = "review-device-revisions"
+    reads = Gateway.isdu_reads
+    result = tomllib.loads(run(cli, command, profile, "--snapshot", path))
+    assert Gateway.isdu_reads == reads + (2 if loopback else 0)
+    assert result["observed_context_matches"] and "context_issue" not in result
+    assert [(read["index"], read["subindex"]) for read in result["reads"]] == [(22, 0), (23, 0)]
+    assert all(read["host_read_utc"].endswith("Z") and read["observation"]["port"] == 1
+               for read in result["reads"])
+    assert result["hardware"]["value"] == ("HW-2.1" if loopback else "SIM-HW-A")
+    assert result["firmware"]["value"] == ("FW-µ.9" if loopback else "SIM-FW-1.2")
+    assert result["hardware"]["raw_hex"].endswith("0000")
+    original = path.read_bytes()
+    before = Gateway.requests
+    assert tomllib.loads(run(cli, reopen, path)) == result
+    assert not run(cli, command, profile, "--snapshot", path, expected=1)
+    assert Gateway.requests == before and path.read_bytes() == original
+
+    missing = output / "missing-serial.json"
+    saved = json.loads(original)
+    saved["reads"][1]["observation"]["identity"]["serial"] = None
+    missing.write_text(json.dumps(saved), encoding="utf-8")
+    uncertain = tomllib.loads(run(cli, reopen, missing))
+    assert "observed_context_matches" not in uncertain and "unavailable" in uncertain["context_issue"]
+    assert uncertain["hardware"] == result["hardware"] and uncertain["firmware"] == result["firmware"]
+
+    wrong = output / "wrong-index.json"
+    saved["reads"][1]["index"] = 22
+    wrong.write_text(json.dumps(saved), encoding="utf-8")
+    assert not run(cli, reopen, wrong, expected=1)
+    assert Gateway.requests == before
+
+    if loopback:
+        for name, response in (("optional-unavailable", None), ("malformed", "410042")):
+            Gateway.firmware_revision_reply = response
+            destination = output / f"{name}.json"
+            try:
+                partial = tomllib.loads(run(cli, command, profile, "--snapshot", destination, expected=1))
+            finally:
+                Gateway.firmware_revision_reply = "46572DC2B52E39"
+            assert partial["hardware"]["value"] == "HW-2.1"
+            assert partial["reads"][1]["observation"]["identity"]["serial"] == "FIXTURE-SENSOR"
+            if response is None:
+                assert "firmware" not in partial and "404" in partial["reads"][1]["read_error"]
+            else:
+                assert partial["firmware"]["raw_hex"] == response and "decode_error" in partial["firmware"]
+            before = Gateway.requests
+            assert tomllib.loads(run(cli, reopen, destination, expected=1)) == partial
+            assert Gateway.requests == before
+
+        changed = output / "changed-device.json"
+        Gateway.change_serial_after_hardware = True
+        try:
+            mismatch = tomllib.loads(run(cli, command, profile, "--snapshot", changed, expected=1))
+        finally:
+            Gateway.change_serial_after_hardware = False
+            Gateway.data[Gateway.device + "/serial"] = "FIXTURE-SENSOR"
+        assert mismatch["observed_context_matches"] is False
+        assert mismatch["context_issue"] == "Recorded device identity differs"
+        assert mismatch["hardware"]["value"] == "HW-2.1" and mismatch["firmware"]["value"] == "FW-µ.9"
+        before = Gateway.requests
+        assert tomllib.loads(run(cli, reopen, changed, expected=1)) == mismatch
+        mixed = output / "known-conflict-with-missing-master-serial.json"
+        saved_conflict = json.loads(changed.read_bytes())
+        saved_conflict["reads"][0]["observation"]["master_serial"] = None
+        mixed.write_text(json.dumps(saved_conflict), encoding="utf-8")
+        assert tomllib.loads(run(cli, reopen, mixed, expected=1))["observed_context_matches"] is False
+        assert Gateway.requests == before
+        parallel_parameter_read(cli, profile, output / "parallel", device_revisions=True)
+    assert profile.read_bytes() == original_profile
+
+
 def verify_error_count(cli, profile, output, loopback=False):
     output.mkdir()
     before = Gateway.requests
@@ -3651,6 +3756,7 @@ def main():
     verify_data_storage(cli)
     verify_direct_page(cli, features_profile)
     verify_error_count(cli, features_profile, scratch / "sim-error-count")
+    verify_device_revisions(cli, features_profile, scratch / "sim-device-revisions")
     verify_direct_page_comparison(cli, communication_profile, scratch / "direct-page-comparison")
     verify_profile_characteristic(cli, features_profile, scratch / "profile-characteristic")
     descriptor_profile = verify_process_descriptors(cli, scratch / "process-descriptors")
@@ -4061,6 +4167,7 @@ kind = "bool"
             verify_whole_layout_conditions(cli, endpoint, scratch / "ifm-layout-condition-whole")
             verify_diagnostic_snapshots(cli, parameter_fixture, scratch / "ifm-diagnostic-snapshots", loopback=True)
             verify_error_count(cli, parameter_fixture, scratch / "ifm-error-count", loopback=True)
+            verify_device_revisions(cli, parameter_fixture, scratch / "ifm-device-revisions", loopback=True)
             changed_identity_path = scratch / "changed-device.json"
             Gateway.change_serial_after_status = True
             try:
@@ -4113,7 +4220,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, offline Data Storage metadata review, offline Direct Parameter Page 1, identity pins and IODD comparison, optional device error count and saved evidence, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, offline Data Storage metadata review, offline Direct Parameter Page 1, identity pins and IODD comparison, optional device error count and saved evidence, device revision reads and saved connection checks, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1351, AL1352 and AL1353 status, ISDU and capture across all ports, one-shot ifm master inspection with supply diagnostics, read-only port configuration and offline snapshot review and comparison, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")

@@ -230,6 +230,7 @@ pub(super) fn render(
                 "diagnostics-events",
                 "diagnostics-error-count",
                 "diagnostics-device-profile",
+                "diagnostics-device-revisions",
                 "offline-device-profile-comparison",
                 "offline-compare",
                 "offline-signal",
@@ -251,6 +252,7 @@ pub(super) fn render(
                 "offline-data-storage",
                 "offline-direct-page",
                 "offline-direct-page-comparison",
+                "offline-device-revision",
                 "offline-profile-ids",
                 "offline-process-descriptor",
                 "offline-descriptor-plan",
@@ -314,6 +316,11 @@ pub(super) fn render(
                             }
                             _ => app.tab = Tab::Mappings,
                         }
+                    }
+                    "offline-device-revision" => {
+                        app.tab = Tab::Offline;
+                        app.workspace.offline = OfflinePage::Parameter;
+                        app.offline_parameter.revision_payloads[0] = "48572D410000".into();
                     }
                     "offline-direct-page-comparison" => {
                         let catalog = iodd::parse(
@@ -646,6 +653,10 @@ pub(super) fn render(
                         app.tab = Tab::Offline;
                         app.workspace.offline = OfflinePage::DiagnosticSnapshots;
                     }
+                    "diagnostics-device-revisions" => {
+                        app.tab = Tab::Diagnostics;
+                        app.workspace.diagnostics = DiagnosticsPage::Connection;
+                    }
                     "diagnostics-device-profile" => {
                         let snapshot = iolink_workbench::diagnostics::DeviceProfileSnapshot::read(
                             &Profile::default(),
@@ -903,6 +914,8 @@ pub(super) fn render(
                     "Standalone Boolean input has a noncanonical byte. The IODD interprets any nonzero byte as true.",
                 ),
                 "diagnostics-device-profile" => Some("Read device profile"),
+                "diagnostics-device-revisions" => Some("Read device revisions"),
+                "offline-device-revision" => Some("Raw reply · 48572D410000\nRevision · \"HW-A\""),
                 "offline-device-profile-comparison" => Some("Compare device profile snapshots"),
                 "offline-descriptor-plan" => Some(
                     "Suggested manual fields · 3\nInput width · 2 bytes\nInput bit 0 · Bool · width 1 · offset 0\nInput bit 1 · Bool · width 1 · offset 1\nInput bit 2 · Signed · width 14 · offset 2",
@@ -1081,7 +1094,7 @@ mod tests {
     #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
-        assert_eq!(cases.len(), 139);
+        assert_eq!(cases.len(), 141);
         assert!(
             cases
                 .iter()

@@ -145,7 +145,7 @@ impl ReplyComparison {
         } else {
             decode_issue
                 .or(context_issue)
-                .or_else(|| match_context(left, right).err())
+                .or_else(|| match_context(left, right).err().map(ContextIssue::message))
         };
         Self {
             same_wire_bytes,
@@ -219,41 +219,56 @@ pub fn compare(left: &Snapshot, right: &Snapshot) -> Result<Comparison> {
     })
 }
 
-fn match_context(left: &SavedRead, right: &SavedRead) -> Result<(), &'static str> {
+pub(super) enum ContextIssue {
+    Unavailable(&'static str),
+    Different(&'static str),
+}
+
+impl ContextIssue {
+    pub(super) fn message(self) -> &'static str {
+        match self {
+            Self::Unavailable(message) | Self::Different(message) => message,
+        }
+    }
+}
+
+pub(super) fn match_context(left: &SavedRead, right: &SavedRead) -> Result<(), ContextIssue> {
+    use ContextIssue::{Different, Unavailable};
     let (a, b) = left
         .observation
         .as_ref()
         .zip(right.observation.as_ref())
-        .ok_or("Recorded connection context is unavailable")?;
+        .ok_or(Unavailable("Recorded connection context is unavailable"))?;
     if a.gateway != b.gateway || a.route != b.route {
-        return Err("Recorded gateway routes differ");
+        return Err(Different("Recorded gateway routes differ"));
     }
     if a.port != b.port || a.port_mode != b.port_mode {
-        return Err("Recorded IO-Link port or mode differs");
-    }
-    if a.port_mode.trim().is_empty() || b.port_mode.trim().is_empty() {
-        return Err("Recorded IO-Link port mode is unavailable");
+        return Err(Different("Recorded IO-Link port or mode differs"));
     }
     if a.model != b.model || a.firmware != b.firmware {
-        return Err("Recorded master model or firmware differs");
+        return Err(Different("Recorded master model or firmware differs"));
     }
     let master_serials = a
         .master_serial
         .as_deref()
         .zip(b.master_serial.as_deref())
         .filter(|(a, b)| !a.trim().is_empty() && !b.trim().is_empty());
-    match master_serials {
-        Some((a, b)) if a != b => return Err("Recorded master serials differ"),
-        None if a.gateway.ifm_model().is_some() => {
-            return Err("Recorded master serial is unavailable");
-        }
-        _ => {}
+    if master_serials.is_some_and(|(a, b)| a != b) {
+        return Err(Different("Recorded master serials differ"));
     }
     if a.identity.verify(&b.identity).is_err() {
-        return Err("Recorded device identity differs");
+        return Err(Different("Recorded device identity differs"));
+    }
+    if a.port_mode.trim().is_empty() || b.port_mode.trim().is_empty() {
+        return Err(Unavailable("Recorded IO-Link port mode is unavailable"));
+    }
+    if master_serials.is_none() && a.gateway.ifm_model().is_some() {
+        return Err(Unavailable("Recorded master serial is unavailable"));
     }
     if [a, b].into_iter().any(device_identity_incomplete) {
-        return Err("Recorded device Vendor ID, Device ID or serial is unavailable");
+        return Err(Unavailable(
+            "Recorded device Vendor ID, Device ID or serial is unavailable",
+        ));
     }
     Ok(())
 }

@@ -8,6 +8,49 @@ use iolink_workbench::transport::{
 };
 use std::path::PathBuf;
 
+fn snapshot_read_controls(
+    ui: &mut Ui,
+    available: bool,
+    path: &mut String,
+    subject: &str,
+) -> (bool, Option<PathBuf>) {
+    let read = ui
+        .add_enabled(available, egui::Button::new(format!("Read {subject}")))
+        .clicked();
+    let save = ui
+        .collapsing(format!("Read and save {subject}"), |ui| {
+            ui.add_enabled_ui(available, |ui| {
+                super::path_entry(ui, path, &format!("New {subject} snapshot JSON path"));
+            });
+            ui.add_enabled(
+                available && !path.trim().is_empty(),
+                egui::Button::new(format!("Read and save {subject} snapshot")),
+            )
+            .clicked()
+        })
+        .body_returned
+        .unwrap_or(false);
+    (read, save.then(|| PathBuf::from(path.trim())))
+}
+
+fn snapshot_open_control(
+    ui: &mut Ui,
+    available: bool,
+    path: &mut String,
+    subject: &str,
+) -> Option<PathBuf> {
+    ui.add_enabled_ui(available, |ui| {
+        super::path_entry(ui, path, &format!("Saved {subject} snapshot JSON path"));
+    });
+    let path = path.trim();
+    ui.add_enabled(
+        available && !path.is_empty(),
+        egui::Button::new(format!("Open {subject} snapshot")),
+    )
+    .clicked()
+    .then(|| PathBuf::from(path))
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Kind {
     Named,
@@ -23,6 +66,8 @@ pub(super) enum Kind {
     SavedAccessLocks,
     ErrorCount,
     SavedErrorCount,
+    DeviceRevisions,
+    SavedDeviceRevisions,
 }
 
 pub(super) enum Query {
@@ -45,6 +90,8 @@ pub(super) enum Query {
     SavedAccessLocks(PathBuf),
     ErrorCount,
     SavedErrorCount(PathBuf),
+    DeviceRevisions,
+    SavedDeviceRevisions(PathBuf),
 }
 
 impl Query {
@@ -61,6 +108,8 @@ impl Query {
             Self::SavedAccessLocks(_) => Kind::SavedAccessLocks,
             Self::ErrorCount => Kind::ErrorCount,
             Self::SavedErrorCount(_) => Kind::SavedErrorCount,
+            Self::DeviceRevisions => Kind::DeviceRevisions,
+            Self::SavedDeviceRevisions(_) => Kind::SavedDeviceRevisions,
             Self::SavedDeviceProfile(_) | Self::CompareDeviceProfiles(..) => {
                 Kind::SavedDeviceProfile
             }
@@ -95,6 +144,10 @@ impl Query {
             Self::SavedAccessLocks(path) => format!("Saved access locks · {}", path.display()),
             Self::ErrorCount => "Device error count · index 32:0".into(),
             Self::SavedErrorCount(path) => format!("Saved error count · {}", path.display()),
+            Self::DeviceRevisions => "Device revisions · indexes 22:0 and 23:0".into(),
+            Self::SavedDeviceRevisions(path) => {
+                format!("Saved device revisions · {}", path.display())
+            }
             Self::CompareDeviceProfiles(left, right) => format!(
                 "Device profile snapshots · {} → {}",
                 left.display(),
@@ -155,7 +208,9 @@ pub(super) struct Reading {
 #[derive(Default)]
 pub(super) struct Reads {
     pending: Option<(Query, Worker<Output>)>,
-    latest: [Option<Reading>; Kind::SavedErrorCount as usize + 1],
+    latest: [Option<Reading>; Kind::SavedDeviceRevisions as usize + 1],
+    revisions_save: String,
+    revisions_open: String,
     error_count_save: String,
     error_count_open: String,
     access_locks_save: String,
@@ -196,11 +251,13 @@ impl Reads {
         let saved_profile = self.latest[Kind::SavedDeviceProfile as usize].take();
         let saved_locks = self.latest[Kind::SavedAccessLocks as usize].take();
         let saved_error_count = self.latest[Kind::SavedErrorCount as usize].take();
+        let saved_revisions = self.latest[Kind::SavedDeviceRevisions as usize].take();
         self.latest = Default::default();
         self.latest[Kind::SavedMasterInspection as usize] = saved_master;
         self.latest[Kind::SavedDeviceProfile as usize] = saved_profile;
         self.latest[Kind::SavedAccessLocks as usize] = saved_locks;
         self.latest[Kind::SavedErrorCount as usize] = saved_error_count;
+        self.latest[Kind::SavedDeviceRevisions as usize] = saved_revisions;
     }
 
     pub fn clear_named(&mut self, id: &str) {
@@ -472,31 +529,77 @@ impl App {
         });
     }
 
+    pub(super) fn device_revisions_panel(&mut self, ui: &mut Ui) {
+        ui.collapsing("Device revisions (22:0 / 23:0)", |ui| {
+            let available = self.acyclic_controls(ui);
+            let (read, destination) = snapshot_read_controls(
+                ui,
+                available,
+                &mut self.acyclic.revisions_save,
+                "device revisions",
+            );
+            if read || destination.is_some() {
+                let profile = self.profile.clone();
+                self.start_acyclic(Query::DeviceRevisions, move || {
+                    if let Some(path) = &destination {
+                        diagnostics::check_destination(path)?;
+                    }
+                    let snapshot = diagnostics::DeviceRevisionsSnapshot::read(&profile)?;
+                    let mut text = snapshot.review()?.text();
+                    if let Some(path) = destination {
+                        match snapshot.save(&path) {
+                            Ok(()) => text.push_str(&format!(
+                                "\n\nSaved device revisions snapshot {}",
+                                path.display()
+                            )),
+                            Err(error) => {
+                                text.push_str(&format!("\n\nSnapshot save failed · {error:#}"))
+                            }
+                        }
+                    }
+                    Ok(text)
+                });
+            }
+            if ui.button("Review saved device revisions…").clicked() {
+                self.acyclic.revisions_open = self.acyclic.revisions_save.clone();
+                self.workspace.offline = super::workspace::OfflinePage::DiagnosticSnapshots;
+                self.tab = super::Tab::Offline;
+            }
+            self.acyclic_result(ui, Kind::DeviceRevisions);
+        });
+    }
+
+    pub(super) fn saved_device_revisions_panel(&mut self, ui: &mut Ui) {
+        egui::CollapsingHeader::new("Device revision snapshots")
+            .default_open(!self.acyclic.revisions_open.is_empty())
+            .show(ui, |ui| {
+                let available = self.acyclic_job_block_reason().is_none();
+                if let Some(path) = snapshot_open_control(
+                    ui,
+                    available,
+                    &mut self.acyclic.revisions_open,
+                    "device revisions",
+                ) {
+                    self.start_acyclic(Query::SavedDeviceRevisions(path.clone()), move || {
+                        Ok(diagnostics::DeviceRevisionsSnapshot::load(&path)?
+                            .review()?
+                            .text())
+                    });
+                }
+                self.acyclic_result(ui, Kind::SavedDeviceRevisions);
+            });
+    }
+
     pub(super) fn device_error_count_panel(&mut self, ui: &mut Ui) {
         ui.collapsing("Device error count (32:0)", |ui| {
             let available = self.acyclic_controls(ui);
-            let read = ui
-                .add_enabled(available, egui::Button::new("Read error count"))
-                .clicked();
-            let save = ui
-                .collapsing("Read and save error count", |ui| {
-                    ui.add_enabled_ui(available, |ui| {
-                        super::path_entry(
-                            ui,
-                            &mut self.acyclic.error_count_save,
-                            "New error count snapshot JSON path",
-                        );
-                    });
-                    ui.add_enabled(
-                        available && !self.acyclic.error_count_save.trim().is_empty(),
-                        egui::Button::new("Read and save error count snapshot"),
-                    )
-                    .clicked()
-                })
-                .body_returned
-                .unwrap_or(false);
-            if read || save {
-                let destination = save.then(|| PathBuf::from(self.acyclic.error_count_save.trim()));
+            let (read, destination) = snapshot_read_controls(
+                ui,
+                available,
+                &mut self.acyclic.error_count_save,
+                "error count",
+            );
+            if read || destination.is_some() {
                 let profile = self.profile.clone();
                 self.start_acyclic(Query::ErrorCount, move || {
                     if let Some(path) = &destination {
@@ -532,22 +635,12 @@ impl App {
             .default_open(!self.acyclic.error_count_open.is_empty())
             .show(ui, |ui| {
                 let available = self.acyclic_job_block_reason().is_none();
-                ui.add_enabled_ui(available, |ui| {
-                    super::path_entry(
-                        ui,
-                        &mut self.acyclic.error_count_open,
-                        "Saved error count snapshot JSON path",
-                    );
-                });
-                let path = self.acyclic.error_count_open.trim();
-                if ui
-                    .add_enabled(
-                        available && !path.is_empty(),
-                        egui::Button::new("Open error count snapshot"),
-                    )
-                    .clicked()
-                {
-                    let path = PathBuf::from(path);
+                if let Some(path) = snapshot_open_control(
+                    ui,
+                    available,
+                    &mut self.acyclic.error_count_open,
+                    "error count",
+                ) {
                     self.start_acyclic(Query::SavedErrorCount(path.clone()), move || {
                         Ok(diagnostics::ErrorCountSnapshot::load(&path)?
                             .review()?
@@ -745,7 +838,8 @@ impl App {
             | Query::SavedDeviceProfile(_)
             | Query::CompareDeviceProfiles(..)
             | Query::SavedAccessLocks(_)
-            | Query::SavedErrorCount(_) => self.acyclic_job_block_reason(),
+            | Query::SavedErrorCount(_)
+            | Query::SavedDeviceRevisions(_) => self.acyclic_job_block_reason(),
             _ => self.acyclic_block_reason(),
         };
         if let Some(reason) = blocked {

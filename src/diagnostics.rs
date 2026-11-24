@@ -13,6 +13,7 @@ mod comparison;
 mod data_storage;
 mod device_profile;
 mod device_profile_comparison;
+mod device_revisions;
 mod direct_page;
 mod error_count;
 mod error_type;
@@ -36,6 +37,10 @@ pub use data_storage::{
 pub use device_profile::{DeviceProfileReview, DeviceProfileSnapshot};
 pub use device_profile_comparison::{
     DescriptorChange, DeviceProfileComparison, ProfileIdChanges, compare_device_profiles,
+};
+pub use device_revisions::{
+    DeviceRevisionsReview, DeviceRevisionsSnapshot, FIRMWARE_REVISION_INDEX,
+    HARDWARE_REVISION_INDEX, RevisionKind, RevisionValue, decode_device_revision,
 };
 pub use direct_page::{DirectPage, decode_direct_page, review_direct_page};
 pub use error_count::{

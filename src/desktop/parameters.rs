@@ -480,6 +480,7 @@ pub struct Offline {
     data_storage_part: diagnostics::DataStoragePart,
     pub(super) data_storage_payload: String,
     pub(super) direct_page_payload: String,
+    pub(super) revision_payloads: [String; 2],
     pub(super) process_descriptor_payload: String,
     descriptor_direction: diagnostics::DescriptorDirection,
     empty_descriptor: bool,
@@ -684,6 +685,28 @@ impl Offline {
                     }
                     Err(error) => {
                         ui.colored_label(WARNING, error.to_string());
+                    }
+                }
+            }
+        });
+        ui.collapsing("Device revisions (22:0 / 23:0)", |ui| {
+            for (kind, payload) in diagnostics::RevisionKind::ALL
+                .into_iter()
+                .zip(&mut self.revision_payloads)
+            {
+                ui.label(format!("{} ({}:0)", kind.label(), kind.index()));
+                ui.add(
+                    egui::TextEdit::singleline(payload)
+                        .hint_text("Paste the recorded UTF-8 reply in hex"),
+                );
+                if !payload.trim().is_empty() {
+                    match diagnostics::decode_device_revision(kind, payload) {
+                        Ok(report) => {
+                            ui.label(report.text());
+                        }
+                        Err(error) => {
+                            ui.colored_label(WARNING, error.to_string());
+                        }
                     }
                 }
             }

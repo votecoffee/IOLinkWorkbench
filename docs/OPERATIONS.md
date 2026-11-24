@@ -99,6 +99,18 @@ In **Diagnostics → Device profile → Device access locks (12:0)**, choose **R
 
 The standard reply has two bytes. Bits 0 and 1 are the legacy parameter-write and Data Storage lock flags. Bits 2 and 3 report local parameterization and local user interface locks. The view shows each observed flag and the saved IODD's support declaration when present. An unavailable read keeps its error and available connection context. The CLI returns 1 for read failures, invalid widths, set reserved bits, or a set flag the IODD marks unsupported. This is the device's recorded lock word. Master Data Storage status and write permission have their own controls and evidence.
 
+### Device revisions
+
+Open **Diagnostics → Connection & identity → Device revisions (22:0 / 23:0)** to read the connected sensor’s hardware and firmware strings. The master firmware appears separately in the connection details. Choose **Read and save device revisions snapshot** to keep each raw reply or read error, its observation time, and its master, port, and device identity. Reopen the file under **Offline → Diagnostic snapshots → Device revision snapshots**. [IO-Link Interface and System V1.1.5, Table B.8 and B.2.14–15](https://io-link.com/fileadmin/user_upload/Downloads/Package_2025/IOL-Interface-Spec_10002_V1.1.5_Oct2025.zip)
+
+```powershell
+.\iolink-cli.exe read-device-revisions device.toml --snapshot revisions.json
+.\iolink-cli.exe review-device-revisions revisions.json
+.\iolink-cli.exe decode-device-revision 23 "46 57 2D 31 2E 32"
+```
+
+For raw replies use **Offline → Parameter bytes → Device revisions**, or pass index 22 for hardware and 23 for firmware to the CLI decoder. Each optional UTF-8 reply can contain up to 64 bytes. Condensed text and trailing NUL padding are accepted and original bytes are retained. The reads use independent acyclic clients. The CLI exits 1 for a failed, blank, or malformed reply or when the recorded contexts conflict. If a context field is missing, the report marks the pairing as unavailable and still shows each valid string.
+
 ### Device error count
 
 In **Diagnostics → Device events → Device error count (32:0)**, choose **Read error count** or **Read and save error count snapshot**. Review a saved reply under **Offline → Diagnostic snapshots → Error count snapshots**. To decode recorded bytes directly, use **Offline → Event codes → Device error count (32:0)**. [IO-Link Interface and System V1.1.5, B.2.20](https://io-link.com/fileadmin/user_upload/Downloads/Package_2025/IOL-Interface-Spec_10002_V1.1.5_Oct2025.zip)

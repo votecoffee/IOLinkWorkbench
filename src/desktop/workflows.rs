@@ -256,6 +256,7 @@ impl App {
     pub(super) fn connection_diagnostics(&mut self, ui: &mut Ui) {
         ui.heading("Connection diagnostics");
         self.master_inspection_panel(ui);
+        self.device_revisions_panel(ui);
         let running = self.worker.is_some();
         if self.live.status.is_none() {
             ui.label("No acquisition connection observed yet.");
