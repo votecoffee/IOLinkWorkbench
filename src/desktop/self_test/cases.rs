@@ -1481,7 +1481,7 @@ mod tests {
 
     #[test]
     fn saved_catalog_worker_compares_record_access_and_preserves_profiles() -> Result<()> {
-        use crate::desktop::acyclic::Kind;
+        use crate::desktop::acyclic::{Kind, ParameterReplySource};
         use iolink_workbench::iodd::Access;
 
         let catalog = iodd::parse(
@@ -1512,7 +1512,11 @@ mod tests {
         app.start_parameter_catalog_comparison(
             left.clone(),
             right.clone(),
-            Some((66, 1, "FF EC".into())),
+            Some(ParameterReplySource::Hex {
+                index: 66,
+                subindex: 1,
+                payload: "FF EC".into(),
+            }),
         );
         let deadline = Instant::now() + Duration::from_secs(5);
         while app.acyclic.busy() && Instant::now() < deadline {
@@ -1543,6 +1547,97 @@ mod tests {
         assert!(left_text.contains("access = \"ro\"") && right_text.contains("access = \"rw\""));
         assert!(left_text.contains("value = \"0.0\"") && right_text.contains("value = \"-2.0\""));
         assert_eq!([std::fs::read(&left)?, std::fs::read(&right)?], originals);
+        assert_eq!(app.profile, active);
+        Ok(())
+    }
+
+    #[test]
+    fn catalog_worker_uses_the_saved_reply_and_reports_identity_mismatch() -> Result<()> {
+        use crate::desktop::acyclic::{Kind, ParameterReplySource};
+        use iolink_workbench::parameter_snapshot;
+
+        let catalog = iodd::parse(
+            include_str!("../../../samples/sensor-record.xml"),
+            "synthetic catalog snapshot".into(),
+        )?;
+        let (identity, imported) = catalog.select(None, None)?;
+        let mut profile = Profile::default();
+        profile.apply_iodd(identity, imported);
+        assert_eq!(profile.connection.gateway, Gateway::Simulator);
+        let directory = tempfile::tempdir()?;
+        let left = directory.path().join("before.toml");
+        let right = directory.path().join("after.toml");
+        let reply_path = directory.path().join("recorded.json");
+        profile.save_new(&left)?;
+        let (snapshot, _) = parameter_snapshot::read(&profile, "V_SIM_Record", 1)?;
+        snapshot.save(&reply_path)?;
+        let observed_id = snapshot
+            .observation
+            .identity
+            .device_id
+            .context("simulator device ID")?;
+        profile.expected_identity.device_id = Some(observed_id + 1);
+        profile.iodd.as_mut().unwrap().parameters[0]
+            .record
+            .as_mut()
+            .unwrap()
+            .items[0]
+            .parameter
+            .displays[0]
+            .field
+            .scale = 0.2;
+        profile.save_new(&right)?;
+        let originals = [
+            std::fs::read(&left)?,
+            std::fs::read(&right)?,
+            std::fs::read(&reply_path)?,
+        ];
+
+        let mut app = App::new();
+        let active = app.profile.clone();
+        let serial = crate::desktop::WORKER_TEST_LOCK.lock().unwrap();
+        app.start_parameter_catalog_comparison(
+            left.clone(),
+            right.clone(),
+            Some(ParameterReplySource::Snapshot(reply_path.clone())),
+        );
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while app.acyclic.busy() && Instant::now() < deadline {
+            app.acyclic.update();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        drop(serial);
+        let result = app
+            .acyclic
+            .latest(Kind::CompareParameterCatalogs)
+            .context("catalog result")?;
+        let report = result
+            .output
+            .as_ref()
+            .map_err(|error| anyhow::anyhow!("{error:#}"))?;
+        assert!(
+            report.text.contains("recorded.json")
+                && report.text.contains("Recorded reply · 66:1 · FFEC")
+        );
+        assert!(report.text.contains(snapshot.host_read_utc.as_str()));
+        assert!(
+            report
+                .text
+                .contains("Second profile identity · identity mismatch for device_id")
+        );
+        assert!(
+            report
+                .text
+                .contains("Changed interpretation · display values")
+        );
+        assert_eq!(
+            [
+                std::fs::read(&left)?,
+                std::fs::read(&right)?,
+                std::fs::read(&reply_path)?
+            ],
+            originals
+        );
         assert_eq!(app.profile, active);
         Ok(())
     }

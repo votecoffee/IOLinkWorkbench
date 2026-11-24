@@ -2025,6 +2025,14 @@ def verify_parameter_snapshots(cli, profile, output, loopback=False):
     run(cli, "read-parameter", denied, "V_SIM_Threshold", "--snapshot", destination, expected=1)
     assert Gateway.requests == before_requests and not destination.exists()
     if loopback:
+        saved_member = output / "V_SIM_Record-1.json"
+        pinned_snapshot = saved_member.read_bytes()
+        replay = tomllib.loads(run(cli, "compare-parameter-catalogs", preferred, preferred,
+                                   "--reply-snapshot", saved_member))["reply"]
+        assert replay["snapshot_source"]["observation"]["route"] == "AL1350 loopback fixture"
+        assert (replay["index"], replay["subindex"], replay["raw_hex"]) == (66, 1, "FFEC")
+        assert replay["differences"]["properties"] == []
+        assert Gateway.requests == before_requests and saved_member.read_bytes() == pinned_snapshot
         Gateway.threshold_payload = "FF"
         try:
             response = tomllib.loads(run(cli, "read-parameter", preferred, "V_SIM_Threshold", "--snapshot", output / "malformed-response.json"))
@@ -4366,6 +4374,7 @@ def verify_parameter_catalog_comparison(cli, scalar, record, array, output):
     assert scaled["differences"]["properties"] == ["display values"]
     assert scaled["left"]["decoded"]["displays"][0]["value"] == "0.0"
     assert scaled["right"]["decoded"]["displays"][0]["value"] == "-2.0"
+    verify_catalog_snapshot_replay(cli, record, rescaled, output / "snapshot-replay")
 
     packed = compare(record, edited_record, reply=(66, 0, "FFEC010A54455354"))["reply"]
     assert packed["differences"]["compared_members"] == 4
@@ -4397,6 +4406,69 @@ def verify_parameter_catalog_comparison(cli, scalar, record, array, output):
     for malformed in ("F", "GG", "00" * 233):
         assert not run(cli, command, scalar, scalar, "--index", 64, "--payload", malformed, expected=1)
     assert Gateway.requests == requests
+
+
+def verify_catalog_snapshot_replay(cli, record, rescaled, output):
+    output.mkdir()
+    path = output / "recorded.json"
+    run(cli, "read-parameter", record, "V_SIM_Record", "--subindex", 1, "--snapshot", path)
+    original = path.read_bytes()
+    recorded = json.loads(original)
+    requests = Gateway.requests
+    command = "compare-parameter-catalogs"
+
+    def compare(left, right, snapshot, expected=0):
+        before = left.read_bytes(), right.read_bytes(), snapshot.read_bytes()
+        result = tomllib.loads(run(cli, command, left, right, "--reply-snapshot", snapshot, expected=expected))
+        assert before == (left.read_bytes(), right.read_bytes(), snapshot.read_bytes())
+        assert Gateway.requests == requests and path.read_bytes() == original
+        return result["reply"]
+
+    compared = compare(record, rescaled, path)
+    assert (compared["index"], compared["subindex"], compared["raw_hex"]) == (66, 1, "FFEC")
+    source = compared["snapshot_source"]
+    assert Path(source["file"]) == path
+    for key in ("workbench_version", "parameter_id", "host_read_utc", "read_duration_us"):
+        assert source[key] == recorded[key]
+    assert source["profile_name"] == recorded["profile"]["name"]
+    assert source["observation"]["identity"]["device_id"] == recorded["observation"]["identity"]["device_id"]
+    assert source["left_identity_check"] == source["right_identity_check"] == "matched all configured identity fields"
+    assert compared["differences"]["properties"] == ["display values"]
+
+    different_device = output / "different-device.toml"
+    run(cli, "set-identity", rescaled, different_device, "--device-id", 9999)
+    mismatch = compare(record, different_device, path)
+    assert "identity mismatch for device_id" in mismatch["snapshot_source"]["right_identity_check"]
+    assert mismatch["right"]["decoded"]["raw_value"] == "-20"
+
+    def variant(name, update):
+        document = json.loads(original)
+        update(document)
+        file = output / f"{name}.json"
+        file.write_text(json.dumps(document), encoding="utf-8")
+        return file
+
+    partial = variant("partial-identity", lambda document: document["observation"]["identity"].update(device_id=None))
+    assert compare(record, rescaled, partial)["snapshot_source"]["left_identity_check"] == "partial identity match"
+
+    def short_reply(document):
+        document["raw_hex"] = "FF"
+        document["profile"]["iodd"]["source"] = "Z:/missing/vendor.zip"
+        document["profile"]["connection"]["endpoint"] = "http://127.0.0.1:1"
+
+    short = compare(record, rescaled, variant("short-reply", short_reply), expected=1)
+    assert short["raw_hex"] == "FF" and short["left"]["decoded"]["decode_error"]
+    assert short["snapshot_source"]["host_read_utc"] == recorded["host_read_utc"]
+    assert "differences" not in short
+
+    for key, value in (("index", 67), ("raw_hex", "ffec"), ("host_read_utc", "not-a-time")):
+        invalid = variant(key, lambda document: document.update({key: value}))
+        stored = invalid.read_bytes()
+        assert not run(cli, command, record, rescaled, "--reply-snapshot", invalid, expected=1)
+        assert invalid.read_bytes() == stored
+    for flag, value in (("--index", 66), ("--subindex", 1), ("--payload", "FFEC")):
+        assert not run(cli, command, record, rescaled, "--reply-snapshot", path, flag, value, expected=2)
+    assert Gateway.requests == requests and path.read_bytes() == original
 
 
 def verify_stamps(cli, output):
@@ -5058,7 +5130,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, offline access locks comparison, offline Data Storage metadata review, offline Direct Parameter Page 1, identity pins and IODD comparison, optional device error count and saved evidence, offline error count comparison, saved input mapping and recorded payload comparison, saved output mapping and image comparison, saved parameter catalog and recorded ISDU reply comparison, device revision reads and saved connection checks, offline device revision comparison, acyclic process data readback and saved evidence, offline process readback comparison, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, offline access locks comparison, offline Data Storage metadata review, offline Direct Parameter Page 1, identity pins and IODD comparison, optional device error count and saved evidence, offline error count comparison, saved input mapping and recorded payload comparison, saved output mapping and image comparison, saved parameter catalog and recorded ISDU reply comparison, saved parameter snapshot replay, device revision reads and saved connection checks, offline device revision comparison, acyclic process data readback and saved evidence, offline process readback comparison, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1351, AL1352 and AL1353 status, ISDU and capture across all ports, one-shot ifm master inspection with supply diagnostics, read-only port configuration and offline snapshot review and comparison, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")

@@ -3,10 +3,14 @@ use super::{Profile, pair_by};
 use crate::{
     decode::{hex, parse_hex_bounded},
     iodd::{Access, DecodedParameter, Parameter, RecordValue},
+    parameter_snapshot::{Observation, Snapshot},
 };
 use anyhow::{Context, Result};
 use serde::Serialize;
-use std::fmt::Write;
+use std::{
+    fmt::Write,
+    path::{Path, PathBuf},
+};
 
 pub struct ReplyRequest<'a> {
     pub index: u16,
@@ -22,6 +26,21 @@ pub struct ReplyComparison<'a> {
     pub left: Side<'a>,
     pub right: Side<'a>,
     pub differences: Option<Differences>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snapshot_source: Option<SnapshotSource>,
+}
+
+#[derive(Serialize)]
+pub struct SnapshotSource {
+    pub file: PathBuf,
+    pub workbench_version: String,
+    pub profile_name: String,
+    pub parameter_id: String,
+    pub host_read_utc: String,
+    pub read_duration_us: u64,
+    pub observation: Observation,
+    pub left_identity_check: String,
+    pub right_identity_check: String,
 }
 
 #[derive(Serialize)]
@@ -165,7 +184,44 @@ impl<'a> ReplyComparison<'a> {
             left,
             right,
             differences,
+            snapshot_source: None,
         })
+    }
+
+    pub(super) fn from_snapshot(
+        left: &'a Profile,
+        right: &'a Profile,
+        path: &Path,
+        snapshot: Snapshot,
+    ) -> Result<Self> {
+        let mut reply = Self::new(
+            left,
+            right,
+            ReplyRequest {
+                index: snapshot.index,
+                subindex: snapshot.subindex,
+                payload: &snapshot.raw_hex,
+            },
+        )?;
+        let check_identity = |profile: &Profile| match profile
+            .expected_identity
+            .verify(&snapshot.observation.identity)
+        {
+            Ok(check) => check.to_owned(),
+            Err(error) => error.to_string(),
+        };
+        reply.snapshot_source = Some(SnapshotSource {
+            file: path.to_owned(),
+            workbench_version: snapshot.workbench_version,
+            profile_name: snapshot.profile.name,
+            parameter_id: snapshot.parameter_id,
+            host_read_utc: snapshot.host_read_utc,
+            read_duration_us: snapshot.read_duration_us,
+            left_identity_check: check_identity(left),
+            right_identity_check: check_identity(right),
+            observation: snapshot.observation,
+        });
+        Ok(reply)
     }
 
     pub fn ok(&self) -> bool {
@@ -178,6 +234,24 @@ impl<'a> ReplyComparison<'a> {
             "\n\nRecorded reply · {}:{} · {}",
             self.index, self.subindex, self.raw_hex
         );
+        if let Some(source) = &self.snapshot_source {
+            let observed = &source.observation;
+            let _ = write!(
+                text,
+                "\nSaved snapshot · {}\n{} · {} · host {}\nRecorded master {} · firmware {} · port {}\nRecorded Vendor ID {:?} · Device ID {:?}\nFirst profile identity · {}\nSecond profile identity · {}",
+                source.file.display(),
+                source.profile_name,
+                source.parameter_id,
+                source.host_read_utc,
+                observed.model,
+                observed.firmware,
+                observed.port,
+                observed.identity.vendor_id,
+                observed.identity.device_id,
+                source.left_identity_check,
+                source.right_identity_check,
+            );
+        }
         self.left.write_summary(text, "First profile");
         self.right.write_summary(text, "Second profile");
         let Some(diff) = &self.differences else {

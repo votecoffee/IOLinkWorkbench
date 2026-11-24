@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Use a saved parameter snapshot as the reply source for catalog comparison. Preserve the recorded address, bytes, host time, and connection identity checks.
+
 - Decode one recorded ISDU reply with two saved parameter catalogs. Compare changed value interpretations and retain usable record or array members alongside any decode errors.
 
 - Compare saved IODD parameter catalogs by ISDU index and record subindex. Review added, removed, and changed declarations, array element changes, and unresolved standard references.

@@ -163,6 +163,9 @@ enum Command {
         /// Hexadecimal ISDU reply to decode using both catalogs.
         #[arg(long, value_name = "HEX", requires = "index")]
         payload: Option<String>,
+        /// Use the recorded address, bytes, and context of a saved parameter snapshot.
+        #[arg(long, value_name = "JSON", conflicts_with_all = ["index", "subindex", "payload"])]
+        reply_snapshot: Option<PathBuf>,
     },
     /// Inspect declared defaults from a saved profile without gateway access or writes.
     Defaults {
@@ -1025,8 +1028,9 @@ fn main() -> Result<()> {
             index,
             subindex,
             payload,
+            reply_snapshot,
         } => {
-            use iolink_workbench::profile::parameter_catalog::{ReplyRequest, compare_with_reply};
+            use iolink_workbench::profile::parameter_catalog::{self, ReplyRequest};
 
             let left = Profile::load(&left)?;
             let right = Profile::load(&right)?;
@@ -1037,7 +1041,10 @@ fn main() -> Result<()> {
                     subindex: subindex.unwrap_or_default(),
                     payload,
                 });
-            let comparison = compare_with_reply(&left, &right, request)?;
+            let comparison = match reply_snapshot {
+                Some(path) => parameter_catalog::compare_with_snapshot(&left, &right, &path)?,
+                None => parameter_catalog::compare_with_reply(&left, &right, request)?,
+            };
             print!("{}", toml::to_string_pretty(&comparison)?);
             ensure!(
                 comparison.definition_changes.is_some(),

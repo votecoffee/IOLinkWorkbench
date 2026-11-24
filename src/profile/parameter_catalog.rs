@@ -1,10 +1,13 @@
 //! Compare saved IODD parameter declarations by ISDU index and record subindex.
 use super::{Imported, Profile};
 use crate::iodd::{Parameter, RecordItem};
+use crate::parameter_snapshot::Snapshot;
+use anyhow::Context;
 use serde::Serialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Write,
+    path::Path,
 };
 
 mod reply;
@@ -104,6 +107,18 @@ pub fn compare_with_reply<'a>(
     if let Some(request) = request {
         comparison.reply = Some(ReplyComparison::new(left, right, request)?);
     }
+    Ok(comparison)
+}
+
+pub fn compare_with_snapshot<'a>(
+    left: &'a Profile,
+    right: &'a Profile,
+    path: &Path,
+) -> anyhow::Result<Comparison<'a>> {
+    let snapshot =
+        Snapshot::load(path).with_context(|| format!("Open saved reply {}", path.display()))?;
+    let mut comparison = compare(left, right);
+    comparison.reply = Some(ReplyComparison::from_snapshot(left, right, path, snapshot)?);
     Ok(comparison)
 }
 

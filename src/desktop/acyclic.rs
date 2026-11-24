@@ -116,6 +116,22 @@ impl MappingDirection {
     }
 }
 
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum ParameterReplyMode {
+    #[default]
+    Hex,
+    Snapshot,
+}
+
+pub(super) enum ParameterReplySource {
+    Hex {
+        index: u16,
+        subindex: u8,
+        payload: String,
+    },
+    Snapshot(PathBuf),
+}
+
 pub(super) enum Query {
     Named {
         id: String,
@@ -355,6 +371,8 @@ pub(super) struct Reads {
     parameter_catalog_index: u16,
     parameter_catalog_subindex: u8,
     parameter_catalog_reply: String,
+    parameter_catalog_reply_mode: ParameterReplyMode,
+    parameter_catalog_snapshot: String,
     readback_direction: diagnostics::ReadbackDirection,
     readback_save: String,
     readback_open: String,
@@ -469,44 +487,74 @@ impl App {
                 );
                 ui.collapsing("Decode a recorded ISDU reply", |ui| {
                     ui.horizontal_wrapped(|ui| {
-                        ui.add(
-                            egui::DragValue::new(&mut self.acyclic.parameter_catalog_index)
-                                .prefix("Index "),
+                        ui.selectable_value(
+                            &mut self.acyclic.parameter_catalog_reply_mode,
+                            ParameterReplyMode::Hex,
+                            "Hex bytes",
                         );
-                        ui.add(
-                            egui::DragValue::new(&mut self.acyclic.parameter_catalog_subindex)
-                                .prefix("Subindex "),
+                        ui.selectable_value(
+                            &mut self.acyclic.parameter_catalog_reply_mode,
+                            ParameterReplyMode::Snapshot,
+                            "Saved snapshot",
                         );
                     });
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.acyclic.parameter_catalog_reply)
-                            .hint_text("Recorded ISDU reply hex (optional)")
-                            .desired_width(350.0),
-                    );
+                    match self.acyclic.parameter_catalog_reply_mode {
+                        ParameterReplyMode::Hex => {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.add(
+                                    egui::DragValue::new(&mut self.acyclic.parameter_catalog_index)
+                                        .prefix("Index "),
+                                );
+                                ui.add(
+                                    egui::DragValue::new(
+                                        &mut self.acyclic.parameter_catalog_subindex,
+                                    )
+                                    .prefix("Subindex "),
+                                );
+                            });
+                            ui.add(
+                                egui::TextEdit::singleline(
+                                    &mut self.acyclic.parameter_catalog_reply,
+                                )
+                                .hint_text("Recorded ISDU reply hex (optional)")
+                                .desired_width(350.0),
+                            );
+                        }
+                        ParameterReplyMode::Snapshot => super::path_entry(
+                            ui,
+                            &mut self.acyclic.parameter_catalog_snapshot,
+                            "Saved parameter snapshot JSON path",
+                        ),
+                    }
                 });
             });
             let left = self.acyclic.parameter_catalog_left.trim();
             let right = self.acyclic.parameter_catalog_right.trim();
             let payload = self.acyclic.parameter_catalog_reply.trim();
-            let button = if payload.is_empty() {
-                "Compare parameter catalogs"
-            } else {
-                "Compare catalogs and reply"
+            let snapshot = self.acyclic.parameter_catalog_snapshot.trim();
+            let mode = self.acyclic.parameter_catalog_reply_mode;
+            let button = match mode {
+                ParameterReplyMode::Hex if payload.is_empty() => "Compare parameter catalogs",
+                ParameterReplyMode::Hex => "Compare catalogs and reply",
+                ParameterReplyMode::Snapshot => "Compare catalogs and snapshot",
             };
-            if ui
-                .add_enabled(
-                    available && !left.is_empty() && !right.is_empty(),
-                    egui::Button::new(button),
-                )
-                .clicked()
-            {
-                let recorded = (!payload.is_empty()).then(|| {
-                    (
-                        self.acyclic.parameter_catalog_index,
-                        self.acyclic.parameter_catalog_subindex,
-                        payload.to_owned(),
-                    )
-                });
+            let ready = available
+                && !left.is_empty()
+                && !right.is_empty()
+                && (mode != ParameterReplyMode::Snapshot || !snapshot.is_empty());
+            if ui.add_enabled(ready, egui::Button::new(button)).clicked() {
+                let recorded = match mode {
+                    ParameterReplyMode::Hex => {
+                        (!payload.is_empty()).then(|| ParameterReplySource::Hex {
+                            index: self.acyclic.parameter_catalog_index,
+                            subindex: self.acyclic.parameter_catalog_subindex,
+                            payload: payload.to_owned(),
+                        })
+                    }
+                    ParameterReplyMode::Snapshot => {
+                        Some(ParameterReplySource::Snapshot(PathBuf::from(snapshot)))
+                    }
+                };
                 self.start_parameter_catalog_comparison(
                     PathBuf::from(left),
                     PathBuf::from(right),
@@ -521,21 +569,32 @@ impl App {
         &mut self,
         left: PathBuf,
         right: PathBuf,
-        recorded: Option<(u16, u8, String)>,
+        recorded: Option<ParameterReplySource>,
     ) {
         self.start_acyclic_output(
             Query::CompareParameterCatalogs(left.clone(), right.clone()),
             move || {
                 let left = Profile::load(&left)?;
                 let right = Profile::load(&right)?;
-                let request = recorded.as_ref().map(|(index, subindex, payload)| {
-                    parameter_catalog::ReplyRequest {
-                        index: *index,
-                        subindex: *subindex,
-                        payload,
+                let report = match recorded {
+                    Some(ParameterReplySource::Snapshot(path)) => {
+                        parameter_catalog::compare_with_snapshot(&left, &right, &path)?
                     }
-                });
-                let report = parameter_catalog::compare_with_reply(&left, &right, request)?;
+                    Some(ParameterReplySource::Hex {
+                        index,
+                        subindex,
+                        payload,
+                    }) => parameter_catalog::compare_with_reply(
+                        &left,
+                        &right,
+                        Some(parameter_catalog::ReplyRequest {
+                            index,
+                            subindex,
+                            payload: &payload,
+                        }),
+                    )?,
+                    None => parameter_catalog::compare(&left, &right),
+                };
                 Ok(Output {
                     text: report.summary_text(),
                     comparison_sources: Some(report.source_texts()?),
