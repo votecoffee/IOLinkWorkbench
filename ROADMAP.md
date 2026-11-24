@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Compare saved Device ErrorCount replies by wire equality and signed numeric difference when recorded context matches. Keep both source reviews and the unknown interval error total visible.
+
 - Compare saved Device Access Locks reads by wire equality and XOR mask. List changed lock flags for compatible recorded identity and IODD support while retaining both source reviews.
 
 - Compare saved process readbacks by changed wire byte and mapped field. Preserve both source reviews. Show typed changes only when direction, recorded connection context, and mappings agree.

@@ -166,6 +166,16 @@ In **Diagnostics → Device events → Device error count (32:0)**, choose **Rea
 
 The optional reply is a two-byte unsigned value. It describes device application errors since power-on or reset according to the vendor's rules. Gateway errors, pending events, and capture loss have their own evidence. The explicit read uses an independent acyclic client. A snapshot preserves the query, raw reply or error, and any observed master and device context. The CLI exits 1 for an unavailable or malformed reply and prints the available evidence. The checked AL1350 write planner rejects writes to index 32.
 
+#### Compare saved error counts
+
+Open **Offline → Diagnostic snapshots → Error count snapshots → Compare two error count snapshots**. Enter the first file above the comparison and the second file inside it. Expand both source reviews to inspect host read times, recorded identities, and the original replies or errors.
+
+~~~powershell
+.\iolink-cli.exe compare-error-counts before.json after.json
+~~~
+
+Wire equality is available when both replies exist. For two decodable replies with matching recorded master, port, and device context, the comparison reports each count and the signed arithmetic difference in file order. Counter history between the reads is unknown, including any resets or rollovers. The CLI returns 0 when the counts are comparable, including when they differ. It returns 1 with both reviews and any available wire comparison when the count comparison is unavailable.
+
 ### Direct Parameter Page 1
 
 Open **Offline → Parameter bytes → Direct Parameter Page 1 (0:0)** and paste the 16 recorded wired IO-Link bytes in ascending address order, from 0x00 to 0x0F. The decoder retains the complete page and interprets wired protocol revision 1.1. It displays the recorded master cycle setting, the device's reported minimum cycle, ISDU and SIO capability, M-sequence codes, process-data lengths, and the 16-bit Vendor ID and 24-bit Device ID. [IO-Link Interface and System V1.1.5, B.1.1 and B.1.3–9](https://io-link.com/fileadmin/user_upload/Downloads/Package_2025/IOL-Interface-Spec_10002_V1.1.5_Oct2025.zip)

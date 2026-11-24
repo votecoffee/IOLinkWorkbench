@@ -209,6 +209,8 @@ enum Command {
     },
     /// Review a saved Device ErrorCount snapshot offline.
     ReviewErrorCount { snapshot: PathBuf },
+    /// Compare two saved Device ErrorCount snapshots offline.
+    CompareErrorCounts { left: PathBuf, right: PathBuf },
     /// Decode a recorded 16-byte wired Direct Parameter Page 1 in address order.
     DecodeDirectPage {
         payload: String,
@@ -781,6 +783,16 @@ fn main() -> Result<()> {
             ensure!(
                 review.ok(),
                 "Saved error count needs review. Retained results are printed above."
+            );
+        }
+        Command::CompareErrorCounts { left, right } => {
+            let left = diagnostics::ErrorCountSnapshot::load(&left)?;
+            let right = diagnostics::ErrorCountSnapshot::load(&right)?;
+            let comparison = diagnostics::compare_error_counts(&left, &right)?;
+            print!("{}", toml::to_string_pretty(&comparison)?);
+            ensure!(
+                comparison.ok(),
+                "Error count comparison needs review. Retained results are printed above."
             );
         }
         Command::DecodeDirectPage { payload, profile } => {

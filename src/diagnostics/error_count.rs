@@ -1,6 +1,6 @@
 //! Read and review the optional device application ErrorCount at 32:0.
 
-use super::{SavedRead, observe};
+use super::{ReplyComparison, SavedRead, observe};
 use crate::{decode, profile::Profile, snapshot_file, transport};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
@@ -9,6 +9,7 @@ use std::{fmt::Write, path::Path};
 pub const ERROR_COUNT_INDEX: u16 = 32;
 const SNAPSHOT_KIND: &str = "device error count snapshot";
 const BASIS: &str = "Device application errors since power-on or reset, as defined by the vendor";
+const INTERVAL_BASIS: &str = "The number of errors between reads is unknown";
 
 #[derive(Debug, Serialize)]
 pub struct DeviceErrorCount {
@@ -168,4 +169,81 @@ impl ErrorCountSnapshot {
         self.checked_bytes()?;
         snapshot_file::save(self, path, SNAPSHOT_KIND)
     }
+}
+
+#[derive(Debug, Serialize)]
+pub struct ErrorCountComparison<'a> {
+    pub left: ErrorCountReview<'a>,
+    pub right: ErrorCountReview<'a>,
+    pub reply: ReplyComparison,
+    pub recorded_counts: Option<RecordedErrorCounts>,
+    pub interval_basis: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RecordedErrorCounts {
+    pub left: u16,
+    pub right: u16,
+    pub numeric_difference: i32,
+}
+
+impl ErrorCountComparison<'_> {
+    pub fn ok(&self) -> bool {
+        self.recorded_counts.is_some()
+    }
+
+    pub fn summary_text(&self) -> String {
+        let mut text = format!(
+            "Saved device error count comparison · left → right\nProfiles · {} → {}",
+            self.left.profile_name, self.right.profile_name
+        );
+        self.reply.write_summary(&mut text, ERROR_COUNT_INDEX);
+        if let Some(counts) = &self.recorded_counts {
+            let _ = write!(
+                text,
+                "\nRecorded count · {} → {}\nRight minus left · {}",
+                counts.left, counts.right, counts.numeric_difference
+            );
+        }
+        let _ = write!(text, "\n{}", self.interval_basis);
+        text
+    }
+}
+
+pub fn compare_error_counts<'a>(
+    left: &'a ErrorCountSnapshot,
+    right: &'a ErrorCountSnapshot,
+) -> Result<ErrorCountComparison<'a>> {
+    let endpoint_issue = (left.profile.connection.endpoint != right.profile.connection.endpoint)
+        .then_some("Saved gateway endpoints differ");
+    let left = left.review()?;
+    let right = right.review()?;
+    let values = left
+        .decoded
+        .as_ref()
+        .and_then(|decoded| decoded.value)
+        .zip(right.decoded.as_ref().and_then(|decoded| decoded.value));
+    let reply = ReplyComparison::new(
+        left.read,
+        right.read,
+        endpoint_issue,
+        values
+            .is_none()
+            .then_some("One or both saved replies need length review"),
+    );
+    let recorded_counts =
+        values
+            .filter(|_| reply.interpretation_issue.is_none())
+            .map(|(left, right)| RecordedErrorCounts {
+                left,
+                right,
+                numeric_difference: i32::from(right) - i32::from(left),
+            });
+    Ok(ErrorCountComparison {
+        left,
+        right,
+        reply,
+        recorded_counts,
+        interval_basis: INTERVAL_BASIS,
+    })
 }

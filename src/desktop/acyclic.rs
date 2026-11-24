@@ -118,6 +118,7 @@ pub(super) enum Query {
     CompareAccessLocks(PathBuf, PathBuf),
     ErrorCount,
     SavedErrorCount(PathBuf),
+    CompareErrorCounts(PathBuf, PathBuf),
     DeviceRevisions,
     SavedDeviceRevisions(PathBuf),
     CompareDeviceRevisions(PathBuf, PathBuf),
@@ -139,7 +140,7 @@ impl Query {
             Self::AccessLocks => Kind::AccessLocks,
             Self::SavedAccessLocks(_) | Self::CompareAccessLocks(..) => Kind::SavedAccessLocks,
             Self::ErrorCount => Kind::ErrorCount,
-            Self::SavedErrorCount(_) => Kind::SavedErrorCount,
+            Self::SavedErrorCount(_) | Self::CompareErrorCounts(..) => Kind::SavedErrorCount,
             Self::DeviceRevisions => Kind::DeviceRevisions,
             Self::ProcessReadback(_) => Kind::ProcessReadback,
             Self::SavedProcessReadback(_) | Self::CompareProcessReadbacks(..) => {
@@ -187,6 +188,11 @@ impl Query {
             ),
             Self::ErrorCount => "Device error count · index 32:0".into(),
             Self::SavedErrorCount(path) => format!("Saved error count · {}", path.display()),
+            Self::CompareErrorCounts(left, right) => format!(
+                "Error count snapshots · {} → {}",
+                left.display(),
+                right.display()
+            ),
             Self::DeviceRevisions => "Device revisions · indexes 22:0 and 23:0".into(),
             Self::ProcessReadback(direction) => format!("Process readback · {}", direction.label()),
             Self::SavedProcessReadback(path) => {
@@ -271,6 +277,16 @@ impl From<diagnostics::AccessLocksComparison> for Output {
     }
 }
 
+impl From<diagnostics::ErrorCountComparison<'_>> for Output {
+    fn from(comparison: diagnostics::ErrorCountComparison<'_>) -> Self {
+        Self {
+            text: comparison.summary_text(),
+            port_configuration: None,
+            comparison_sources: Some([comparison.left.text(), comparison.right.text()]),
+        }
+    }
+}
+
 impl From<String> for Output {
     fn from(text: String) -> Self {
         Self {
@@ -305,6 +321,7 @@ pub(super) struct Reads {
     revisions_compare: String,
     error_count_save: String,
     error_count_open: String,
+    error_count_compare: String,
     access_locks_save: String,
     access_locks_open: String,
     access_locks_compare: String,
@@ -851,6 +868,23 @@ impl App {
                             .text())
                     });
                 }
+                if let Some((left, right)) = snapshot_compare_control(
+                    ui,
+                    available,
+                    &self.acyclic.error_count_open,
+                    &mut self.acyclic.error_count_compare,
+                    "error count",
+                    "Compare error counts",
+                ) {
+                    self.start_acyclic_output(
+                        Query::CompareErrorCounts(left.clone(), right.clone()),
+                        move || {
+                            let left = diagnostics::ErrorCountSnapshot::load(&left)?;
+                            let right = diagnostics::ErrorCountSnapshot::load(&right)?;
+                            Ok(diagnostics::compare_error_counts(&left, &right)?.into())
+                        },
+                    );
+                }
                 self.acyclic_result(ui, Kind::SavedErrorCount);
             });
     }
@@ -1052,6 +1086,7 @@ impl App {
             | Query::SavedAccessLocks(_)
             | Query::CompareAccessLocks(..)
             | Query::SavedErrorCount(_)
+            | Query::CompareErrorCounts(..)
             | Query::SavedDeviceRevisions(_)
             | Query::CompareDeviceRevisions(..)
             | Query::SavedProcessReadback(_)
@@ -1120,6 +1155,9 @@ impl App {
                             ),
                             Query::CompareAccessLocks(..) => {
                                 ("Left access locks snapshot", "Right access locks snapshot")
+                            }
+                            Query::CompareErrorCounts(..) => {
+                                ("Left error count snapshot", "Right error count snapshot")
                             }
                             _ => ("Left master snapshot", "Right master snapshot"),
                         };

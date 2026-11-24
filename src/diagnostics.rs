@@ -48,7 +48,8 @@ pub use device_revisions::{
 };
 pub use direct_page::{DirectPage, decode_direct_page, review_direct_page};
 pub use error_count::{
-    DeviceErrorCount, ERROR_COUNT_INDEX, ErrorCountReview, ErrorCountSnapshot, decode_error_count,
+    DeviceErrorCount, ERROR_COUNT_INDEX, ErrorCountComparison, ErrorCountReview,
+    ErrorCountSnapshot, RecordedErrorCounts, compare_error_counts, decode_error_count,
 };
 pub use error_type::{ErrorTypeReport, decode_error_type};
 pub use input_descriptor_mapping::{InputDescriptorPlan, SkippedEntry, plan_input_descriptor};

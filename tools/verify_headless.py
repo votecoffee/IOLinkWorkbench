@@ -3569,6 +3569,7 @@ def verify_error_count(cli, profile, output, loopback=False):
     assert not run(cli, "review-error-count", malformed, expected=1)
     assert Gateway.requests == before and capture.read_bytes() == snapshot_bytes
 
+    verify_error_count_comparison(cli, capture, output / "comparison", loopback=loopback)
     if loopback:
         try:
             for name, sample in (("unavailable", None), ("empty", ""), ("short", "FF")):
@@ -3585,11 +3586,70 @@ def verify_error_count(cli, profile, output, loopback=False):
                     assert "value" not in report["decoded"]
                 before = Gateway.requests
                 assert tomllib.loads(run(cli, "review-error-count", destination, expected=1)) == report
+                comparison = tomllib.loads(run(cli, "compare-error-counts", capture, destination, expected=1))
+                assert "recorded_counts" not in comparison and comparison["right"] == report
+                if sample is None:
+                    assert "same_wire_bytes" not in comparison["reply"]
+                else:
+                    assert comparison["reply"]["same_wire_bytes"] is False
                 assert Gateway.requests == before
         finally:
             Gateway.error_count_reply = "A001"
         parallel_parameter_read(cli, profile, output / "parallel", query="error_count")
     assert profile.read_bytes() == original_profile
+
+
+def verify_error_count_comparison(cli, snapshot, output, loopback=False):
+    output.mkdir()
+    original = snapshot.read_bytes()
+    count = int(json.loads(original)["read"]["raw_hex"], 16)
+    requests = Gateway.requests
+
+    def variant(name, update):
+        body = json.loads(original)
+        update(body)
+        path = output / f"{name}.json"
+        path.write_text(json.dumps(body), encoding="utf-8")
+        return path
+
+    def compare(left, right, expected=0):
+        inputs = [left.read_bytes(), right.read_bytes()]
+        result = tomllib.loads(run(cli, "compare-error-counts", left, right, expected=expected))
+        assert [left.read_bytes(), right.read_bytes()] == inputs and snapshot.read_bytes() == original
+        assert Gateway.requests == requests
+        assert result["interval_basis"] == "The number of errors between reads is unknown"
+        return result
+
+    equal = compare(snapshot, snapshot)
+    assert equal["reply"] == {"same_wire_bytes": True}
+    assert equal["recorded_counts"] == {"left": count, "right": count, "numeric_difference": 0}
+
+    zero = variant("zero", lambda e: e["read"].update(raw_hex="0000"))
+    maximum = variant("maximum", lambda e: e["read"].update(raw_hex="FFFF"))
+    for left, right, a, b in ((zero, maximum, 0, 65535), (maximum, zero, 65535, 0)):
+        result = compare(left, right)
+        assert result["reply"] == {"same_wire_bytes": False}
+        assert result["recorded_counts"] == {"left": a, "right": b, "numeric_difference": b - a}
+
+    invalid = variant("invalid-width", lambda e: e["read"].update(raw_hex="01"))
+    result = compare(snapshot, invalid, 1)
+    assert result["reply"] == {
+        "same_wire_bytes": False, "interpretation_issue": "One or both saved replies need length review",
+    }
+    assert result["right"]["decoded"]["raw_hex"] == "01" and "recorded_counts" not in result
+
+    for serial, issue in (("OTHER", "Recorded device identity differs"), (None, "serial is unavailable")):
+        path = variant("other-device", lambda e: e["read"]["observation"]["identity"].update(serial=serial))
+        result = compare(snapshot, path, 1)
+        assert issue in result["reply"]["interpretation_issue"]
+        assert result["reply"]["same_wire_bytes"] and "recorded_counts" not in result
+
+    if loopback:
+        path = variant("other-endpoint",
+                       lambda e: e["profile"]["connection"].update(endpoint="http://127.0.0.1:9"))
+        result = compare(snapshot, path, 1)
+        assert result["reply"] == {"same_wire_bytes": True, "interpretation_issue": "Saved gateway endpoints differ"}
+        assert "recorded_counts" not in result
 
 
 def verify_direct_page_comparison(cli, profile, output):
@@ -4626,7 +4686,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, offline access locks comparison, offline Data Storage metadata review, offline Direct Parameter Page 1, identity pins and IODD comparison, optional device error count and saved evidence, device revision reads and saved connection checks, offline device revision comparison, acyclic process data readback and saved evidence, offline process readback comparison, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, offline access locks comparison, offline Data Storage metadata review, offline Direct Parameter Page 1, identity pins and IODD comparison, optional device error count and saved evidence, offline error count comparison, device revision reads and saved connection checks, offline device revision comparison, acyclic process data readback and saved evidence, offline process readback comparison, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1351, AL1352 and AL1353 status, ISDU and capture across all ports, one-shot ifm master inspection with supply diagnostics, read-only port configuration and offline snapshot review and comparison, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")

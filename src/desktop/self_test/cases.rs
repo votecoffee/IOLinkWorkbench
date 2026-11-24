@@ -1288,6 +1288,54 @@ mod tests {
     }
 
     #[test]
+    fn saved_error_count_panel_shows_numeric_difference_and_interval_uncertainty() -> Result<()> {
+        use crate::desktop::acyclic::{Output, Query};
+        use iolink_workbench::diagnostics::{ErrorCountSnapshot, compare_error_counts};
+
+        let mut app = App::new();
+        let profile = Profile::parse(include_str!("../../../samples/simulator.toml"))?;
+        assert_eq!(profile.connection.gateway, Gateway::Simulator);
+        let left = ErrorCountSnapshot::read(&profile)?;
+        let mut right = ErrorCountSnapshot::read(&profile)?;
+        right.read.raw_hex = Some("0002".into());
+        let comparison = compare_error_counts(&left, &right)?;
+        app.acyclic.store_result(
+            Query::CompareErrorCounts("before.json".into(), "after.json".into()),
+            Ok(Output::from(comparison)),
+        );
+        let ctx = Context::default();
+        configure_context(&ctx);
+        ctx.memory_mut(|memory| memory.set_everything_is_visible(true));
+        let output = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(SIZE[0] as f32, SIZE[1] as f32),
+                )),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| app.saved_error_count_panel(ui));
+            },
+        );
+        let mut texts = Vec::new();
+        for shape in &output.shapes {
+            text_shapes(&shape.shape, &mut texts);
+        }
+        assert!(texts.contains(&"Compare error counts"));
+        assert!(texts.contains(&"Left error count snapshot"));
+        assert!(texts.contains(&"Right error count snapshot"));
+        let summary = texts
+            .iter()
+            .find(|text| text.contains("Recorded count · 5 → 2"))
+            .context("error count comparison summary")?;
+        assert!(summary.contains("Right minus left · -3"));
+        assert!(summary.contains("The number of errors between reads is unknown"));
+        assert!(!app.acyclic.busy());
+        Ok(())
+    }
+
+    #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
         assert_eq!(cases.len(), 141);

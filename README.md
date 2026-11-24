@@ -158,7 +158,7 @@ The bundled **sensor-checksum.xml** and **sensor-checksum-de.xml** are original 
 
 **Device revisions.** Read optional sensor hardware and firmware revision strings and compare two saved snapshots, with separate wire and text results. [Device revisions](docs/OPERATIONS.md#device-revisions)
 
-**Device error count.** Read the optional application error count from the configured port, inspect recorded bytes, or reopen a saved reply. [Device error count](docs/OPERATIONS.md#device-error-count)
+**Device error count.** Read the optional application error count from the configured port, inspect recorded bytes, or compare two saved replies offline. [Device error count](docs/OPERATIONS.md#device-error-count)
 
 **Direct Parameter Page 1.** Inspect a recorded wired IO-Link 1.1 page for link cycles, process-data lengths, capabilities and device IDs. Compare it with the selected IODD in **Offline → Parameter bytes** or with `decode-direct-page --profile`. [Direct Parameter Page 1](docs/OPERATIONS.md#direct-parameter-page-1)
 
