@@ -327,18 +327,23 @@ impl ProcessReadbackSnapshot {
     }
 
     pub fn review(&self) -> Result<ProcessReadbackReview<'_>> {
-        Ok(ProcessReadbackReview {
+        self.review_with_bytes().map(|(review, _)| review)
+    }
+
+    pub(super) fn review_with_bytes(&self) -> Result<(ProcessReadbackReview<'_>, Option<Vec<u8>>)> {
+        let bytes = self.checked_bytes()?;
+        let review = ProcessReadbackReview {
             direction: self.direction,
             observation_kind: BASIS,
             workbench_version: &self.workbench_version,
             decoder_version: env!("CARGO_PKG_VERSION"),
             profile_name: &self.profile.name,
             read: &self.read,
-            decoded: self
-                .checked_bytes()?
+            decoded: bytes
                 .as_deref()
                 .map(|bytes| decode_bytes(self.direction, Some(&self.profile), bytes)),
-        })
+        };
+        Ok((review, bytes))
     }
 
     pub fn load(path: &Path) -> Result<Self> {

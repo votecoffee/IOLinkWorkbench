@@ -2,6 +2,8 @@
 
 ## Windows preview
 
+- Compare saved process readbacks by changed wire byte and mapped field. Preserve both source reviews. Show typed changes only when direction, recorded connection context, and mappings agree.
+
 - Read optional ProcessDataInput and ProcessDataOutput at 40:0 and 41:0. Decode the stored payload through the existing input or output mapping and preserve the one-off reply separately from cyclic acquisition.
 
 - Compare two saved device revision snapshots. Check wire bytes per reply and compare decoded strings when the recorded connection and device context match. Keep both source reviews and any comparison limits visible.

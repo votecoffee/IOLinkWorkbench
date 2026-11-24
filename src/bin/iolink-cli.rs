@@ -176,6 +176,8 @@ enum Command {
     },
     /// Review a saved acyclic process readback using its embedded mapping.
     ReviewProcessReadback { snapshot: PathBuf },
+    /// Compare two saved process readback snapshots offline.
+    CompareProcessReadbacks { left: PathBuf, right: PathBuf },
     /// Decode a recorded acyclic process readback at index 40 or 41.
     DecodeProcessReadback {
         index: u16,
@@ -672,6 +674,16 @@ fn main() -> Result<()> {
             ensure!(
                 review.ok(),
                 "Saved process readback needs review. Retained results are printed above."
+            );
+        }
+        Command::CompareProcessReadbacks { left, right } => {
+            let left = diagnostics::ProcessReadbackSnapshot::load(&left)?;
+            let right = diagnostics::ProcessReadbackSnapshot::load(&right)?;
+            let comparison = diagnostics::compare_process_readbacks(&left, &right)?;
+            print!("{}", toml::to_string_pretty(&comparison)?);
+            ensure!(
+                comparison.ok(),
+                "Process readback comparison needs review. Retained results are printed above."
             );
         }
         Command::DecodeProcessReadback {

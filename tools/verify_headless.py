@@ -3102,6 +3102,110 @@ def verify_device_profile_comparison(cli, snapshot, output, loopback=False):
     assert Gateway.requests == before and snapshot.read_bytes() == original
 
 
+def verify_process_readback_comparison(cli, source, output, loopback=False):
+    output.mkdir()
+    left = source / "input.json"
+    output_left = source / "output.json"
+    original = left.read_bytes()
+    before = Gateway.requests
+    command = "compare-process-readbacks"
+
+    def variant(name, change, source_bytes=original):
+        record = json.loads(source_bytes)
+        change(record)
+        path = output / f"{name}.json"
+        path.write_text(json.dumps(record), encoding="utf-8")
+        return path
+
+    def compare(first, second, status=0):
+        first_bytes, second_bytes = first.read_bytes(), second.read_bytes()
+        result = tomllib.loads(run(cli, command, first, second, expected=status))
+        assert first.read_bytes() == first_bytes and second.read_bytes() == second_bytes
+        assert Gateway.requests == before
+        return result
+
+    same = compare(left, left)
+    assert same["reply"] == {"same_wire_bytes": True}
+    assert same["byte_changes"] == same["field_changes"] == []
+    assert same["left"]["decoded"]["raw_hex"] == "03E9"
+
+    changed_path = variant("changed-level", lambda e: e["read"].update(raw_hex="03EB"))
+    changed = compare(left, changed_path)
+    assert changed["reply"] == {"same_wire_bytes": False}
+    assert changed["byte_changes"] == [{"byte_offset": 1, "left": 0xE9, "right": 0xEB, "xor_mask": 2}]
+    assert changed["field_changes"] == [{
+        "name": "level", "bit_offset": 1, "bits": 15, "unit": "mm",
+        "left": {"bits_hex": "1F4", "raw": "500", "display": "50.0"},
+        "right": {"bits_hex": "1F5", "raw": "501", "display": "50.1"},
+    }]
+    reversed_pair = compare(changed_path, left)
+    assert reversed_pair["byte_changes"][0] == {"byte_offset": 1, "left": 0xEB, "right": 0xE9, "xor_mask": 2}
+    assert reversed_pair["field_changes"][0]["left"] == changed["field_changes"][0]["right"]
+
+    reordered = variant("same-mapping-different-order", lambda e: e["profile"]["fields"].reverse())
+    assert compare(left, reordered)["field_changes"] == []
+    remapped = variant("different-scaling", lambda e: e["profile"]["fields"][0].update(scale=0.2))
+    changed_mapping = compare(left, remapped, 1)
+    assert changed_mapping["reply"] == {
+        "same_wire_bytes": True, "interpretation_issue": "Saved process data mappings differ",
+    }
+    assert changed_mapping["byte_changes"] == [] and "field_changes" not in changed_mapping
+    assert changed_mapping["right"]["decoded"]["input_fields"][0]["value"]["value"] == "100.0"
+
+    wrong_width = variant("wider-reply", lambda e: e["read"].update(raw_hex="03E900"))
+    malformed = compare(left, wrong_width, 1)
+    assert malformed["byte_changes"] == [{"byte_offset": 2, "right": 0}]
+    assert "decoding review" in malformed["reply"]["interpretation_issue"]
+    assert "field_changes" not in malformed and malformed["right"]["decoded"]["raw_hex"] == "03E900"
+
+    different_sensor = variant("different-sensor", lambda e: e["read"]["observation"]["identity"].update(serial="OTHER"))
+    mismatch = compare(left, different_sensor, 1)
+    assert mismatch["reply"] == {"same_wire_bytes": True, "interpretation_issue": "Recorded device identity differs"}
+    assert mismatch["byte_changes"] == [] and "field_changes" not in mismatch
+
+    unknown_sensor = variant("unknown-sensor", lambda e: e["read"]["observation"]["identity"].update(serial=None))
+    unknown = compare(left, unknown_sensor, 1)
+    assert "serial is unavailable" in unknown["reply"]["interpretation_issue"]
+    assert "field_changes" not in unknown
+
+    if loopback:
+        another_endpoint = variant("another-endpoint",
+                                   lambda e: e["profile"]["connection"].update(endpoint="http://127.0.0.1:9"))
+        result = compare(left, another_endpoint, 1)
+        assert result["reply"] == {"same_wire_bytes": True,
+                                   "interpretation_issue": "Saved gateway endpoints differ"}
+
+    missing = variant("read-error", lambda e: e["read"].update(raw_hex=None, read_error="Synthetic readback error"))
+    failure = compare(left, missing, 1)
+    assert failure["reply"] == {"interpretation_issue": "One or both saved replies are unavailable"}
+    assert "byte_changes" not in failure and "field_changes" not in failure
+    assert failure["right"]["read"]["read_error"] == "Synthetic readback error"
+
+    mixed = compare(left, output_left, 1)
+    assert mixed["reply"]["interpretation_issue"] == "Saved process readback directions differ"
+    assert mixed["left"]["direction"] == "input" and mixed["right"]["direction"] == "output"
+    assert "byte_changes" in mixed and "field_changes" not in mixed
+
+    output_original = output_left.read_bytes()
+    output_changed = variant("changed-output", lambda e: e["read"].update(raw_hex="00F0"), output_original)
+    output_comparison = compare(output_left, output_changed)
+    old_byte = 0xB6 if loopback else 0xA5
+    assert output_comparison["byte_changes"] == [{"byte_offset": 1, "left": old_byte,
+                                                 "right": 0xF0, "xor_mask": old_byte ^ 0xF0}]
+    assert output_comparison["field_changes"][0]["left"]["raw"] == str(old_byte)
+    assert output_comparison["field_changes"][0]["right"]["raw"] == "240"
+    raw_output = variant("without-output-layout", lambda e: e["profile"].update(iodd=None), output_original)
+    raw_only = compare(output_left, raw_output, 1)
+    assert raw_only["reply"] == {
+        "same_wire_bytes": True, "interpretation_issue": "One or both saved replies have no decoded process fields",
+    }
+    assert raw_only["byte_changes"] == [] and "field_changes" not in raw_only
+
+    corrupt = variant("mismatched-query", lambda e: e["read"].update(index=41))
+    assert not run(cli, command, left, corrupt, expected=1)
+    assert left.read_bytes() == original and output_left.read_bytes() == output_original and Gateway.requests == before
+
+
 def verify_process_readback(cli, output, endpoint=None):
     output.mkdir()
     sim = ROOT / "samples/simulator.toml"
@@ -3985,6 +4089,7 @@ def main():
     verify_direct_page(cli, features_profile)
     verify_error_count(cli, features_profile, scratch / "sim-error-count")
     verify_process_readback(cli, scratch / "sim-process-readback")
+    verify_process_readback_comparison(cli, scratch / "sim-process-readback", scratch / "sim-readback-comparison")
     verify_device_revisions(cli, features_profile, scratch / "sim-device-revisions")
     verify_device_revision_comparison(cli, scratch / "sim-device-revisions/device-revisions.json",
                                       scratch / "sim-device-revision-comparison")
@@ -4399,6 +4504,8 @@ kind = "bool"
             verify_diagnostic_snapshots(cli, parameter_fixture, scratch / "ifm-diagnostic-snapshots", loopback=True)
             verify_error_count(cli, parameter_fixture, scratch / "ifm-error-count", loopback=True)
             verify_process_readback(cli, scratch / "ifm-process-readback", endpoint)
+            verify_process_readback_comparison(cli, scratch / "ifm-process-readback",
+                                               scratch / "ifm-readback-comparison", loopback=True)
             verify_device_revisions(cli, parameter_fixture, scratch / "ifm-device-revisions", loopback=True)
             verify_device_revision_comparison(cli, scratch / "ifm-device-revisions/device-revisions.json",
                                               scratch / "ifm-device-revision-comparison", loopback=True)
@@ -4454,7 +4561,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, offline Data Storage metadata review, offline Direct Parameter Page 1, identity pins and IODD comparison, optional device error count and saved evidence, device revision reads and saved connection checks, offline device revision comparison, acyclic process data readback and saved evidence, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, offline Data Storage metadata review, offline Direct Parameter Page 1, identity pins and IODD comparison, optional device error count and saved evidence, device revision reads and saved connection checks, offline device revision comparison, acyclic process data readback and saved evidence, offline process readback comparison, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1351, AL1352 and AL1353 status, ISDU and capture across all ports, one-shot ifm master inspection with supply diagnostics, read-only port configuration and offline snapshot review and comparison, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")

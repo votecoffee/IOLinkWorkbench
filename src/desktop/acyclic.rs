@@ -51,6 +51,31 @@ fn snapshot_open_control(
     .then(|| PathBuf::from(path))
 }
 
+fn snapshot_compare_control(
+    ui: &mut Ui,
+    available: bool,
+    first: &str,
+    second: &mut String,
+    subject: &str,
+    button: &str,
+) -> Option<(PathBuf, PathBuf)> {
+    ui.collapsing(format!("Compare two {subject} snapshots"), |ui| {
+        ui.small("Use the file above as the first snapshot.");
+        ui.add_enabled_ui(available, |ui| {
+            super::path_entry(ui, second, &format!("Second {subject} snapshot JSON path"));
+        });
+        let (left, right) = (first.trim(), second.trim());
+        ui.add_enabled(
+            available && !left.is_empty() && !right.is_empty(),
+            egui::Button::new(button),
+        )
+        .clicked()
+        .then(|| (PathBuf::from(left), PathBuf::from(right)))
+    })
+    .body_returned
+    .flatten()
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Kind {
     Named,
@@ -97,6 +122,7 @@ pub(super) enum Query {
     CompareDeviceRevisions(PathBuf, PathBuf),
     ProcessReadback(diagnostics::ReadbackDirection),
     SavedProcessReadback(PathBuf),
+    CompareProcessReadbacks(PathBuf, PathBuf),
 }
 
 impl Query {
@@ -115,7 +141,9 @@ impl Query {
             Self::SavedErrorCount(_) => Kind::SavedErrorCount,
             Self::DeviceRevisions => Kind::DeviceRevisions,
             Self::ProcessReadback(_) => Kind::ProcessReadback,
-            Self::SavedProcessReadback(_) => Kind::SavedProcessReadback,
+            Self::SavedProcessReadback(_) | Self::CompareProcessReadbacks(..) => {
+                Kind::SavedProcessReadback
+            }
             Self::SavedDeviceRevisions(_) | Self::CompareDeviceRevisions(..) => {
                 Kind::SavedDeviceRevisions
             }
@@ -166,6 +194,11 @@ impl Query {
                 left.display(),
                 right.display()
             ),
+            Self::CompareProcessReadbacks(left, right) => format!(
+                "Process readback snapshots · {} → {}",
+                left.display(),
+                right.display()
+            ),
             Self::CompareDeviceProfiles(left, right) => format!(
                 "Device profile snapshots · {} → {}",
                 left.display(),
@@ -212,6 +245,16 @@ impl From<diagnostics::DeviceRevisionComparison<'_>> for Output {
     }
 }
 
+impl From<diagnostics::ProcessReadbackComparison<'_>> for Output {
+    fn from(comparison: diagnostics::ProcessReadbackComparison<'_>) -> Self {
+        Self {
+            text: comparison.summary_text(),
+            port_configuration: None,
+            comparison_sources: Some([comparison.left.text(), comparison.right.text()]),
+        }
+    }
+}
+
 impl From<String> for Output {
     fn from(text: String) -> Self {
         Self {
@@ -240,6 +283,7 @@ pub(super) struct Reads {
     readback_direction: diagnostics::ReadbackDirection,
     readback_save: String,
     readback_open: String,
+    readback_compare: String,
     revisions_save: String,
     revisions_open: String,
     revisions_compare: String,
@@ -578,6 +622,23 @@ impl App {
                             .text())
                     });
                 }
+                if let Some((left, right)) = snapshot_compare_control(
+                    ui,
+                    available,
+                    &self.acyclic.readback_open,
+                    &mut self.acyclic.readback_compare,
+                    "process readback",
+                    "Compare process readbacks",
+                ) {
+                    self.start_acyclic_output(
+                        Query::CompareProcessReadbacks(left.clone(), right.clone()),
+                        move || {
+                            let left = diagnostics::ProcessReadbackSnapshot::load(&left)?;
+                            let right = diagnostics::ProcessReadbackSnapshot::load(&right)?;
+                            Ok(diagnostics::compare_process_readbacks(&left, &right)?.into())
+                        },
+                    );
+                }
                 self.acyclic_result(ui, Kind::SavedProcessReadback);
             });
     }
@@ -695,35 +756,23 @@ impl App {
                             .text())
                     });
                 }
-                ui.collapsing("Compare two device revision snapshots", |ui| {
-                    ui.small("Use the file above as the first snapshot.");
-                    ui.add_enabled_ui(available, |ui| {
-                        super::path_entry(
-                            ui,
-                            &mut self.acyclic.revisions_compare,
-                            "Second device revision snapshot JSON path",
-                        );
-                    });
-                    let left = self.acyclic.revisions_open.trim();
-                    let right = self.acyclic.revisions_compare.trim();
-                    if ui
-                        .add_enabled(
-                            available && !left.is_empty() && !right.is_empty(),
-                            egui::Button::new("Compare device revisions"),
-                        )
-                        .clicked()
-                    {
-                        let (left, right) = (PathBuf::from(left), PathBuf::from(right));
-                        self.start_acyclic_output(
-                            Query::CompareDeviceRevisions(left.clone(), right.clone()),
-                            move || {
-                                let left = diagnostics::DeviceRevisionsSnapshot::load(&left)?;
-                                let right = diagnostics::DeviceRevisionsSnapshot::load(&right)?;
-                                Ok(diagnostics::compare_device_revisions(&left, &right)?.into())
-                            },
-                        );
-                    }
-                });
+                if let Some((left, right)) = snapshot_compare_control(
+                    ui,
+                    available,
+                    &self.acyclic.revisions_open,
+                    &mut self.acyclic.revisions_compare,
+                    "device revision",
+                    "Compare device revisions",
+                ) {
+                    self.start_acyclic_output(
+                        Query::CompareDeviceRevisions(left.clone(), right.clone()),
+                        move || {
+                            let left = diagnostics::DeviceRevisionsSnapshot::load(&left)?;
+                            let right = diagnostics::DeviceRevisionsSnapshot::load(&right)?;
+                            Ok(diagnostics::compare_device_revisions(&left, &right)?.into())
+                        },
+                    );
+                }
                 self.acyclic_result(ui, Kind::SavedDeviceRevisions);
             });
     }
@@ -979,7 +1028,8 @@ impl App {
             | Query::SavedErrorCount(_)
             | Query::SavedDeviceRevisions(_)
             | Query::CompareDeviceRevisions(..)
-            | Query::SavedProcessReadback(_) => self.acyclic_job_block_reason(),
+            | Query::SavedProcessReadback(_)
+            | Query::CompareProcessReadbacks(..) => self.acyclic_job_block_reason(),
             _ => self.acyclic_block_reason(),
         };
         if let Some(reason) = blocked {
@@ -1037,6 +1087,10 @@ impl App {
                             Query::CompareDeviceRevisions(..) => (
                                 "Left device revision snapshot",
                                 "Right device revision snapshot",
+                            ),
+                            Query::CompareProcessReadbacks(..) => (
+                                "Left process readback snapshot",
+                                "Right process readback snapshot",
                             ),
                             _ => ("Left master snapshot", "Right master snapshot"),
                         };

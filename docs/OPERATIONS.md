@@ -112,6 +112,16 @@ In **Diagnostics → Device profile → Acyclic process data readback**, select 
 
 Input uses the saved profile’s effective mapping and output uses the selected IODD output layout. Review preserves the raw reply when a mapping is missing, a layout condition needs confirmation, or the width or encoding needs review. A mismatch or failed request returns exit 1 with available evidence. A valid raw reply without a usable mapping remains available. Use **Offline → Diagnostic snapshots → Process readback snapshots** to reopen an explicitly saved read with its embedded profile. Cyclic sampling and CSV capture continue independently.
 
+#### Compare saved process readbacks
+
+Open **Offline → Diagnostic snapshots → Process readback snapshots → Compare two process readback snapshots**. Enter the first snapshot above the compare section and the second path inside it. Expand each source review to see the original read and mapping.
+
+```powershell
+.\iolink-cli.exe compare-process-readbacks before.json after.json
+```
+
+The report lists changed bytes by zero-based wire offset, with an XOR mask for byte positions present in both replies. Typed changes require matching readback directions, recorded gateway and device context, and effective field mappings. A field change shows the original and revised raw bits and displayed values. The host observation times belong to the independent reads. Each source process sample time remains unknown. CLI exit 0 means the typed comparison ran, including when values differ. Exit 1 retains the available raw comparison and both source reviews when typed comparison needs review.
+
 ### Device revisions
 
 Open **Diagnostics → Connection & identity → Device revisions (22:0 / 23:0)** to read the connected sensor’s hardware and firmware strings. The master firmware appears separately in the connection details. Choose **Read and save device revisions snapshot** to keep each raw reply or read error, its observation time, and its master, port, and device identity. Reopen the file under **Offline → Diagnostic snapshots → Device revision snapshots**. [IO-Link Interface and System V1.1.5, Table B.8 and B.2.14–15](https://io-link.com/fileadmin/user_upload/Downloads/Package_2025/IOL-Interface-Spec_10002_V1.1.5_Oct2025.zip)

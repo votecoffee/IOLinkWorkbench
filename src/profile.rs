@@ -263,7 +263,7 @@ impl Default for Profile {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub(crate) enum InputEncoding<'a> {
     StandaloneBoolean,
     PaddedInteger(&'a Field),

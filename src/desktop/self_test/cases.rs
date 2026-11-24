@@ -1184,6 +1184,62 @@ mod tests {
     }
 
     #[test]
+    fn saved_process_readback_panel_shows_byte_and_field_changes() -> Result<()> {
+        use crate::desktop::acyclic::{Output, Query};
+        use iolink_workbench::diagnostics::{
+            ProcessReadbackSnapshot, ReadbackDirection, compare_process_readbacks,
+        };
+
+        let mut app = App::new();
+        let profile = Profile::parse(include_str!("../../../samples/simulator.toml"))?;
+        assert_eq!(profile.connection.gateway, Gateway::Simulator);
+        app.profile = profile.clone();
+        let left = ProcessReadbackSnapshot::read(&profile, ReadbackDirection::Input)?;
+        let mut right = ProcessReadbackSnapshot::read(&profile, ReadbackDirection::Input)?;
+        right.read.raw_hex = Some("03EB".into());
+        let comparison = compare_process_readbacks(&left, &right)?;
+        app.acyclic.store_result(
+            Query::CompareProcessReadbacks("left.json".into(), "right.json".into()),
+            Ok(Output::from(comparison)),
+        );
+        let ctx = Context::default();
+        configure_context(&ctx);
+        ctx.memory_mut(|memory| memory.set_everything_is_visible(true));
+        let output = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(SIZE[0] as f32, SIZE[1] as f32),
+                )),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| app.saved_process_readback_panel(ui));
+            },
+        );
+        let mut texts = Vec::new();
+        for shape in &output.shapes {
+            text_shapes(&shape.shape, &mut texts);
+        }
+        assert!(texts.contains(&"Compare process readbacks"));
+        assert!(texts.contains(&"Left process readback snapshot"));
+        assert!(texts.contains(&"Right process readback snapshot"));
+        assert!(
+            texts
+                .iter()
+                .any(|text| text.contains("Byte 1 · 0xE9 → 0xEB · XOR 0x02"))
+        );
+        assert!(
+            texts
+                .iter()
+                .any(|text| text.contains("level · bit 1 · 50.0 → 50.1 mm"))
+        );
+        assert!(!app.acyclic.busy());
+        assert_eq!(app.profile, profile);
+        Ok(())
+    }
+
+    #[test]
     fn all_built_in_views_render_without_input_or_profile_changes() -> Result<()> {
         let cases = render(&Context::default(), |_, _, _| Ok(()))?;
         assert_eq!(cases.len(), 141);
