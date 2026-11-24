@@ -1,5 +1,5 @@
 //! Decode and preserve one explicit DeviceAccessLocks read (12:0).
-use super::{SavedRead, observe};
+use super::{ReplyComparison, SavedRead, observe};
 use crate::{decode, profile::Profile, snapshot_file, transport};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
@@ -237,4 +237,112 @@ impl AccessLocksSnapshot {
         self.validate()?;
         snapshot_file::save(self, path, SNAPSHOT_KIND)
     }
+}
+
+#[derive(Debug, Serialize)]
+pub struct AccessLocksComparison {
+    pub left: AccessLocksReview,
+    pub right: AccessLocksReview,
+    pub reply: ReplyComparison,
+    pub xor_mask: Option<u16>,
+    pub flag_changes: Option<Vec<AccessLockChange>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AccessLockChange {
+    pub bit: usize,
+    pub name: &'static str,
+    pub left_locked: bool,
+    pub right_locked: bool,
+    pub legacy: bool,
+}
+
+impl AccessLocksComparison {
+    pub fn ok(&self) -> bool {
+        self.flag_changes.is_some()
+    }
+
+    pub fn summary_text(&self) -> String {
+        let mut text = format!(
+            "Saved access locks comparison · left → right\nProfiles · {} → {}",
+            self.left.profile_name, self.right.profile_name,
+        );
+        self.reply.write_summary(&mut text, INDEX);
+        if let Some(mask) = self.xor_mask {
+            let _ = write!(text, "\nWire XOR · 0x{mask:04X}");
+        }
+        if let Some(changes) = &self.flag_changes {
+            if changes.is_empty() {
+                text.push_str("\nRecorded lock flags match");
+            }
+            for change in changes {
+                let state = |locked| if locked { "Set" } else { "Clear" };
+                let legacy = if change.legacy { " · Legacy" } else { "" };
+                let _ = write!(
+                    text,
+                    "\nBit {} · {} · {} → {}{legacy}",
+                    change.bit,
+                    change.name,
+                    state(change.left_locked),
+                    state(change.right_locked),
+                );
+            }
+        }
+        text
+    }
+}
+
+pub fn compare_access_locks(
+    left: &AccessLocksSnapshot,
+    right: &AccessLocksSnapshot,
+) -> Result<AccessLocksComparison> {
+    let endpoint_issue = (left.profile.connection.endpoint != right.profile.connection.endpoint)
+        .then_some("Saved gateway endpoints differ");
+    let left = left.review()?;
+    let right = right.review()?;
+    let mut reply = ReplyComparison::new(&left.read, &right.read, endpoint_issue, None);
+    let decoded = left.decoded.as_ref().zip(right.decoded.as_ref());
+    let xor_mask = decoded
+        .filter(|(a, b)| a.decode_error.is_none() && b.decode_error.is_none())
+        .and_then(|(a, b)| {
+            let a = u16::from_str_radix(&a.raw_hex, 16).ok()?;
+            let b = u16::from_str_radix(&b.raw_hex, 16).ok()?;
+            Some(a ^ b)
+        });
+    let flags = decoded
+        .filter(|(a, b)| a.ok() && b.ok())
+        .map(|(a, b)| a.flags.iter().zip(&b.flags));
+    let flag_issue = match &flags {
+        None => Some("One or both saved lock replies need decoding review"),
+        Some(flags)
+            if flags
+                .clone()
+                .any(|(a, b)| a.iodd_supported != b.iodd_supported) =>
+        {
+            Some("Saved IODD lock support declarations differ")
+        }
+        Some(_) => None,
+    };
+    reply.interpretation_issue = reply.interpretation_issue.or(flag_issue);
+    let flag_changes = flags
+        .filter(|_| reply.interpretation_issue.is_none())
+        .map(|flags| {
+            flags
+                .filter(|(a, b)| a.locked != b.locked)
+                .map(|(a, b)| AccessLockChange {
+                    bit: a.bit,
+                    name: a.name,
+                    left_locked: a.locked,
+                    right_locked: b.locked,
+                    legacy: a.legacy,
+                })
+                .collect()
+        });
+    Ok(AccessLocksComparison {
+        left,
+        right,
+        reply,
+        xor_mask,
+        flag_changes,
+    })
 }

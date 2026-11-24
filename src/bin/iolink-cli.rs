@@ -232,6 +232,8 @@ enum Command {
     },
     /// Review saved DeviceAccessLocks evidence offline.
     ReviewDeviceAccessLocks { snapshot: PathBuf },
+    /// Compare two saved DeviceAccessLocks snapshots offline.
+    CompareAccessLocks { left: PathBuf, right: PathBuf },
     /// Read profile IDs and both process descriptors from one configured port.
     ReadDeviceProfile {
         profile: PathBuf,
@@ -830,6 +832,16 @@ fn main() -> Result<()> {
             ensure!(
                 review.ok(),
                 "Device Access Locks need review. Retained results are printed above."
+            );
+        }
+        Command::CompareAccessLocks { left, right } => {
+            let left = diagnostics::AccessLocksSnapshot::load(&left)?;
+            let right = diagnostics::AccessLocksSnapshot::load(&right)?;
+            let comparison = diagnostics::compare_access_locks(&left, &right)?;
+            print!("{}", toml::to_string_pretty(&comparison)?);
+            ensure!(
+                comparison.ok(),
+                "Access locks comparison needs review. Retained results are printed above."
             );
         }
         Command::ReadDeviceProfile { profile, snapshot } => {

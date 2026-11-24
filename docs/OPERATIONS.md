@@ -99,6 +99,16 @@ In **Diagnostics → Device profile → Device access locks (12:0)**, choose **R
 
 The standard reply has two bytes. Bits 0 and 1 are the legacy parameter-write and Data Storage lock flags. Bits 2 and 3 report local parameterization and local user interface locks. The view shows each observed flag and the saved IODD's support declaration when present. An unavailable read keeps its error and available connection context. The CLI returns 1 for read failures, invalid widths, set reserved bits, or a set flag the IODD marks unsupported. This is the device's recorded lock word. Master Data Storage status and write permission have their own controls and evidence.
 
+#### Compare saved access locks
+
+Open **Offline → Diagnostic snapshots → Access locks snapshots → Compare two access locks snapshots**. Enter the first snapshot above the comparison and the second path inside it. Expand the left and right source reviews for the individual replies, read errors, IODD declarations, and recorded identity.
+
+~~~powershell
+.\iolink-cli.exe compare-access-locks before.json after.json
+~~~
+
+The comparison reports exact wire equality when both replies exist and a 16-bit XOR mask when both are two bytes. It lists named set/clear changes when the replies pass lock decoding review, the recorded master, port, and device context matches, and both profiles agree on IODD lock support, including when both leave support undeclared. If this interpretation is unavailable, the CLI returns 1 and prints both reviews with any available wire comparison. Exit 0 means the flag comparison was available, including when flags changed. This is a comparison of two saved observations.
+
 ### Acyclic process data readback
 
 In **Diagnostics → Device profile → Acyclic process data readback**, select **Input (40:0)** or **Output (41:0)** and choose **Read process data**. These optional read-only objects return the device’s last valid process data for the selected direction. The displayed host time records when the read completed. The device sample time and current process-data validity remain unknown. [IO-Link Interface and System V1.1.5, B.2.23–24](https://io-link.com/fileadmin/user_upload/Downloads/Package_2025/IOL-Interface-Spec_10002_V1.1.5_Oct2025.zip)

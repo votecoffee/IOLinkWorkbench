@@ -3837,6 +3837,7 @@ def verify_access_locks(cli, profile, output, endpoint=None):
         invalid.write_text(json.dumps(body), encoding="utf-8")
         run(cli, "review-device-access-locks", invalid, expected=1)
     assert Gateway.requests == before
+    verify_access_lock_comparison(cli, snapshot, output, loopback=bool(endpoint))
     if not endpoint:
         return
 
@@ -3847,6 +3848,10 @@ def verify_access_locks(cli, profile, output, endpoint=None):
         assert result["read"]["read_error"] and result["read"]["observation"]["port"] == 1
         assert "decoded" not in result and "raw_hex" not in result["read"]
         assert tomllib.loads(run(cli, "review-device-access-locks", failed, expected=1)) == result
+        comparison = tomllib.loads(run(cli, "compare-access-locks", snapshot, failed, expected=1))
+        assert comparison["right"] == result
+        assert comparison["reply"] == {"interpretation_issue": "One or both saved replies are unavailable"}
+        assert "xor_mask" not in comparison and "flag_changes" not in comparison
     finally:
         Gateway.fail_access_locks = False
     state = Gateway.polls, Gateway.inject_faults, Gateway.device_id
@@ -3854,6 +3859,66 @@ def verify_access_locks(cli, profile, output, endpoint=None):
         parallel_parameter_read(cli, active, output / "parallel", query="access_locks")
     finally:
         Gateway.polls, Gateway.inject_faults, Gateway.device_id = state
+
+
+def verify_access_lock_comparison(cli, snapshot, output, loopback=False):
+    original = snapshot.read_bytes()
+    requests = Gateway.requests
+
+    def variant(name, update):
+        body = json.loads(original)
+        update(body)
+        path = output / f"{name}.json"
+        path.write_text(json.dumps(body), encoding="utf-8")
+        return path
+
+    def compare(right, expected=0):
+        before = right.read_bytes()
+        result = tomllib.loads(run(cli, "compare-access-locks", snapshot, right, expected=expected))
+        assert snapshot.read_bytes() == original and right.read_bytes() == before
+        assert Gateway.requests == requests
+        return result
+
+    equal = compare(snapshot)
+    assert equal["reply"] == {"same_wire_bytes": True}
+    assert equal["xor_mask"] == 0 and equal["flag_changes"] == []
+
+    changed = variant("changed-locks", lambda e: e["read"].update(raw_hex="0000"))
+    result = compare(changed)
+    assert result["reply"] == {"same_wire_bytes": False} and result["xor_mask"] == 0x000C
+    assert result["flag_changes"] == [
+        {"bit": bit, "name": name, "left_locked": True, "right_locked": False, "legacy": False}
+        for bit, name in ((2, "Local parameterization"), (3, "Local user interface"))
+    ]
+
+    for raw, mask in (("800C", 0x8000), ("000D", 1), ("0C", None), ("", None)):
+        path = variant(f"review-{raw}", lambda e: e["read"].update(raw_hex=raw))
+        result = compare(path, 1)
+        assert result["reply"]["same_wire_bytes"] is False
+        assert "need decoding review" in result["reply"]["interpretation_issue"]
+        assert result.get("xor_mask") == mask and "flag_changes" not in result
+        assert result["right"]["decoded"]["raw_hex"] == raw
+
+    def change_support(body):
+        body["profile"]["iodd"]["features"]["access_locks"]["parameter"] = True
+
+    different_declaration = compare(variant("changed-support", change_support), 1)
+    assert different_declaration["reply"]["interpretation_issue"] == "Saved IODD lock support declarations differ"
+    assert different_declaration["xor_mask"] == 0 and "flag_changes" not in different_declaration
+
+    for serial, issue in (("OTHER", "Recorded device identity differs"), (None, "serial is unavailable")):
+        path = variant("different-device", lambda e: e["read"]["observation"]["identity"].update(serial=serial))
+        result = compare(path, 1)
+        assert issue in result["reply"]["interpretation_issue"]
+        assert result["reply"]["same_wire_bytes"] and result["xor_mask"] == 0
+        assert "flag_changes" not in result
+
+    if loopback:
+        path = variant("different-endpoint",
+                       lambda e: e["profile"]["connection"].update(endpoint="http://127.0.0.1:9"))
+        result = compare(path, 1)
+        assert result["reply"]["interpretation_issue"] == "Saved gateway endpoints differ"
+        assert result["reply"]["same_wire_bytes"] and "flag_changes" not in result
     assert not Gateway.violations
 
 
@@ -4561,7 +4626,7 @@ kind = "bool"
             server.shutdown()
             thread.join()
 
-    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, offline Data Storage metadata review, offline Direct Parameter Page 1, identity pins and IODD comparison, optional device error count and saved evidence, device revision reads and saved connection checks, offline device revision comparison, acyclic process data readback and saved evidence, offline process readback comparison, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
+    print("PASS: saved logging candidates and offline plans with exact CSV headers, row/time rotation and selection resets, cyclic manual/override field edits with restoration and CSV selection guards, offline identity pins with explicit clears and separate observed matching, offline connection edits with source/destination preservation, temporal declared defaults with explicit precision and era limits, offline declared defaults with separate snapshot observations, standard allowed-value validation and localized range names, IODD declared cycles and separate timing comparisons, saved IODD device capabilities and offline ProfileCharacteristic reply comparison, process descriptor geometry review for input and output, safe descriptor-derived manual input mapping plans, independent three-query device profile snapshots and offline wire and geometry comparison, read-only Device Access Locks and saved evidence, offline access locks comparison, offline Data Storage metadata review, offline Direct Parameter Page 1, identity pins and IODD comparison, optional device error count and saved evidence, device revision reads and saved connection checks, offline device revision comparison, acyclic process data readback and saved evidence, offline process readback comparison, binary IODD main/language checksum receipts, ZIP and variant selection, standalone Boolean bytes and integer padding review, localized cyclic state and range names, cyclic binary/hex/Boolean decimal views with underlying CSV values, offline decoding, equal updates, on-change, raw-only logging and ordered field overrides, rotation, logger queue/duration telemetry, "
           "stale and invalid data, reconnect, bounded-queue loss, saved-capture verification, bounded signal review, revised mapping exports, local/source bundle verification, hash receipts, CSV joining, "
           "exact cyclic TimeT/TimeSpanT ticks and independent acquisition timing, offline layout selector plans, whole-value layout selector reads and explicit condition reads during cyclic sampling, cyclic text with field-local encoding errors and CSV review, cyclic octet strings with exact byte order and CSV verification, named scalar/record/array reads, typed choice labels and declared-value assessments, text/octet default views and strict width/padding checks, TimeT/TimeSpanT exact ticks and default views, binary/hex/plain-decimal parameter views and saved display preferences, saved parameter snapshots and offline comparison, concurrent explicit port status and cyclic captures with independent reports, read-only AL1351, AL1352 and AL1353 status, ISDU and capture across all ports, one-shot ifm master inspection with supply diagnostics, read-only port configuration and offline snapshot review and comparison, array and localized CSV fields, translated standard parameters/events and fallbacks, supplied units, offline ISDU/event decoding, explicit diagnostics with offline review and comparison of complete, partial and changed-target snapshots, pending-event counts independent of diagnostic slot positions, offline ISDU ErrorType lookup with localized definitions, local XSD receipts and blocked external resolution, subindex restrictions, parallel polling during snapshot reads, and read-only AL1350 loopback")
     print(f"Evidence directory: {scratch}")

@@ -115,6 +115,7 @@ pub(super) enum Query {
     CompareDeviceProfiles(PathBuf, PathBuf),
     AccessLocks,
     SavedAccessLocks(PathBuf),
+    CompareAccessLocks(PathBuf, PathBuf),
     ErrorCount,
     SavedErrorCount(PathBuf),
     DeviceRevisions,
@@ -136,7 +137,7 @@ impl Query {
             Self::MasterInspection => Kind::MasterInspection,
             Self::DeviceProfile => Kind::DeviceProfile,
             Self::AccessLocks => Kind::AccessLocks,
-            Self::SavedAccessLocks(_) => Kind::SavedAccessLocks,
+            Self::SavedAccessLocks(_) | Self::CompareAccessLocks(..) => Kind::SavedAccessLocks,
             Self::ErrorCount => Kind::ErrorCount,
             Self::SavedErrorCount(_) => Kind::SavedErrorCount,
             Self::DeviceRevisions => Kind::DeviceRevisions,
@@ -179,6 +180,11 @@ impl Query {
             Self::SavedDeviceProfile(path) => format!("Saved device profile · {}", path.display()),
             Self::AccessLocks => "Device Access Locks · index 12:0".into(),
             Self::SavedAccessLocks(path) => format!("Saved access locks · {}", path.display()),
+            Self::CompareAccessLocks(left, right) => format!(
+                "Access locks snapshots · {} → {}",
+                left.display(),
+                right.display()
+            ),
             Self::ErrorCount => "Device error count · index 32:0".into(),
             Self::SavedErrorCount(path) => format!("Saved error count · {}", path.display()),
             Self::DeviceRevisions => "Device revisions · indexes 22:0 and 23:0".into(),
@@ -255,6 +261,16 @@ impl From<diagnostics::ProcessReadbackComparison<'_>> for Output {
     }
 }
 
+impl From<diagnostics::AccessLocksComparison> for Output {
+    fn from(comparison: diagnostics::AccessLocksComparison) -> Self {
+        Self {
+            text: comparison.summary_text(),
+            port_configuration: None,
+            comparison_sources: Some([comparison.left.text(), comparison.right.text()]),
+        }
+    }
+}
+
 impl From<String> for Output {
     fn from(text: String) -> Self {
         Self {
@@ -291,6 +307,7 @@ pub(super) struct Reads {
     error_count_open: String,
     access_locks_save: String,
     access_locks_open: String,
+    access_locks_compare: String,
     device_profile_save: String,
     device_profile_open: String,
     device_profile_compare: String,
@@ -843,26 +860,34 @@ impl App {
             .default_open(!self.acyclic.access_locks_open.is_empty())
             .show(ui, |ui| {
                 let available = self.acyclic_job_block_reason().is_none();
-                ui.add_enabled_ui(available, |ui| {
-                    super::path_entry(
-                        ui,
-                        &mut self.acyclic.access_locks_open,
-                        "Saved access locks snapshot JSON path",
-                    );
-                });
-                let path = self.acyclic.access_locks_open.trim();
-                if ui
-                    .add_enabled(
-                        available && !path.is_empty(),
-                        egui::Button::new("Open access locks snapshot"),
-                    )
-                    .clicked()
-                {
-                    let path = PathBuf::from(path);
-                    self.start_acyclic_output(Query::SavedAccessLocks(path.clone()), move || {
-                        let report = diagnostics::AccessLocksSnapshot::load(&path)?.review()?;
-                        Ok(Output::from(report.text()))
+                if let Some(path) = snapshot_open_control(
+                    ui,
+                    available,
+                    &mut self.acyclic.access_locks_open,
+                    "access locks",
+                ) {
+                    self.start_acyclic(Query::SavedAccessLocks(path.clone()), move || {
+                        Ok(diagnostics::AccessLocksSnapshot::load(&path)?
+                            .review()?
+                            .text())
                     });
+                }
+                if let Some((left, right)) = snapshot_compare_control(
+                    ui,
+                    available,
+                    &self.acyclic.access_locks_open,
+                    &mut self.acyclic.access_locks_compare,
+                    "access locks",
+                    "Compare access locks",
+                ) {
+                    self.start_acyclic_output(
+                        Query::CompareAccessLocks(left.clone(), right.clone()),
+                        move || {
+                            let left = diagnostics::AccessLocksSnapshot::load(&left)?;
+                            let right = diagnostics::AccessLocksSnapshot::load(&right)?;
+                            Ok(diagnostics::compare_access_locks(&left, &right)?.into())
+                        },
+                    );
                 }
                 self.acyclic_result(ui, Kind::SavedAccessLocks);
             });
@@ -1025,6 +1050,7 @@ impl App {
             | Query::SavedDeviceProfile(_)
             | Query::CompareDeviceProfiles(..)
             | Query::SavedAccessLocks(_)
+            | Query::CompareAccessLocks(..)
             | Query::SavedErrorCount(_)
             | Query::SavedDeviceRevisions(_)
             | Query::CompareDeviceRevisions(..)
@@ -1092,6 +1118,9 @@ impl App {
                                 "Left process readback snapshot",
                                 "Right process readback snapshot",
                             ),
+                            Query::CompareAccessLocks(..) => {
+                                ("Left access locks snapshot", "Right access locks snapshot")
+                            }
                             _ => ("Left master snapshot", "Right master snapshot"),
                         };
                         ui.collapsing(left_title, |ui| ui.monospace(left));

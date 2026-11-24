@@ -26,8 +26,8 @@ mod profile_characteristic;
 mod snapshot;
 pub use crate::snapshot_file::check_destination;
 pub use access_locks::{
-    AccessLockFlag, AccessLocksReview, AccessLocksSnapshot, DeviceAccessLocks,
-    decode_device_access_locks,
+    AccessLockChange, AccessLockFlag, AccessLocksComparison, AccessLocksReview,
+    AccessLocksSnapshot, DeviceAccessLocks, compare_access_locks, decode_device_access_locks,
 };
 pub use comparison::{
     Comparison, PendingEventComparison, PendingEventCount, ReplyComparison, SlotChange,
